@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E2seq - Easy to Chat with Sequencing</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/pages.css">
+    <script src="/static/js/lib/plotly.min.js"></script>
+    <script src="/static/js/lib/marked.min.js"></script>
+    <script src="/static/js/lib/highlight.min.js"></script>
+</head>
+<body>
+    <!-- ========== 抽屉遮罩 ========== -->
+    <div id="drawerOverlay" class="drawer-overlay" onclick="window.chatApp?.closeUploadDrawer()"></div>
+    <div class="app-container">
+        <!-- ========== 侧边========== -->
+        <aside class="sidebar">
+            <nav class="sidebar-nav">
+                <button id="newChatBtn" class="nav-item primary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span data-i18n="nav.newChat">发起新对</span>
+                </button>
+                <button id="clearHistoryBtn" class="nav-item">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    <span>清空历史</span>
+                </button>
+                <button id="knowledgeBaseBtn" class="nav-item">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    <span data-i18n="nav.knowledgeBase">我的知识</span>
+                </button>
+                <button id="settingsBtn" class="nav-item">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <span data-i18n="nav.settings">设置和帮</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h3 data-i18n="history.title">对话</h3>
+                </div>
+                <div class="chat-list" id="chatList">
+                    <!-- 历史记录会动态加-->
+                </div>
+            </div>
+        </aside>
+
+        <!-- ========== 主内容区 ========== -->
+        <main class="main-content">
+            <!-- 聊天页面 -->
+            <div id="chatPage" class="page-content">
+                                <header class="main-header">
+                    <div class="header-left">
+                        <h1 class="app-title">E2seq</h1>
+                        <span id="activeModelBadge" class="badge" style="display: none;"></span>
+                    </div>
+                </header>
+
+                <div class="chat-container">
+                    <div id="messagesArea" class="messages-area">
+                        <!-- 消息会动态加-->
+                    </div>
+
+                    <!-- 欢迎模块 -->
+                    <div id="greetingModule" class="greeting-module">
+                        <h2 class="greeting-headline" data-i18n="chat.greeting">你好，研究</h2>
+                        <p class="greeting-subheadline" data-i18n="chat.subGreeting">需要我为你分析单细胞数据吗</p>
+                        <div class="suggestion-chips">
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                                <span data-i18n="suggestion.deg">分析所选细胞类型的高表达基因疾病关</span>
+                            </div>
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                                </svg>
+                                <span data-i18n="suggestion.enrichment">解读基因通路与生物过</span>
+                            </div>
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="18" cy="5" r="3"></circle>
+                                    <circle cx="6" cy="12" r="3"></circle>
+                                    <circle cx="18" cy="19" r="3"></circle>
+                                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                                </svg>
+                                <span data-i18n="suggestion.network">分析基因互作网络与转录调</span>
+                            </div>
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                </svg>
+                                <span data-i18n="suggestion.hub">解读药物靶点潜力</span>
+                            </div>
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                                    <line x1="9" y1="21" x2="9" y2="9"></line>
+                                </svg>
+                                <span data-i18n="suggestion.umap">分析代谢物与肠道菌群关联</span>
+                            </div>
+                            <div class="chip">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span data-i18n="suggestion.upload">加载我的h5ad数据文件</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <button id="attachBtn" class="input-action" title="上传文件">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                            </svg>
+                        </button>
+                        <textarea id="messageInput" class="message-input" placeholder="输入你的问题，例如：分析Enterocytes细胞的差异基.." rows="1"></textarea>
+                        <div class="input-right-actions">
+                            <button id="sendBtn" class="send-btn" disabled>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <p class="hint-text" data-i18n="chat.hint">E2seq 可能会出错，请核实重要信</p>
+                </div>
+            </div>
+
+            <!-- 知识库页-->
+            <div id="knowledgeBasePage" class="page-content hidden">
+                <header class="page-header">
+                    <button id="backFromKBBtn" class="back-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        <span data-i18n="nav.back">返回</span>
+                    </button>
+                    <h1 class="page-title" data-i18n="kb.title">我的知识</h1>
+                </header>
+                <div class="kb-container">
+                    <!-- 内置数据-->
+                    <section class="kb-section">
+                        <h2 class="section-title" data-i18n="kb.builtin">内置数据</h2>
+                        <div id="builtinDBGrid" class="db-grid">
+                            <!-- 动态加-->
+                        </div>
+                    </section>
+                    <!-- 自定义数据库 -->
+                    <section class="kb-section">
+                        <div class="section-header-row">
+                            <h2 class="section-title" data-i18n="kb.custom">自定义数据库</h2>
+                            <button id="uploadDBBtn" class="btn-primary">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span data-i18n="kb.upload">上传数据</span>
+                            </button>
+                        </div>
+                        <div id="customDBGrid" class="db-grid">
+                            <!-- 动态加-->
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 设置页面 -->
+            <div id="settingsPage" class="page-content hidden">
+                <header class="page-header">
+                    <button id="backFromSettingsBtn" class="back-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        <span data-i18n="nav.back">返回</span>
+                    </button>
+                    <h1 class="page-title" data-i18n="settings.title">设置</h1>
+                </header>
+                <div class="settings-page">
+                    <!-- API Keys 设置 -->
+                    <section class="settings-section-block">
+                        <div class="section-label-row">
+                            <h2 class="section-title" data-i18n="settings.apiKeys">API Keys</h2>
+                            <p class="section-desc">配置 LLM 服务提供商的 API Key</p>
+                        </div>
+                        <div class="settings-columns">
+                            <div class="settings-column">
+                                <!-- OpenAI -->
+                                <div class="provider-group">
+                                    <label>OpenAI</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="openaiKey" class="form-control" placeholder="sk-...">
+                                        <button class="btn-fetch-models" data-provider="openai" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="openaiModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-openai" class="model-status"></div>
+                                </div>
+                                <!-- Anthropic -->
+                                <div class="provider-group">
+                                    <label>Anthropic</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="anthropicKey" class="form-control" placeholder="sk-ant-...">
+                                        <button class="btn-fetch-models" data-provider="anthropic" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="anthropicModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-anthropic" class="model-status"></div>
+                                </div>
+                            </div>
+                            <div class="settings-column">
+                                <!-- Gemini -->
+                                <div class="provider-group">
+                                    <label>Google Gemini</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="geminiKey" class="form-control" placeholder="AIza...">
+                                        <button class="btn-fetch-models" data-provider="gemini" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="geminiModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-gemini" class="model-status"></div>
+                                </div>
+                                <!-- DeepSeek -->
+                                <div class="provider-group">
+                                    <label>DeepSeek</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="deepseekKey" class="form-control" placeholder="sk-...">
+                                        <button class="btn-fetch-models" data-provider="deepseek" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="deepseekModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-deepseek" class="model-status"></div>
+                                </div>
+                                <!-- SiliconFlow -->
+                                <div class="provider-group">
+                                    <label>硅基流动 SiliconFlow</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="siliconflowKey" class="form-control" placeholder="sk-...">
+                                        <button class="btn-fetch-models" data-provider="siliconflow" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="siliconflowModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-siliconflow" class="model-status"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Embedding 模型设置 -->
+                    <section class="settings-section-block">
+                        <div class="section-label-row">
+                            <h2 class="section-title">Embedding 模型</h2>
+                            <p class="section-desc">选择用于知识库向量化处理Embedding 模型</p>
+                        </div>
+                        <div class="embed-config-row">
+                            <div class="embed-select-wrapper">
+                                <select id="embeddingModelSelect" class="form-control embed-select-new">
+                                    <!-- 动态加-->
+                                </select>
+                                <input id="embedModelPathInput" class="form-control" style="margin-top:8px" placeholder="模型本地路径（该模型需要路径时填写）" />
+                                <button id="embedSavePathBtn" class="btn-test-new" style="margin-top:8px;justify-content:center">保存当前模型路径</button>
+                            </div>
+                            <div class="embed-info-panel">
+                                <div class="embed-model-display">
+                                    <span id="embedModelName" class="embed-name">加载..</span>
+                                    <span id="embedModelDim" class="embed-dim">-</span>
+                                </div>
+                                <p id="embedModelDesc" class="embed-desc-text"></p>
+                                <div class="embed-meta-row">
+                                    <span id="embedModelSize" class="embed-size-info">模型大小: -</span>
+                                    <span id="embedModelStatus" class="embed-status">-</span>
+                                </div>
+                                <p id="embedModelPath" class="embed-path-text"></p>
+                            </div>
+                        </div>
+                        <div id="embedRebuildWarning" class="notice-bar" style="display:none">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                            <span></span>
+                        </div>
+                        <div class="embed-actions-row">
+                            <label class="local-mode-toggle">
+                                <input type="checkbox" id="embedLocalOnly">
+                                <span class="toggle-track"></span>
+                                <span class="toggle-label-text">仅使用本地模型</span>
+                            </label>
+                            <button id="testEmbedBtn" class="btn-test-new">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                                测试模型
+                            </button>
+                        </div>
+                    </section>
+
+                        <div class="ap-col-section" style="padding:12px 0 0;">
+                            <div class="ap-col-row">
+                                <label>新增自定义 Embedding 模型</label>
+                                <input id="embedCustomId" class="form-control" placeholder="模型ID（例如 my-embed-model）" />
+                                <input id="embedCustomName" class="form-control" style="margin-top:8px" placeholder="显示名称（可选）" />
+                                <input id="embedCustomPath" class="form-control" style="margin-top:8px" placeholder="本地路径（必填）" />
+                                <div style="display:flex;gap:8px;margin-top:8px;">
+                                    <input id="embedCustomDim" class="form-control" type="number" placeholder="维度（可选）" />
+                                    <input id="embedCustomSize" class="form-control" placeholder="大小（可选）" />
+                                </div>
+                                <button id="embedAddCustomBtn" class="btn-test-new" style="margin-top:10px;justify-content:center">添加自定义模型</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 偏好设置 -->
+                    <section class="settings-section-block">
+                        <div class="section-label-row">
+                            <h2 class="section-title">偏好设置</h2>
+                            <p class="section-desc">自定义界面语言和主题</p>
+                        </div>
+                        <div class="pref-grid">
+                            <div class="pref-item">
+                                <label class="pref-label">界面语言</label>
+                                <div class="pref-options">
+                                    <label class="pref-option">
+                                        <input type="radio" name="language" value="zh-CN">
+                                        <span class="pref-option-content">简体中文</span>
+                                    </label>
+                                    <label class="pref-option">
+                                        <input type="radio" name="language" value="en-US">
+                                        <span class="pref-option-content">English</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="pref-item">
+                                <label class="pref-label">主题</label>
+                                <div class="pref-options theme-options-new">
+                                    <label class="theme-pick">
+                                        <input type="radio" name="theme" value="light">
+                                        <span class="theme-pick-content">
+                                            <span class="theme-thumb light"></span>
+                                            <span>浅色</span>
+                                        </span>
+                                    </label>
+                                    <label class="theme-pick">
+                                        <input type="radio" name="theme" value="dark">
+                                        <span class="theme-pick-content">
+                                            <span class="theme-thumb dark"></span>
+                                            <span>深色</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="settings-page-footer">
+                        <button id="saveSettingsBtn" class="btn-save-new">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                <polyline points="7 3 7 8 15 8"></polyline>
+                            </svg>
+                            保存设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 数据库详情模态框 -->
+    <div class="modal" id="dbDetailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="dbDetailTitle">数据库详</h2>
+                <button id="closeDBDetail" class="modal-close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" id="dbDetailBody">
+                <!-- 动态加-->
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表面板 -->
+    <div id="chartsPanel" class="charts-panel">
+        <div class="panel-header">
+            <h2 data-i18n="charts.title">可视化图</h2>
+            <button id="closeChartsPanel" class="panel-close">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="panel-body">
+            <div class="chart-types">
+                <button class="chart-type-btn" data-type="umap">UMAP</tSNE 散点</button>
+                <button class="chart-type-btn" data-type="violin">小提琴图</箱线</button>
+                <button class="chart-type-btn" data-type="heatmap">热图</button>
+                <button class="chart-type-btn" data-type="volcano">火山</button>
+                <button class="chart-type-btn" data-type="bubble">气泡</button>
+                <button class="chart-type-btn" data-type="network">网络</button>
+                <button class="chart-type-btn" data-type="chord">和弦</button>
+            </div>
+            <div id="chartContainer" class="chart-container">
+                <div class="chart-placeholder">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <p data-i18n="charts.placeholder">选择图表类型以查看可视化</p>
+                </div>
+            </div>
+        </div>
+        <div class="chart-actions">
+            <button id="downloadChartBtn" class="icon-btn" title="下载">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+            </button>
+            <button id="fullscreenChartBtn" class="icon-btn" title="全屏">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+            </button>
+            <button id="refreshChartBtn" class="icon-btn" title="刷新">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 数据集配置模态框 -->
+    <div id="datasetConfigModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>配置数据</h2>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex;gap:16px;margin-bottom:20px">
+                    <div class="config-stat">
+                        <span id="cfgCells">-</span>
+                        <small>细胞</small>
+                    </div>
+                    <div class="config-stat">
+                        <span id="cfgGenes">-</span>
+                        <small>基因</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>细胞类型列</label>
+                    <select id="cfgCelltypeCol" class="form-control"></select>
+                </div>
+                <div class="form-group">
+                    <label>分组列（可选）</label>
+                    <select id="cfgGroupCol" class="form-control"></select>
+                </div>
+                <div class="form-group">
+                    <label>API 数据</label>
+                    <div class="cfg-check-grid">
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="uniprot" checked> UniProt</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="mygene" checked> MyGene</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="quickgo" checked> QuickGO</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="ensembl" checked> Ensembl</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="chembl" checked> ChEMBL</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="pubmed" checked> PubMed</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="opentargets" checked> OpenTargets</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-api" value="clinvar" checked> ClinVar</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>本地数据</label>
+                    <div class="cfg-check-grid">
+                        <label class="ap-check"><input type="checkbox" class="cfg-db" value="string" checked> STRING</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-db" value="hmdb" checked> HMDB</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-db" value="trrust" checked> TRRUST</label>
+                        <label class="ap-check"><input type="checkbox" class="cfg-db" value="gutmgene" checked> GUTMGENE</label>
+                    </div>
+                </div>
+                <div id="cfgError" class="form-group" style="color:#ef4444;display:none"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="cfgCancelBtn" class="btn-secondary">取消</button>
+                <button id="cfgConfirmBtn" class="btn-primary">确认并开始分析</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 上传抽屉面板 ========== -->
+    <div id="uploadDrawer" class="drawer">
+        <div class="drawer-content">
+            <div class="drawer-header">
+                <h2>上传数据</h2>
+                <button id="closeUploadDrawer" class="drawer-close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="drawer-body">
+                <div class="upload-type-grid">
+                    <div class="upload-type-card" id="uploadSingleCell">
+                        <div class="upload-type-icon" style="background:linear-gradient(135deg,#667eea,#764ba2)">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <circle cx="19" cy="5" r="2"></circle>
+                                <circle cx="5" cy="5" r="2"></circle>
+                                <circle cx="19" cy="19" r="2"></circle>
+                                <circle cx="5" cy="19" r="2"></circle>
+                                <line x1="14.5" y1="10" x2="17.5" y2="6.5"></line>
+                                <line x1="9.5" y1="10" x2="6.5" y2="6.5"></line>
+                                <line x1="14.5" y1="14" x2="17.5" y2="17.5"></line>
+                                <line x1="9.5" y1="14" x2="6.5" y2="17.5"></line>
+                            </svg>
+                        </div>
+                        <h3>单细胞数</h3>
+                        <p>支持 .h5ad / .csv / .rds 格式</p>
+                        <small>用于细胞类型注释、基因表达分析、UMAP可视化等</small>
+                    </div>
+                    <div class="upload-type-card" id="uploadTable">
+                        <div class="upload-type-icon" style="background:linear-gradient(135deg,#11998e,#38ef7d)">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="3" y1="15" x2="21" y2="15"></line>
+                                <line x1="9" y1="3" x2="9" y2="21"></line>
+                                <line x1="15" y1="3" x2="15" y2="21"></line>
+                            </svg>
+                        </div>
+                        <h3>表格数据</h3>
+                        <p>支持 .csv </ .tsv </ .xlsx 格式</p>
+                        <small>用于差异基因列表、表达矩阵、通路分析</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 表格数据配置抽屉 ========== -->
+    <div id="tableUploadDrawer" class="drawer">
+        <div class="drawer-content">
+            <div class="drawer-header">
+                <h2>配置表格数据</h2>
+                <button id="closeTableUploadDrawer" class="drawer-close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="drawer-body">
+                <div class="table-upload-info">
+                    <span id="tableFileName">已选择文件</span>
+                    <span id="tableFileInfo"></span>
+                </div>
+                <div class="form-group">
+                    <label>基因</label>
+                    <select id="tableGeneCol" class="form-control">
+                        <option value="">选择</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>分组列（可选）</label>
+                    <select id="tableGroupCol" class="form-control">
+                        <option value="">— 不使用 —</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>表达类型</label>
+                        <select id="tableExprType" class="form-control">
+                            <option value="log2FC">log2FC</option>
+                            <option value="logFC">logFC</option>
+                            <option value="mean_expr">Mean Expression</option>
+                            <option value="custom">自定义列</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="tableExprColGroup" style="flex:1">
+                        <label>表达值列</label>
+                        <select id="tableExprCol" class="form-control">
+                            <option value="">选择</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>表达值筛选（|值| ≥）</label>
+                        <input type="number" id="tableExprThresh" class="form-control" placeholder="0.5" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label>FDR</P值列</label>
+                        <select id="tableSigCol" class="form-control">
+                            <option value="">— 不使用 —</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>FDR</P值筛选（≤）</label>
+                        <input type="number" id="tableSigThresh" class="form-control" placeholder="0.05" step="0.01" value="0.05">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>基因数量上限</label>
+                        <input type="number" id="tableTopGenes" class="form-control" value="0" min="0">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>启用的数据库查询</label>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiUniprot" checked> UniProt
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiMygene" checked> MyGene
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiEnsembl" checked> Ensembl
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiChembl" checked> ChEMBL
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiOpentargets" checked> Open Targets
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiClinvar" checked> ClinVar
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiReactome" checked> Reactome
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiPubmed" checked> PubMed
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiQuickgo" checked> QuickGO
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiEuropepmc" checked> EuropePMC
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiGtex" checked> GTEx
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiGwas" checked> GWAS
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apiBiogrid" checked> BioGRID
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>启用的本地数据库</label>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dbString" checked> STRING
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dbHmdb" checked> HMDB
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dbTrrust" checked> TRRUST
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dbGutmgene" checked> GUTMGENE
+                        </label>
+                    </div>
+                </div>
+                <div id="tableUploadError" class="form-group" style="color:#ef4444;display:none"></div>
+                <div class="drawer-footer">
+                    <button id="confirmTableUpload" class="btn btn-primary">确认上传</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 数据分析面板 ========== -->
+    <div id="analysisPanel" class="analysis-panel">
+        <div class="ap-header">
+            <div class="ap-title-row">
+                <h3>数据设置</h3>
+                <span id="apDataInfo" class="ap-data-info">未加载数据</span>
+            </div>
+            <div class="ap-actions-row">
+                <button id="apClearDataBtn" class="ap-btn-clear" style="display:none">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    清除数据
+                </button>
+                <button id="closeAnalysisPanel" class="ap-close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- H5ad 拖拽上传 -->
+        <div class="ap-mode-tabs" style="display:flex;gap:8px;margin:10px 0 12px;">
+            <button id="apModeTable" class="ap-mode-tab" type="button">表格数据</button>
+            <button id="apModeSinglecell" class="ap-mode-tab active" type="button">单细胞数据</button>
+        </div>
+
+
+        <div id="apH5adDropZone" class="ap-drop-zone"
+            ondragover="event.preventDefault(); this.style.borderColor='var(--accent-primary)'"
+            ondragleave="event.preventDefault(); this.style.borderColor='var(--border-color,#3d4460)'"
+            ondrop="window.apH5adDrop(event)">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <span>当前是单细胞模式：上传 .h5ad / .csv / .rds 文件 <button id="apDropUploadBtn" style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;text-decoration:underline">点击选择文件</button></span>
+        </div>
+
+        <!-- 列选择 -->
+        <div class="ap-col-section">
+            <div class="ap-col-row">
+                <label>细胞类型列</label>
+                <select id="apCelltypeColSelect" class="form-control ap-select">
+                    <option value="">— 不使用 —</option>
+                </select>
+            </div>
+            <div id="apCelltypeLabelRows" class="ap-label-rows"></div>
+
+            <div class="ap-col-row" style="margin-top:12px">
+                <label>分组列</label>
+                <select id="apGroupColSelect" class="form-control ap-select">
+                    <option value="">— 不使用 —</option>
+                </select>
+            </div>
+            <div id="apGroupLabelRows" class="ap-label-rows"></div>
+
+            <div class="ap-col-row" style="margin-top:12px">
+                <label>每类高表达基因数量（5-100，默认50）</label>
+                <input id="apTopGenesInput" class="form-control ap-select" type="number" min="5" max="100" step="1" value="50" />
+            </div>
+        </div>
+
+        <!-- 矩阵预览 -->
+        <div id="apMatrixSection" class="ap-matrix-section" style="display:none">
+            <div class="ap-section-title">高表达基因预览</div>
+            <div id="apMatrixPreview" class="ap-matrix-preview"></div>
+        </div>
+
+        <!-- 描述 -->
+        <div class="ap-desc-section">
+            <label>数据集描述（可选）</label>
+            <textarea id="apDatasetDesc" class="form-control" rows="2" placeholder="描述这个数据集的来源或特点..."></textarea>
+        </div>
+
+        <!-- 执行按钮 -->
+        <div class="ap-footer">
+            <button id="apRunBtn" class="ap-btn-run" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                开始分析并查询
+            </button>
+        </div>
+    </div>
+
+    <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/analysis_panel.js"></script>
+    <script src="/static/js/app.js?v=20260325e"></script>
+</body>
+</html>
+
+
+
+

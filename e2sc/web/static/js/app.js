@@ -1,0 +1,2644 @@
+// E2seq Web Application JavaScript
+
+class E2seqApp {
+    constructor() {
+        this.currentChatId = this._genChatId();
+        this.messages = [];
+        this.isProcessing = false;
+        this.currentPage = 'chat';
+        this.currentLanguage = localStorage.getItem('e2seq_language') || 'zh-CN';
+        this.builtinDatabases = [
+            {
+                name: 'STRING',
+                records: '1,858,946',
+                descriptionKey: 'db.string.desc',
+                format: 'CSV',
+                fields: ['source_gene', 'target_gene', 'weight'],
+                example: 'ARF5,CYTH2,0.471'
+            },
+            {
+                name: 'HMDB',
+                records: '858,077',
+                descriptionKey: 'db.hmdb.desc',
+                format: 'CSV',
+                fields: ['gene', 'metabolite'],
+                example: 'NT5E,HMDB0014944'
+            },
+            {
+                name: 'TRRUST',
+                records: '9,398',
+                descriptionKey: 'db.trrust.desc',
+                format: 'CSV',
+                fields: ['TF', 'gene', 'function', 'pubmed'],
+                example: 'AATF,BAX,Repression,22909821'
+            },
+            {
+                name: 'GUTMGENE',
+                records: '1,334',
+                descriptionKey: 'db.gutmgene.desc',
+                format: 'CSV',
+                fields: ['PMID', 'Gut Microbiota', 'Gene', 'Alteration', 'Condition'],
+                example: '12345678,Lactobacillus,IL10,Increased,IBD'
+            }
+        ];
+        
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        this.placeBottomNav();
+        this.loadChatHistory();
+        this.autoResizeTextarea();
+        this.loadBuiltinDatabases();
+        this.applyLanguage();
+        this.initTheme();
+        // Load active model badge on startup
+        fetch('/api/config').then(r => r.json()).then(d => {
+            if (d.configured) this._updateModelBadge(d.provider, d.model);
+        }).catch(() => {});
+    }
+
+    initTheme() {
+        const saved = localStorage.getItem('e2seq_theme') || 'light';
+        this.setTheme(saved);
+        
+        // Listen to theme radio buttons in settings
+        document.querySelectorAll('input[name="theme"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                this.setTheme(e.target.value);
+            });
+            // Set initial checked state
+            if (radio.value === saved) {
+                radio.checked = true;
+            }
+        });
+    }
+
+    setTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('e2seq_theme', theme);
+        // Update radio buttons in settings
+        document.querySelectorAll('input[name="theme"]').forEach(radio => {
+            radio.checked = (radio.value === theme);
+        });
+    }
+
+
+    setupEventListeners() {
+        // 导航按钮
+        document.getElementById('newChatBtn')?.addEventListener('click', () => { this.createNewChat(); this.navigateToChat(); });
+        document.getElementById('clearHistoryBtn')?.addEventListener('click', () => this.clearAllHistory());
+        document.getElementById('knowledgeBaseBtn')?.addEventListener('click', () => this.navigateToKnowledgeBase());
+        document.getElementById('settingsBtn')?.addEventListener('click', () => this.navigateToSettings());
+        document.getElementById('backFromKBBtn')?.addEventListener('click', () => this.navigateToChat());
+        document.getElementById('backFromSettingsBtn')?.addEventListener('click', () => this.navigateToChat());
+
+        // 必填
+        document.getElementById('chartsBtn')?.addEventListener('click', () => this.openChartsPanel());
+        document.getElementById('closeChartsPanel')?.addEventListener('click', () => this.closeChartsPanel());
+
+        // 必填?
+        document.querySelectorAll('.chart-type-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.loadChart(e.target.dataset.type));
+        });
+
+        // 必填
+        document.getElementById('downloadChartBtn')?.addEventListener('click', () => this.downloadChart());
+        document.getElementById('fullscreenChartBtn')?.addEventListener('click', () => this.fullscreenChart());
+        document.getElementById('refreshChartBtn')?.addEventListener('click', () => this.refreshChart());
+
+        // 必填
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        messageInput?.addEventListener('input', (e) => {
+            this.handleInputChange(e.target.value);
+        });
+
+        messageInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendMessage();
+            }
+        });
+
+        sendBtn?.addEventListener('click', () => this.sendMessage());
+
+        // 首页示例卡片仅做展示动画，不绑定点击行为
+
+        // 附件按钮 — 打开文件选择器上传文件
+        document.getElementById('attachBtn')?.addEventListener('click', () => {
+            this.handleAttachment();
+        });
+
+        // 必填?
+        document.getElementById('uploadDBBtn')?.addEventListener('click', () => this.uploadDatabase());
+        document.getElementById('closeDBDetail')?.addEventListener('click', () => this.closeDBDetail());
+
+        // 必填
+        document.getElementById('saveSettingsBtn')?.addEventListener('click', () => this.saveSettings());
+
+        // Embedding 模型测试按钮
+        document.getElementById('testEmbedBtn')?.addEventListener('click', () => this.testEmbeddingModel());
+        document.getElementById('embedSavePathBtn')?.addEventListener('click', () => this.saveCurrentEmbedPath());
+        document.getElementById('embedAddCustomBtn')?.addEventListener('click', () => this.addCustomEmbeddingModel());
+
+        // key 输入框失焦时自动拉取模型
+        ['openai','anthropic','gemini','deepseek','siliconflow'].forEach(provider => {
+            const keyEl = document.getElementById(provider + 'Key');
+            const btnEl = document.querySelector(`.btn-fetch-models[data-provider='${provider}']`);
+            if (keyEl) {
+                keyEl.addEventListener('blur', () => {
+                    if (keyEl.value.trim()) this.fetchModels(provider);
+                });
+                keyEl.addEventListener('input', () => {
+                    // 清空时隐藏下拉框
+                    if (!keyEl.value.trim()) {
+                        const sel = document.getElementById(provider + 'Model');
+                        if (sel) sel.style.display = 'none';
+                        const status = document.getElementById('status-' + provider);
+                        if (status) status.innerHTML = '';
+                    }
+                });
+            }
+            if (btnEl) {
+                btnEl.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.fetchModels(provider);
+                });
+            }
+        });
+
+        // 必填
+        document.querySelectorAll('input[name="language"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.changeLanguage(e.target.value));
+        });
+    }
+
+    placeBottomNav() {
+        const sidebar = document.querySelector('.sidebar');
+        const nav = document.querySelector('.sidebar-nav');
+        const kbBtn = document.getElementById('knowledgeBaseBtn');
+        const settingsBtn = document.getElementById('settingsBtn');
+        if (!sidebar || !nav || !kbBtn || !settingsBtn) return;
+
+        let footer = sidebar.querySelector('.sidebar-footer');
+        if (!footer) {
+            footer = document.createElement('div');
+            footer.className = 'sidebar-footer';
+            sidebar.appendChild(footer);
+        }
+
+        footer.appendChild(kbBtn);
+        footer.appendChild(settingsBtn);
+    }
+
+    // ========== 必填 ==========
+    navigateToChat() {
+        this.switchPage('chat');
+        // KB build polling removed — agentic RAG builds on demand per question
+    }
+
+    _setInputLocked(locked, placeholder) {
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        if (messageInput) {
+            messageInput.disabled = locked;
+            if (placeholder) messageInput.placeholder = placeholder;
+            else messageInput.placeholder = '输入您的问题...';
+        }
+        if (sendBtn) sendBtn.disabled = locked;
+    }
+
+    navigateToKnowledgeBase() {
+        this.switchPage('knowledgeBase');
+        this.loadCustomDatabases();
+    }
+
+    navigateToSettings() {
+        this.switchPage('settings');
+        this.loadSettings();
+    }
+
+    switchPage(pageName) {
+        const pages = {
+            'chat': document.getElementById('chatPage'),
+            'knowledgeBase': document.getElementById('knowledgeBasePage'),
+            'settings': document.getElementById('settingsPage')
+        };
+
+        Object.values(pages).forEach(page => page?.classList.add('hidden'));
+        pages[pageName]?.classList.remove('hidden');
+        this.currentPage = pageName;
+    }
+
+    // ========== 必填? ==========
+    loadBuiltinDatabases() {
+        const grid = document.getElementById('builtinDBGrid');
+        if (!grid) return;
+
+        grid.innerHTML = this.builtinDatabases.map(db => `
+            <div class="db-card" data-db="${db.name}">
+                <div class="db-card-header">
+                    <h3>${db.name}</h3>
+                    <span class="db-status">${t('kb.status')}</span>
+                </div>
+                <div class="db-card-body">
+                    <p class="db-description">${t(db.descriptionKey)}</p>
+                    <div class="db-stats">
+                        <span class="stat-item">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="12" cy="7" r="4"></circle>
+                            </svg>
+                            ${db.records} ${t('kb.records')}
+                        </span>
+                        <span class="stat-item">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                            ${db.format}
+                        </span>
+                    </div>
+                </div>
+                <div class="db-card-footer">
+                    <button class="btn-text" onclick="window.e2seqApp.showDBDetail('${db.name}')">${t('kb.viewDetail')}</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    showDBDetail(dbName) {
+        const db = this.builtinDatabases.find(d => d.name === dbName);
+        if (!db) return;
+
+        const modal = document.getElementById('dbDetailModal');
+        const title = document.getElementById('dbDetailTitle');
+        const body = document.getElementById('dbDetailBody');
+
+        title.textContent = `${db.name} - ${t('dbDetail.title')}`;
+        body.innerHTML = `
+            <div class="db-detail">
+                <div class="detail-section">
+                    <h4>${t('dbDetail.basicInfo')}</h4>
+                    <table class="detail-table">
+                        <tr><td>${t('dbDetail.name')}</td><td>${db.name}</td></tr>
+                        <tr><td>${t('dbDetail.records')}</td><td>${db.records}</td></tr>
+                        <tr><td>${t('dbDetail.format')}</td><td>${db.format}</td></tr>
+                        <tr><td>${t('dbDetail.description')}</td><td>${t(db.descriptionKey)}</td></tr>
+                    </table>
+                </div>
+                <div class="detail-section">
+                    <h4>${t('dbDetail.fields')}</h4>
+                    <ul class="field-list">
+                        ${db.fields.map(field => `<li><code>${field}</code></li>`).join('')}
+                    </ul>
+                </div>
+                <div class="detail-section">
+                    <h4>${t('dbDetail.example')}</h4>
+                    <pre class="code-block">${db.example}</pre>
+                </div>
+            </div>
+        `;
+
+        modal.classList.add('active');
+    }
+
+    closeDBDetail() {
+        document.getElementById('dbDetailModal')?.classList.remove('active');
+    }
+
+    async uploadDatabase() {
+        // 必填必填?
+        this.showUploadInstructions();
+    }
+
+    showUploadInstructions() {
+        const modal = document.getElementById('uploadInstructionsModal');
+        if (!modal) {
+            // 必填?
+            const modalHTML = `
+                <div class="modal" id="uploadInstructionsModal">
+                    <div class="modal-content" style="max-width: 700px;">
+                        <div class="modal-header">
+                            <h2>上传自定义数据库</h2>
+                            <button class="modal-close" onclick="window.e2seqApp.closeUploadInstructions()">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="upload-instructions">
+                                <div class="instruction-section">
+                                    <h3 data-i18n="kb.requiredFields">必填</h3>
+                                    <p data-i18n="kb.csvFormatDesc">选填?CSV第一行为表头选填?</p>
+                                    <ul class="field-requirements">
+                                        <li>
+                                            <code>source</code> 
+                                            <span class="field-desc">第一行为表头选填?</span>
+                                            <span class="required-badge">选填</span>
+                                        </li>
+                                        <li>
+                                            <code>target</code> 
+                                            <span class="field-desc">必填</span>
+                                            <span class="required-badge">选填</span>
+                                        </li>
+                                        <li>
+                                            <code>relationship</code> 
+                                            <span class="field-desc">必填选填?interaction, regulation, binding?</span>
+                                            <span class="optional-badge">选填</span>
+                                        </li>
+                                        <li>
+                                            <code>weight</code> 
+                                            <span class="field-desc">必填?0-1必填选填</span>
+                                            <span class="optional-badge">选填</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="instruction-section">
+                                    <h3>文件格式</h3>
+                                    <ul class="format-list">
+                                        <li>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                            <span>CSV、TSV、TXT 格式</span>
+                                        </li>
+                                        <li>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                            <span>UTF-8 编码</span>
+                                        </li>
+                                        <li>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                            <span>文件不超过 50MB</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="instruction-section">
+                                    <h3 data-i18n="kb.formatExample">必填</h3>
+                                    <pre class="code-block">source,target,relationship,weight
+TP53,MDM2,regulation,0.95
+BRCA1,BRCA2,interaction,0.87
+EGFR,KRAS,binding,0.78</pre>
+                                    <button class="btn-text download-template-btn" onclick="window.e2seqApp.downloadTemplate()">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                        </svg>
+                                        <span>下载模板</span>
+                                    </button>
+                                </div>
+                                
+                                <div class="instruction-section">
+                                    <h3>注意事项</h3>
+                                    <ul class="notes-list">
+                                        <li>请使用 UTF-8 编码保存文件</li>
+                                        <li>第一行为表头?</li>
+                                        <li>第一行为表头必填</li>
+                                        <li>第一行为表头?</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="upload-actions">
+                                <button class="btn-secondary" onclick="window.e2seqApp.closeUploadInstructions()">
+                                    <span data-i18n="kb.cancel">选填</span>
+                                </button>
+                                <button class="btn-primary" onclick="window.e2seqApp.selectFileToUpload()">
+                                    <span data-i18n="kb.selectFile">必填</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+        
+        document.getElementById('uploadInstructionsModal').classList.add('active');
+        this.applyLanguage(); // 必填选填
+    }
+
+    closeUploadInstructions() {
+        const modal = document.getElementById('uploadInstructionsModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+    }
+
+    downloadTemplate() {
+        // 必填CSV选填
+        const templateContent = `source,target,relationship,weight
+TP53,MDM2,regulation,0.95
+BRCA1,BRCA2,interaction,0.87
+EGFR,KRAS,binding,0.78
+MYC,MAX,binding,0.92
+STAT3,IL6,regulation,0.88`;
+
+        // 选填Blob选填?
+        const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'database_template.csv');
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        this.showNotification(t('notify.templateDownloaded'), 'success');
+    }
+
+    selectFileToUpload() {
+        this.closeUploadInstructions();
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv,.tsv,.txt';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                // 必填
+                const validation = await this.validateDBFile(file);
+                if (validation.valid) {
+                    await this.uploadDBFile(file);
+                } else {
+                    this.showNotification(validation.error, 'error');
+                }
+            }
+        };
+        input.click();
+    }
+
+    async validateDBFile(file) {
+        // 必填选填
+        const maxSize = 50 * 1024 * 1024; // 50MB
+        if (file.size > maxSize) {
+            return {
+                valid: false,
+                error: t('error.fileTooLarge')
+            };
+        }
+
+        // 必填选填?
+        const validExtensions = ['.csv', '.tsv', '.txt'];
+        const fileName = file.name.toLowerCase();
+        const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+        
+        if (!hasValidExtension) {
+            return {
+                valid: false,
+                error: t('error.invalidFileType')
+            };
+        }
+
+        // 必填必填?
+        try {
+            const text = await file.text();
+            const lines = text.split('\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+                return {
+                    valid: false,
+                    error: t('error.emptyFile')
+                };
+            }
+
+            // 必填
+            const header = lines[0].toLowerCase();
+            const requiredFields = ['source', 'target'];
+            const missingFields = requiredFields.filter(field => !header.includes(field));
+            
+            if (missingFields.length > 0) {
+                return {
+                    valid: false,
+                    error: t('error.missingFields') + ': ' + missingFields.join(', ')
+                };
+            }
+
+            return { valid: true };
+        } catch (error) {
+            return {
+                valid: false,
+                error: t('error.fileReadError')
+            };
+        }
+    }
+
+    async uploadDBFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/api/knowledge-bases/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error(t('notify.dbUploadFailed'));
+            }
+
+            this.showNotification(t('notify.dbUploaded') + `: ${file.name}`, 'success');
+            this.loadCustomDatabases();
+        } catch (error) {
+            console.error('必填?:', error);
+            this.showNotification(t('notify.dbUploadFailed'), 'error');
+        }
+    }
+
+    async loadCustomDatabases() {
+        try {
+            const response = await fetch('/api/knowledge-bases/custom');
+            if (!response.ok) return;
+
+            const databases = await response.json();
+            const grid = document.getElementById('customDBGrid');
+            
+            if (!databases || databases.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                        <p>${t('kb.empty')}</p>
+                        <small>${t('kb.emptyHint')}</small>
+                    </div>
+                `;
+            } else {
+                grid.innerHTML = databases.map(db => `
+                    <div class="db-card" data-db-id="${db.id}">
+                        <div class="db-card-header">
+                            <h3>${db.name}</h3>
+                            <span class="db-type-badge">自定义</span>
+                        </div>
+                        <div class="db-card-body">
+                            <div class="db-stats">
+                                <span class="stat-item">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="12" cy="7" r="4"></circle>
+                                    </svg>
+                                    ${db.records} ${t('kb.records')}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="db-card-footer">
+                            <button class="btn-text" onclick="window.e2seqApp.deleteDatabase('${db.id}')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                删除
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (error) {
+            console.error('必填选填:', error);
+        }
+    }
+
+    async deleteDatabase(dbName) {
+        if (!confirm(`${t('kb.delete')} ${dbName}?`)) return;
+
+        try {
+            const response = await fetch(`/api/knowledge-bases/${dbName}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error(t('notify.dbDeleteFailed'));
+            }
+
+            this.showNotification(t('notify.dbDeleted'), 'success');
+            this.loadCustomDatabases();
+        } catch (error) {
+            console.error('必填?:', error);
+            this.showNotification(t('notify.dbDeleteFailed'), 'error');
+        }
+    }
+
+    // ========== 选填 ==========
+    openChartsPanel() {
+        document.getElementById('chartsPanel')?.classList.add('active');
+    }
+
+    closeChartsPanel() {
+        document.getElementById('chartsPanel')?.classList.remove('active');
+    }
+
+    async loadChart(type) {
+        // 必填必填
+        document.querySelectorAll('.chart-type-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.type === type);
+        });
+
+        const container = document.getElementById('chartContainer');
+        container.innerHTML = '<div class="loading-spinner"></div>';
+
+        try {
+            const response = await fetch(`/api/plots/${type}`);
+            if (!response.ok) {
+                throw new Error(t('error.loadFailed'));
+            }
+
+            const plotData = await response.json();
+            
+            // 必填选填?
+            if (plotData.data && plotData.data.length === 0 && plotData.layout.annotations) {
+                // 必填必填?
+                container.innerHTML = `
+                    <div class="chart-error">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        <p>${t('charts.noData')}</p>
+                        <small>${t('charts.noDataHint')}</small>
+                    </div>
+                `;
+            } else {
+                // 必填
+                Plotly.newPlot('chartContainer', plotData.data, plotData.layout, {responsive: true});
+            }
+        } catch (error) {
+            console.error('必填选填:', error);
+            container.innerHTML = `
+                <div class="chart-error">
+                    <p>${t('error.loadFailed')}</p>
+                    <small>${error.message}</small>
+                </div>
+            `;
+        }
+    }
+
+    downloadChart() {
+        Plotly.downloadImage('chartContainer', {
+            format: 'png',
+            width: 1200,
+            height: 800,
+            filename: 'e2seq_chart'
+        });
+    }
+
+    fullscreenChart() {
+        const container = document.getElementById('chartContainer');
+        if (container.requestFullscreen) {
+            container.requestFullscreen();
+        }
+    }
+
+    refreshChart() {
+        const activeBtn = document.querySelector('.chart-type-btn.active');
+        if (activeBtn) {
+            this.loadChart(activeBtn.dataset.type);
+        }
+    }
+
+    // ========== 选填 ==========
+    _getEmbeddingMetaById(modelId) {
+        return (this._embeddingModels || []).find(m => m.id === modelId) || null;
+    }
+
+    async saveCurrentEmbedPath() {
+        const sel = document.getElementById('embeddingModelSelect');
+        const pathInput = document.getElementById('embedModelPathInput');
+        const modelId = sel?.value;
+        const path = (pathInput?.value || '').trim();
+        if (!modelId) return;
+
+        const cfgResp = await fetch('/api/embedding/config');
+        const cfg = cfgResp.ok ? await cfgResp.json() : {};
+        const modelPaths = { ...(cfg.model_paths || {}) };
+        if (path) modelPaths[modelId] = path;
+        else delete modelPaths[modelId];
+
+        const saveResp = await fetch('/api/embedding/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model_name: cfg.model_name || modelId,
+                model_dimension: cfg.model_dimension,
+                normalize: cfg.normalize,
+                local_only: cfg.local_only,
+                model_paths: modelPaths,
+                custom_models: cfg.custom_models || [],
+            }),
+        });
+        const data = await saveResp.json();
+        if (!saveResp.ok || !data.success) {
+            this.showNotification(data.detail || data.message || '保存路径失败', 'error');
+            return;
+        }
+        this.showNotification('模型路径已保存', 'success');
+        await this.loadEmbeddingSettings();
+    }
+
+    async addCustomEmbeddingModel() {
+        const id = (document.getElementById('embedCustomId')?.value || '').trim();
+        const name = (document.getElementById('embedCustomName')?.value || '').trim();
+        const path = (document.getElementById('embedCustomPath')?.value || '').trim();
+        const dimRaw = (document.getElementById('embedCustomDim')?.value || '').trim();
+        const size = (document.getElementById('embedCustomSize')?.value || '').trim();
+
+        if (!id || !path) {
+            this.showNotification('自定义模型需要填写模型ID和本地路径', 'error');
+            return;
+        }
+
+        const cfgResp = await fetch('/api/embedding/config');
+        const cfg = cfgResp.ok ? await cfgResp.json() : {};
+        const customModels = [...(cfg.custom_models || [])].filter(m => (m.id || '') !== id);
+        customModels.push({
+            id,
+            name: name || id,
+            path,
+            dimension: dimRaw ? parseInt(dimRaw, 10) : null,
+            size: size || '未知',
+            description: '用户自定义模型',
+        });
+
+        const modelPaths = { ...(cfg.model_paths || {}), [id]: path };
+
+        const saveResp = await fetch('/api/embedding/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model_name: cfg.model_name || id,
+                model_dimension: cfg.model_dimension,
+                normalize: cfg.normalize,
+                local_only: cfg.local_only,
+                model_paths: modelPaths,
+                custom_models: customModels,
+            }),
+        });
+        const data = await saveResp.json();
+        if (!saveResp.ok || !data.success) {
+            this.showNotification(data.detail || data.message || '添加自定义模型失败', 'error');
+            return;
+        }
+
+        this.showNotification('自定义模型已添加', 'success');
+        await this.loadEmbeddingSettings();
+        const sel = document.getElementById('embeddingModelSelect');
+        if (sel) sel.value = id;
+        this.updateEmbeddingInfo(this._embeddingModels || [], id);
+    }
+
+    async loadSettings() {
+        try {
+            const response = await fetch('/api/settings');
+            if (!response.ok) return;
+            const data = await response.json();
+            const fields = [
+                ['openaiKey', 'openai_key'],
+                ['anthropicKey', 'anthropic_key'],
+                ['geminiKey', 'gemini_key'],
+                ['deepseekKey', 'deepseek_key'],
+                ['siliconflowKey', 'siliconflow_key'],
+            ];
+            // 回填已保存的模型名称
+            const modelFields = [
+                ['openaiModel', 'openai_model'],
+                ['anthropicModel', 'anthropic_model'],
+                ['geminiModel', 'gemini_model'],
+                ['deepseekModel', 'deepseek_model'],
+                ['siliconflowModel', 'siliconflow_model'],
+            ];
+            modelFields.forEach(([elemId, dataKey]) => {
+                const el = document.getElementById(elemId);
+                if (el && data[dataKey]) el.placeholder = data[dataKey];
+            });
+            fields.forEach(([elemId, dataKey]) => {
+                const el = document.getElementById(elemId);
+                if (el && data[dataKey]) {
+                    el.placeholder = data[dataKey];
+                }
+            });
+            // 若已配置 provider，自动拉取对应模型列表
+            if (data.provider && data.provider !== 'ollama') {
+                const currentModel = data[data.provider + '_model'];
+                const CURATED = {
+                    openai: ['gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o3','o3-mini','o4-mini','gpt-4-turbo'],
+                    anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
+                    gemini: ['gemini-2.5-pro','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+                    deepseek: ['deepseek-chat','deepseek-reasoner'],
+                    siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
+                };
+                // Show curated lists for ALL providers so user can switch immediately
+                ['openai','anthropic','gemini','deepseek','siliconflow'].forEach(p => {
+                    const curated = CURATED[p] || [];
+                    if (!curated.length) return;
+                    const pModel = data[p + '_model'];
+                    if (!pModel) return; // only show if key is configured
+                    const pSel = document.getElementById(p + 'Model');
+                    if (!pSel) return;
+                    const opts = curated.includes(pModel)
+                        ? curated
+                        : [pModel, ...curated];
+                    pSel.innerHTML = opts.map(m => `<option value="${m}"${m===pModel?' selected':''}>${m}${m===pModel?' (当前)':''}</option>`).join('');
+                    pSel.style.display = 'block';
+                    pSel.disabled = false;
+                    const statusEl = document.getElementById('status-' + p);
+                    if (statusEl) statusEl.innerHTML = '<span style="color:#8ab4f8;font-size:0.8rem">当前模型: ' + pModel + '</span>';
+                });
+            }
+            // 加载 Embedding 模型配置
+            this.loadEmbeddingSettings(data);
+            // Update model badge in chat header
+            this._updateModelBadge(data.provider, data.model);
+        } catch (error) {
+            console.error('Failed to load settings:', error);
+        }
+    }
+
+    async loadEmbeddingSettings(settingsData) {
+        try {
+            const resp = await fetch('/api/embedding/config');
+            const cfg = resp.ok ? await resp.json() : {};
+            const currentModel = cfg.model_name || settingsData?.embedding_model || 'sentence-transformers/all-MiniLM-L6-v2';
+
+            const modelsResp = await fetch('/api/embedding/models');
+            const modelsData = modelsResp.ok ? await modelsResp.json() : { models: [] };
+            this._embeddingModels = modelsData.models || [];
+
+            const sel = document.getElementById('embeddingModelSelect');
+            if (sel && this._embeddingModels.length) {
+                sel.innerHTML = this._embeddingModels.map(m =>
+                    `<option value="${m.id}"${m.id === currentModel ? ' selected' : ''}>${m.name}</option>`
+                ).join('');
+
+                sel.onchange = () => {
+                    this.updateEmbeddingInfo(this._embeddingModels, sel.value);
+                    this._embedSettingsChanged = true;
+                };
+                this.updateEmbeddingInfo(this._embeddingModels, currentModel);
+            }
+
+            const localOnlyEl = document.getElementById('embedLocalOnly');
+            if (localOnlyEl && cfg.local_only !== undefined) {
+                localOnlyEl.checked = cfg.local_only;
+                localOnlyEl.onchange = () => { this._embedSettingsChanged = true; };
+            }
+
+            const pathInput = document.getElementById('embedModelPathInput');
+            if (pathInput) {
+                const activePath = (cfg.model_paths || {})[currentModel] || '';
+                pathInput.value = activePath;
+            }
+        } catch (error) {
+            console.error('Failed to load embedding settings:', error);
+        }
+    }
+
+    updateEmbeddingInfo(models, selectedId) {
+        const model = models.find(m => m.id === selectedId);
+        if (!model) return;
+
+        const nameEl = document.getElementById('embedModelName');
+        const dimEl = document.getElementById('embedModelDim');
+        const descEl = document.getElementById('embedModelDesc');
+        const statusEl = document.getElementById('embedModelStatus');
+        const warnEl = document.getElementById('embedRebuildWarning');
+        const sizeEl = document.getElementById('embedModelSize');
+        const pathEl = document.getElementById('embedModelPath');
+
+        if (nameEl) nameEl.textContent = model.name || model.id;
+        if (dimEl) dimEl.textContent = (model.dimension || '-') + '维';
+        if (descEl) descEl.textContent = model.description || '';
+        if (sizeEl) sizeEl.textContent = '模型大小: ' + (model.size || '-');
+        if (pathEl) {
+            if (model.path) {
+                pathEl.textContent = '本地路径: ' + model.path;
+            } else if (model.path_required) {
+                pathEl.textContent = '需要配置本地路径';
+            } else if (model.builtin) {
+                pathEl.textContent = '内置模型，无需路径';
+            } else {
+                pathEl.textContent = '可从 HuggingFace 下载';
+            }
+        }
+
+        const hasLocal = !!(model.builtin || model.path);
+        if (model.path_required && !model.path) {
+            if (statusEl) { statusEl.textContent = '需填写路径'; statusEl.className = 'embed-status error'; }
+        } else if (hasLocal) {
+            if (statusEl) { statusEl.textContent = '本地可用 ✓'; statusEl.className = 'embed-status ok'; }
+        } else {
+            if (statusEl) { statusEl.textContent = '需下载'; statusEl.className = 'embed-status'; }
+        }
+
+        const pathInput = document.getElementById('embedModelPathInput');
+        if (pathInput) pathInput.value = model.path || '';
+
+        // 如果选择了默认模型，隐藏警告
+        if (warnEl) {
+            warnEl.style.display = model.default ? 'none' : 'flex';
+        }
+    }
+
+    async saveEmbeddingSettings() {
+        const sel = document.getElementById('embeddingModelSelect');
+        const localOnlyEl = document.getElementById('embedLocalOnly');
+        const pathInput = document.getElementById('embedModelPathInput');
+        const modelId = sel?.value;
+        if (!modelId) return { success: false };
+
+        try {
+            const cfgResp = await fetch('/api/embedding/config');
+            const cfg = cfgResp.ok ? await cfgResp.json() : {};
+            const modelPaths = { ...(cfg.model_paths || {}) };
+            const p = (pathInput?.value || '').trim();
+            if (p) modelPaths[modelId] = p;
+
+            const resp = await fetch('/api/embedding/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_name: modelId,
+                    local_only: localOnlyEl?.checked || false,
+                    model_paths: modelPaths,
+                    custom_models: cfg.custom_models || [],
+                }),
+            });
+            const data = await resp.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to save embedding config:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async testEmbeddingModel() {
+        const sel = document.getElementById('embeddingModelSelect');
+        const statusEl = document.getElementById('embedModelStatus');
+        const modelId = sel?.value;
+        const localPath = (document.getElementById('embedModelPathInput')?.value || '').trim();
+        if (!modelId) return;
+
+        if (statusEl) { statusEl.textContent = '测试中...'; statusEl.className = 'embed-status testing'; }
+
+        try {
+            const resp = await fetch('/api/embedding/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model_name: modelId, local_path: localPath }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                if (statusEl) { statusEl.textContent = '✓ ' + data.message + ' (' + data.time_ms + 'ms)'; statusEl.className = 'embed-status ok'; }
+            } else {
+                if (statusEl) { statusEl.textContent = '✗ ' + data.message; statusEl.className = 'embed-status error'; }
+            }
+        } catch (error) {
+            if (statusEl) { statusEl.textContent = '测试失败: ' + error.message; statusEl.className = 'embed-status error'; }
+        }
+    }
+
+    async fetchModels(provider) {
+        const keyEl = document.getElementById(provider + 'Key');
+        const sel   = document.getElementById(provider + 'Model');
+        const statusEl = document.getElementById('status-' + provider);
+        if (!keyEl || !sel) return;
+        const apiKey = keyEl.value.trim();
+        if (!apiKey) return;
+        if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">获取模型列表...</span>';
+        // Show curated list immediately for siliconflow and deepseek
+        const CURATED = {
+            openai: ['gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o3','o3-mini','o4-mini','gpt-4-turbo'],
+            anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
+            gemini: ['gemini-2.5-pro','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+            deepseek: ['deepseek-chat','deepseek-reasoner'],
+            siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
+        };
+        const curated = CURATED[provider] || [];
+        // Populate with curated list first
+        if (curated.length) {
+            sel.innerHTML = curated.map((m,i) => `<option value="${m}"${i===0?' selected':''}>${m}</option>`).join('');
+            sel.style.display = 'block';
+        }
+        try {
+            const r = await fetch('/api/settings/models', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({provider, api_key: apiKey})
+            });
+            const d = await r.json();
+            if (!r.ok) {
+                if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-size:.8rem">${d.detail||'获取失败'}</span>`;
+                return;
+            }
+            const models = d.models || curated;
+            if (models.length) {
+                // For siliconflow/deepseek always show curated first, then merge
+                let final = curated.length ? [...new Set([...curated, ...models])] : models;
+                sel.innerHTML = final.map((m,i) => `<option value="${m}"${i===0?' selected':''}>${m}</option>`).join('');
+                sel.style.display = 'block';
+            }
+            if (statusEl) statusEl.innerHTML = `<span style="color:#34d399;font-size:.8rem">✓ ${models.length} 个模型</span>`;
+        } catch(e) {
+            // Live fetch failed but curated list is already shown
+            if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">已加载默认列表</span>`;
+        }
+    }
+
+    /** Update the model indicator badge in the chat header. */
+    _updateModelBadge(provider, model) {
+        const badge = document.getElementById('activeModelBadge');
+        if (!badge) return;
+        if (provider && model) {
+            const providerLabels = {
+                openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini',
+                deepseek: 'DeepSeek', siliconflow: '硅基流动', ollama: 'Ollama'
+            };
+            const pLabel = providerLabels[provider] || provider;
+            badge.textContent = `${pLabel} · ${model}`;
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    async saveSettings() {
+        const openaiKey = document.getElementById('openaiKey')?.value.trim();
+        const anthropicKey = document.getElementById('anthropicKey')?.value.trim();
+        const geminiKey = document.getElementById('geminiKey')?.value.trim();
+        const deepseekKey = document.getElementById('deepseekKey')?.value.trim();
+        const siliconflowKey = document.getElementById('siliconflowKey')?.value.trim();
+        // 从下拉菜单读取用户选择的模型（拉取列表后由用户选定）
+        const openaiModel = document.getElementById('openaiModel')?.value || '';
+        const anthropicModel = document.getElementById('anthropicModel')?.value || '';
+        const geminiModel = document.getElementById('geminiModel')?.value || '';
+        const deepseekModel = document.getElementById('deepseekModel')?.value || '';
+        const siliconflowModel = document.getElementById('siliconflowModel')?.value || '';
+
+        // 如果没有输入任何 API Key，只保存 Embedding 设置
+        const hasAnyKey = openaiKey || anthropicKey || geminiKey || deepseekKey || siliconflowKey;
+        if (!hasAnyKey) {
+            // 只保存 Embedding 配置
+            await this.saveEmbeddingSettings();
+            return;
+        }
+
+        const settings = {
+            openai_key: openaiKey,
+            anthropic_key: anthropicKey,
+            gemini_key: geminiKey,
+            deepseek_key: deepseekKey,
+            siliconflow_key: siliconflowKey,
+            openai_model: openaiModel,
+            anthropic_model: anthropicModel,
+            gemini_model: geminiModel,
+            deepseek_model: deepseekModel,
+            siliconflow_model: siliconflowModel,
+        };
+
+        try {
+            // 先显示连接中弹窗
+            this.showConnectionStatus('testing', '');
+
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings),
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                this.showConnectionStatus('error', err.detail || '保存失败');
+                throw new Error(err.detail || '保存失败');
+            }
+
+            const result = await response.json();
+
+            ['openaiKey', 'anthropicKey', 'geminiKey', 'deepseekKey', 'siliconflowKey'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+
+            // 同时保存 Embedding 设置
+            await this.saveEmbeddingSettings();
+
+            // Refresh badge immediately from save result
+            if (result.provider && result.model) {
+                this._updateModelBadge(result.provider, result.model);
+            }
+            await this.loadSettings();
+
+            // 显示连接状态弹窗
+            const connTest = result.connection_test;
+            if (connTest) {
+                if (connTest.success) {
+                    this.showConnectionStatus('success', connTest.message || '连接成功');
+                } else {
+                    this.showConnectionStatus('error', connTest.message || '连接失败');
+                }
+            } else {
+                this.testConnectionWithFeedback();
+            }
+
+        } catch (error) {
+            console.error('Save settings failed:', error);
+            this.showNotification(error.message || t('notify.saveFailed'), 'error');
+        }
+    }
+
+    showConnectionStatus(type, message) {
+        const existing = document.getElementById('conn-modal-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'conn-modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:20000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px)';
+
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--bg-secondary, #1a1f2e);border:1px solid var(--border-color, #2d3348);border-radius:16px;padding:40px 48px;display:flex;flex-direction:column;align-items:center;gap:20px;box-shadow:0 20px 60px rgba(0,0,0,0.6);min-width:280px;transform:translateY(0)';
+
+        const labels = { testing: '连接中...', success: '连接成功', error: '连接失败' };
+        const colors = { testing: '#3b82f6', success: '#10b981', error: '#ef4444' };
+
+        if (type === 'testing') {
+            card.innerHTML =
+                '<div style="width:64px;height:64px;position:relative">' +
+                '<svg viewBox="0 0 64 64" width="64" height="64" style="animation:spin 1s linear infinite;display:block">' +
+                '<circle cx="32" cy="32" r="28" fill="none" stroke="#2d3348" stroke-width="5"/>' +
+                '<circle cx="32" cy="32" r="28" fill="none" stroke="#3b82f6" stroke-width="5" stroke-dasharray="44 132" stroke-linecap="round"/>' +
+                '</svg></div>' +
+                '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">连接中...</p>' +
+                '<p style="margin:0;font-size:0.85rem;color:#8ab4f8">正在验证 API Key</p>';
+        } else if (type === 'success') {
+            card.innerHTML =
+                '<div style="width:64px;height:64px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center">' +
+                '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+                '</div>' +
+                '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">连接成功</p>' +
+                '<p style="margin:0;font-size:0.82rem;color:#6ee7b7;text-align:center;max-width:240px;word-break:break-all">' + (message || '') + '</p>';
+            setTimeout(function() { if (overlay.parentNode) overlay.remove(); }, 1500);
+        } else {
+            card.innerHTML =
+                '<div style="width:64px;height:64px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center">' +
+                '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+                '</div>' +
+                '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">连接失败</p>' +
+                '<p style="margin:0;font-size:0.82rem;color:#fca5a5;text-align:center;max-width:240px;word-break:break-all">' + (message || '') + '</p>' +
+                '<button onclick="document.getElementById(\'conn-modal-overlay\').remove()" style="padding:8px 24px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:0.875rem">\u5173\u95ed</button>';
+        }
+
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    async testConnectionWithFeedback() {
+        const testingToast = this.showConnectionStatus('testing', '');
+        try {
+            const resp = await fetch('/api/settings/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            testingToast.remove();
+            if (resp.ok) {
+                const data = await resp.json();
+                this.showConnectionStatus('success', data.message || '连接成功');
+            } else {
+                const err = await resp.json().catch(() => ({}));
+                this.showConnectionStatus('error', err.detail || '连接失败');
+            }
+        } catch (e) {
+            testingToast.remove();
+            this.showConnectionStatus('error', e.message || '网络错误');
+        }
+    }
+
+    // ========== 选填 ==========
+    changeLanguage(lang) {
+        this.currentLanguage = lang;
+        localStorage.setItem('e2seq_language', lang);
+        this.applyLanguage();
+        this.showNotification(t('notify.languageChanged'), 'success');
+    }
+
+    applyLanguage() {
+        // 必填 data-i18n 选填?
+        document.querySelectorAll('[data-i18n]').forEach(element => {
+            const key = element.getAttribute('data-i18n');
+            const translation = t(key, this.currentLanguage);
+            
+            if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+                if (element.placeholder !== undefined) {
+                    element.placeholder = translation;
+                }
+            } else {
+                if (element.children.length === 0) {
+                    element.textContent = translation;
+                } else {
+                    const textNode = Array.from(element.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+                    if (textNode) textNode.textContent = translation;
+                }
+            }
+        });
+
+        // 必填?
+        const suggestions = [
+            'suggestion.deg',
+            'suggestion.enrichment',
+            'suggestion.network',
+            'suggestion.hub',
+            'suggestion.umap',
+            'suggestion.upload'
+        ];
+        
+        document.querySelectorAll('.chip span').forEach((span, index) => {
+            if (index < suggestions.length) {
+                span.textContent = t(suggestions[index], this.currentLanguage);
+            }
+        });
+
+        // 必填?
+        if (this.currentPage === 'knowledgeBase') {
+            this.loadBuiltinDatabases();
+            this.loadCustomDatabases();
+        }
+
+        // 必填
+        const chartTypes = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
+        document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
+            if (index < chartTypes.length) {
+                btn.textContent = t(`charts.${chartTypes[index]}`, this.currentLanguage);
+            }
+        });
+
+        // 必填必填选填?
+        document.querySelectorAll('input[name="language"]').forEach(radio => {
+            radio.checked = (radio.value === this.currentLanguage);
+        });
+
+        // 必填?
+        document.title = t('chat.title', this.currentLanguage) + ' - Easy to Chat with Sequencing';
+    }
+
+    // ========== 选填 ==========
+    handleInputChange(value) {
+        const sendBtn = document.getElementById('sendBtn');
+        if (sendBtn) {
+            sendBtn.disabled = !value.trim();
+        }
+    }
+
+    autoResizeTextarea() {
+        const messageInput = document.getElementById('messageInput');
+        if (!messageInput) return;
+
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
+    }
+
+    async sendMessage() {
+        const messageInput = document.getElementById('messageInput');
+        const message = messageInput?.value.trim();
+
+        if (!message || this.isProcessing) return;
+
+        const greetingModule = document.getElementById('greetingModule');
+        if (greetingModule) {
+            greetingModule.style.display = 'none';
+        }
+
+        this.addMessage('user', message);
+        messageInput.value = '';
+        this.handleInputChange('');
+        messageInput.style.height = 'auto';
+
+        this.isProcessing = true;
+
+        // Add loading bubble with progress display
+        const loadingId = this.addMessage('assistant', '', true);
+        const sessionId = this.currentChatId || 'default';
+
+        // Start progress polling
+        let lastProgressCount = 0;
+        const progressEl = document.getElementById(loadingId)?.querySelector('.progress-log');
+        const pollProgress = async () => {
+            try {
+                const pr = await fetch(`/api/progress/${sessionId}`);
+                if (pr.ok) {
+                    const pd = await pr.json();
+                    const msgs = pd.messages || [];
+                    if (msgs.length > lastProgressCount) {
+                        lastProgressCount = msgs.length;
+                        const bubble = document.getElementById(loadingId);
+                        if (bubble) {
+                            const pl = bubble.querySelector('.progress-log');
+                            if (pl) {
+                                pl.innerHTML = msgs.map(m =>
+                                    `<div class="progress-step">${m}</div>`
+                                ).join('');
+                                pl.scrollTop = pl.scrollHeight;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+        };
+        const progressTimer = setInterval(pollProgress, 800);
+
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    chat_id: this.currentChatId,
+                }),
+            });
+
+            clearInterval(progressTimer);
+
+            if (!response.ok) {
+                throw new Error(t('error.chatFailed'));
+            }
+
+            const data = await response.json();
+            this.removeMessage(loadingId);
+            this.addMessage('assistant', data.response);
+
+            if (data.plots) {
+                this.displayPlots(data.plots);
+            }
+
+            // NOTE: do NOT overwrite this.currentChatId with data.chat_id.
+            // The frontend UUID is the authoritative session ID; the server
+            // echoes it back but we must not let a stale server value replace
+            // a freshly-generated chat ID (which would merge conversations).
+
+            // Refresh history after new message
+            this.loadChatHistory();
+
+        } catch (error) {
+            clearInterval(progressTimer);
+            console.error('sendMessage error:', error);
+            this.removeMessage(loadingId);
+            this.addMessage('assistant', t('error.chatFailed'));
+        } finally {
+            this.isProcessing = false;
+        }
+    }
+
+    addMessage(role, content, isLoading = false) {
+        const messagesArea = document.getElementById('messagesArea');
+        const messageId = `msg-${Date.now()}-${Math.random()}`;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${role}`;
+        messageDiv.id = messageId;
+
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.textContent = role === 'user' ? 'U' : 'E';
+
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+
+        if (isLoading) {
+            messageContent.innerHTML = `
+                <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <div class="progress-log"></div>
+            `;
+        } else if (role === 'assistant' && typeof marked !== 'undefined') {
+            // Render markdown with marked.js
+            try {
+                messageContent.innerHTML = marked.parse(content || '');
+                messageContent.querySelectorAll('pre code').forEach(function(b) {
+                    if (typeof hljs !== 'undefined') hljs.highlightElement(b);
+                });
+            } catch (e) {
+                console.warn('Marked parse error:', e);
+                messageContent.textContent = content;
+            }
+        } else {
+            // Fallback: basic markdown rendering without marked.js
+            if (role === 'assistant' && content) {
+                messageContent.innerHTML = _renderMarkdownFallback(content);
+            } else {
+                messageContent.textContent = content;
+            }
+        }
+
+        messageDiv.appendChild(avatar);
+        messageDiv.appendChild(messageContent);
+        messagesArea.appendChild(messageDiv);
+
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+        this.messages.push({ id: messageId, role, content });
+
+        return messageId;
+    }
+
+    removeMessage(messageId) {
+        const message = document.getElementById(messageId);
+        if (message) {
+            message.remove();
+        }
+        this.messages = this.messages.filter(m => m.id !== messageId);
+    }
+
+    displayPlots(plots) {
+        const messagesArea = document.getElementById('messagesArea');
+        
+        plots.forEach((plot, index) => {
+            const plotDiv = document.createElement('div');
+            plotDiv.className = 'message assistant';
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = 'E';
+            
+            const plotContent = document.createElement('div');
+            plotContent.className = 'message-content';
+
+            const containerId = 'plot-container-' + Date.now() + '-' + index;
+            plotContent.innerHTML = '<div style="margin-top:8px"><p style="margin-bottom:6px;color:var(--text-secondary);font-size:0.875rem">' + (plot.title || '') + '</p><div id="' + containerId + '" style="width:100%;min-height:400px;border-radius:8px;overflow:hidden"></div></div>';
+            
+            plotDiv.appendChild(avatar);
+            plotDiv.appendChild(plotContent);
+            messagesArea.appendChild(plotDiv);
+
+            try {
+                const figData = JSON.parse(plot.figure);
+                const layout = Object.assign({
+                    paper_bgcolor: '#0a0e1a',
+                    plot_bgcolor: '#131825',
+                    font: { color: '#e8eaed' },
+                    margin: { t: 40, r: 20, b: 40, l: 50 }
+                }, figData.layout || {});
+                Plotly.newPlot(containerId, figData.data || [], layout, { responsive: true });
+            } catch (e) {
+                const el = document.getElementById(containerId);
+                if (el) el.innerHTML = '<p style="color:#ef4444;padding:12px">\u56fe\u8868\u6e32\u67d3\u5931\u8d25: ' + e.message + '</p>';
+            }
+        });
+
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
+
+    _genChatId() {
+        // Generate a RFC4122-compliant UUID v4 without external deps
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
+    createNewChat() {
+        this.currentChatId = this._genChatId();
+        this.messages = [];
+
+        // Reset KB poll state for new chat session
+        if (this._kbPollTimer) {
+            clearInterval(this._kbPollTimer);
+            this._kbPollTimer = null;
+        }
+        this._setInputLocked(false, '');
+        
+        const messagesArea = document.getElementById('messagesArea');
+        messagesArea.innerHTML = '';
+        
+        const greetingModule = document.getElementById('greetingModule');
+        if (greetingModule) {
+            greetingModule.style.display = 'block';
+        }
+    }
+
+    async loadChatHistory() {
+        try {
+            const response = await fetch('/api/chats');
+            if (!response.ok) return;
+
+            const chats = await response.json();
+            const chatList = document.getElementById('chatList');
+            if (!chatList) return;
+            chatList.innerHTML = '';
+
+            if (chats.length === 0) {
+                chatList.innerHTML = '<div class="empty-state-small">暂无历史记录</div>';
+                return;
+            }
+
+            chats.forEach(chat => {
+                const chatItem = document.createElement('div');
+                chatItem.className = 'chat-item';
+                // 格式化时间
+                let timeStr = '';
+                if (chat.updated_at) {
+                    const d = new Date(chat.updated_at + 'Z');
+                    timeStr = d.toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+                }
+                chatItem.innerHTML =
+                    '<div class="chat-item-body">' +
+                    '<span class="chat-item-title">' + (chat.title || '新对话') + '</span>' +
+                    '<span class="chat-item-time">' + timeStr + '</span>' +
+                    '</div>' +
+                    '<button class="chat-item-del" title="删除" data-chat-del="' + chat.id + '">×</button>';
+                chatItem.addEventListener('click', (e) => {
+                    const delBtn = e.target.closest('[data-chat-del]');
+                    if (delBtn) { e.stopPropagation(); this.deleteChat(delBtn.dataset.chatDel); return; }
+                    this.navigateToChat();
+                    this.loadChat(chat.id);
+                });
+                chatList.appendChild(chatItem);
+            });
+        } catch (error) {
+            console.error('loadChatHistory error:', error);
+        }
+    }
+
+    async loadChat(chatId) {
+        try {
+            const response = await fetch(`/api/chats/${chatId}`);
+            if (!response.ok) return;
+
+            const chat = await response.json();
+            this.currentChatId = chatId;
+            this.messages = chat.messages || [];
+
+            const messagesArea = document.getElementById('messagesArea');
+            if (messagesArea) messagesArea.innerHTML = '';
+
+            const greetingModule = document.getElementById('greetingModule');
+            if (greetingModule) greetingModule.style.display = 'none';
+
+            (chat.messages || []).forEach(msg => {
+                this.addMessage(msg.role, msg.content);
+            });
+
+            // 高亮当前选中的历史条目
+            document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+            const activeItem = document.querySelector(`.chat-item[data-id="${chatId}"]`);
+            if (activeItem) activeItem.classList.add('active');
+        } catch (error) {
+            console.error('loadChat error:', error);
+        }
+    }
+
+    async deleteChat(chatId) {
+        if (!confirm('确认删除这条历史记录？')) return;
+        try {
+            await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
+            if (this.currentChatId === chatId) {
+                this.createNewChat();
+            }
+            this.loadChatHistory();
+        } catch (e) {
+            console.error('deleteChat error:', e);
+        }
+    }
+
+    async clearAllHistory() {
+        if (!confirm('确认清空所有历史对话？\n仅保留最近一条记录，此操作不可撤销。')) return;
+        try {
+            const r = await fetch('/api/chats', { method: 'DELETE' });
+            if (!r.ok) throw new Error('清空失败');
+            const data = await r.json();
+            // Clear the sidebar list immediately
+            const chatList = document.getElementById('chatList');
+            if (chatList) chatList.innerHTML = '<div class="empty-state-small">暂无历史记录</div>';
+            // If the kept session is not the current one, switch to it
+            if (data.kept && data.kept !== this.currentChatId) {
+                await this.loadChat(data.kept);
+            } else if (!data.kept) {
+                this.createNewChat();
+            }
+            await this.loadChatHistory();
+            const deleted = data.deleted || 0;
+            const kept = data.kept ? 1 : 0;
+            this.showNotification(
+                deleted > 0
+                    ? `已清空 ${deleted} 条历史记录${kept ? '，保留最近 1 条' : ''}`
+                    : '历史记录已是最新，无需清空',
+                'success'
+            );
+        } catch (e) {
+            console.error('clearAllHistory error:', e);
+            this.showNotification('清空历史失败: ' + e.message, 'error');
+        }
+    }
+
+    handleAttachment(fileArg) {
+        if (fileArg) {
+            this.uploadFile(fileArg);
+            return;
+        }
+        // 统一进入右侧分析面板（顶部切换单细胞/表格）
+        if (window.analysisPanel) {
+            window.analysisPanel.open();
+            if (typeof window.analysisPanel.switchMode === 'function') {
+                window.analysisPanel.switchMode('singlecell');
+            }
+            return;
+        }
+        // 兜底
+        this.openUploadDrawer();
+    }
+
+    // 打开上传抽屉
+    openUploadDrawer() {
+        const drawer = document.getElementById('uploadDrawer');
+        const overlay = document.getElementById('drawerOverlay');
+        if (drawer) {
+            drawer.classList.add('active');
+            if (overlay) overlay.classList.add('active');
+        }
+    }
+
+    // 关闭上传抽屉
+    closeUploadDrawer() {
+        const drawer = document.getElementById('uploadDrawer');
+        const overlay = document.getElementById('drawerOverlay');
+        if (drawer) drawer.classList.remove('active');
+        if (overlay) overlay.classList.remove('active');
+    }
+
+    // 打开表格配置抽屉
+    openTableDrawer() {
+        const drawer = document.getElementById('tableUploadDrawer');
+        const overlay = document.getElementById('drawerOverlay');
+        if (drawer) {
+            drawer.classList.add('active');
+            if (overlay) overlay.classList.add('active');
+        }
+    }
+
+    // 关闭表格配置抽屉
+    closeTableDrawer() {
+        const drawer = document.getElementById('tableUploadDrawer');
+        if (drawer) drawer.classList.remove('active');
+        // 关闭所有抽屉时也关闭遮罩
+        const anyDrawerActive = document.querySelector('.drawer.active');
+        if (!anyDrawerActive) {
+            const overlay = document.getElementById('drawerOverlay');
+            if (overlay) overlay.classList.remove('active');
+        }
+    }
+
+    showUploadTypeModal() {
+        const modal = document.getElementById('uploadTypeModal');
+        if (modal) modal.classList.add('active');
+    }
+
+    hideUploadTypeModal() {
+        const modal = document.getElementById('uploadTypeModal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    openFilePicker(type) {
+        this.closeUploadDrawer();
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (type === 'singlecell') {
+            input.accept = '.h5ad,.csv,.rds';
+        } else {
+            input.accept = '.csv,.tsv,.xlsx';
+        }
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                if (type === 'singlecell') {
+                    await this.uploadFile(file);
+                } else {
+                    if (window.analysisPanel) {
+                        window.analysisPanel.switchMode('table');
+                        window.analysisPanel.open();
+                        await window.analysisPanel.setTableFile(file);
+                    } else {
+                        await this.openTableConfig(file);
+                    }
+                }
+            }
+        };
+        input.click();
+    }
+
+    async openTableConfig(file) {
+        // 关闭上传抽屉，打开配置抽屉
+        this.closeUploadDrawer();
+
+        const drawer = document.getElementById('tableUploadDrawer');
+        const fileNameEl = document.getElementById('tableFileName');
+        const fileInfoEl = document.getElementById('tableFileInfo');
+        const geneColEl = document.getElementById('tableGeneCol');
+        const groupColEl = document.getElementById('tableGroupCol');
+        const exprTypeEl = document.getElementById('tableExprType');
+        const exprColEl = document.getElementById('tableExprCol');
+        const sigColEl = document.getElementById('tableSigCol');
+        const errorEl = document.getElementById('tableUploadError');
+
+        // 显示抽屉
+        fileNameEl.textContent = file.name;
+        fileInfoEl.textContent = '正在读取...';
+        errorEl.style.display = 'none';
+        geneColEl.innerHTML = '<option value="">加载中...</option>';
+        groupColEl.innerHTML = '<option value="">— 不使用 —</option>';
+        exprColEl.innerHTML = '<option value="">— 选择列 —</option>';
+        sigColEl.innerHTML = '<option value="">— 不使用 —</option>';
+        drawer.classList.add('active');
+        document.getElementById('drawerOverlay')?.classList.add('active');
+
+        // 上传并获取列信息
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('session_id', this.currentChatId);
+
+        try {
+            const response = await fetch('/api/upload-csv', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || '上传失败');
+
+            fileInfoEl.textContent = `${data.n_rows} 行 × ${data.columns.length} 列`;
+
+            // 填充所有列选择
+            const cols = data.columns || [];
+            const allOptions = cols.map(c => `<option value="${c}">${c}</option>`).join('');
+
+            geneColEl.innerHTML = '<option value="">— 选择列 —</option>' + allOptions;
+            groupColEl.innerHTML = '<option value="">— 不使用 —</option>' + allOptions;
+            exprColEl.innerHTML = '<option value="">— 选择列 —</option>' + allOptions;
+            sigColEl.innerHTML = '<option value="">— 不使用 —</option>' + allOptions;
+
+            // 自动检测列名
+            const colLower = cols.map(c => c.toLowerCase());
+            const geneIdx = colLower.findIndex(c => /gene|ensembl|symbol|name/i.test(c));
+            const groupIdx = colLower.findIndex(c => /group|condition|treatment|class/i.test(c));
+            const exprIdx = colLower.findIndex(c => /log2fc|logfc|mean.*exp|expression|fc$/i.test(c));
+            const sigIdx = colLower.findIndex(c => /fdr|pvalue|pval|adj.*p|significance/i.test(c));
+
+            if (geneIdx >= 0) geneColEl.value = cols[geneIdx];
+            if (groupIdx >= 0) groupColEl.value = cols[groupIdx];
+            if (exprIdx >= 0) {
+                exprColEl.value = cols[exprIdx];
+                // 根据列名自动选择表达类型
+                const exprLower = cols[exprIdx].toLowerCase();
+                if (/log2fc|logfc/i.test(exprLower)) exprTypeEl.value = exprLower.includes('log2') ? 'log2FC' : 'logFC';
+                else if (/mean/i.test(exprLower)) exprTypeEl.value = 'mean_expr';
+                else exprTypeEl.value = 'custom';
+            }
+            if (sigIdx >= 0) sigColEl.value = cols[sigIdx];
+
+            // 监听表达类型变化
+            exprTypeEl.onchange = () => {
+                const typeGroup = document.getElementById('tableExprColGroup');
+                typeGroup.style.display = exprTypeEl.value === 'custom' ? 'block' : 'none';
+            };
+
+            // 保存文件引用
+            this._pendingTableFile = file;
+        } catch (e) {
+            errorEl.textContent = e.message;
+            errorEl.style.display = 'block';
+        }
+    }
+
+    async confirmTableUpload() {
+        const file = this._pendingTableFile;
+        const geneCol = document.getElementById('tableGeneCol')?.value;
+        const groupCol = document.getElementById('tableGroupCol')?.value;
+        const exprType = document.getElementById('tableExprType')?.value;
+        const exprCol = document.getElementById('tableExprCol')?.value;
+        const exprThresh = document.getElementById('tableExprThresh')?.value;
+        const sigCol = document.getElementById('tableSigCol')?.value;
+        const sigThresh = document.getElementById('tableSigThresh')?.value;
+        const topGenes = 0; // 表格数据不限制基因数量
+        const errorEl = document.getElementById('tableUploadError');
+
+        // 收集启用的 API
+        const enabledApis = [];
+        ['apiUniprot','apiMygene','apiEnsembl','apiChembl','apiOpentargets',
+         'apiClinvar','apiReactome','apiPubmed','apiQuickgo','apiEuropepmc',
+         'apiGtex','apiGwas','apiBiogrid'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el?.checked) enabledApis.push(id.replace('api', '').toLowerCase());
+        });
+
+        // 收集启用的数据库
+        const enabledDbs = [];
+        ['dbString','dbHmdb','dbTrrust','dbGutmgene'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el?.checked) enabledDbs.push(id.replace('db', '').toLowerCase());
+        });
+
+        if (!file || !geneCol) {
+            errorEl.textContent = '请选择基因列';
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('session_id', this.currentChatId);
+        formData.append('gene_col', geneCol);
+        if (groupCol) formData.append('group_col', groupCol);
+        formData.append('expr_type', exprType);
+        if (exprCol && exprType === 'custom') formData.append('expr_col', exprCol);
+        if (exprThresh) formData.append('expr_thresh', exprThresh);
+        if (sigCol) formData.append('sig_col', sigCol);
+        if (sigThresh) formData.append('sig_thresh', sigThresh);
+        formData.append('n_top_genes', topGenes);
+        formData.append('enabled_apis', JSON.stringify(enabledApis));
+        formData.append('enabled_dbs', JSON.stringify(enabledDbs));
+
+        try {
+            const response = await fetch('/api/configure-csv', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || '配置失败');
+
+            this.closeTableDrawer();
+            this.showNotification(`表格数据上传成功：${data.n_genes} 个基因`, 'success');
+
+            // 重置分析面板状态
+            if (window.analysisPanel) {
+                window.analysisPanel._colsLoaded = false;
+                window.analysisPanel.checkDataStatus();
+            }
+        } catch (e) {
+            errorEl.textContent = e.message;
+            errorEl.style.display = 'block';
+        }
+    }
+
+    async uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('session_id', this.currentChatId);
+
+        try {
+            this.showNotification('正在上传并解析数据集，请稍候...', 'info');
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || t('notify.uploadFailed'));
+            }
+
+            const data = await response.json();
+            // Do NOT overwrite currentChatId with the server's session_id.
+            // The upload endpoint may return a generic session; the frontend
+            // UUID must remain the authoritative chat identifier.
+            this._pendingUploadData = data;
+            // Instead of showing a config modal, refresh the analysis panel
+            // and open it so the user can confirm settings there.
+            if (window.analysisPanel) {
+                window.analysisPanel._colsLoaded = false;
+                await window.analysisPanel.checkDataStatus();
+                window.analysisPanel.open();
+            }
+            this.showNotification(`数据上传成功：${data.cells} 细胞 × ${data.genes} 基因`, 'success');
+            const greetingModule = document.getElementById('greetingModule');
+            if (greetingModule) greetingModule.style.display = 'none';
+        } catch (error) {
+            console.error('uploadFile error:', error);
+            this.showNotification(error.message || t('notify.uploadFailed'), 'error');
+        }
+    }
+
+    showDatasetConfigDialog(data) {
+        const modal = document.getElementById('datasetConfigModal');
+        if (!modal) return;
+
+        // Fill stats
+        const cfgCells = document.getElementById('cfgCells');
+        const cfgGenes = document.getElementById('cfgGenes');
+        if (cfgCells) cfgCells.textContent = (data.cells || 0).toLocaleString();
+        if (cfgGenes) cfgGenes.textContent = (data.genes || 0).toLocaleString();
+
+        // Fill column selectors
+        const cols = data.obs_columns || [];
+        const ctSel = document.getElementById('cfgCelltypeCol');
+        const grpSel = document.getElementById('cfgGroupCol');
+        if (ctSel) {
+            ctSel.innerHTML = cols.map(c =>
+                `<option value="${c}"${c === data.celltype_col_guess ? ' selected' : ''}>${c}</option>`
+            ).join('');
+        }
+        if (grpSel) {
+            grpSel.innerHTML = '<option value="">— 不使用 —</option>' +
+                cols.map(c =>
+                    `<option value="${c}"${c === data.group_col_guess ? ' selected' : ''}>${c}</option>`
+                ).join('');
+        }
+
+        // Helper: fetch unique values for a given obs column
+        const fetchColValues = async (col) => {
+            if (!col) return [];
+            if (!data.col_values) data.col_values = {};
+            if (data.col_values[col]) return data.col_values[col];
+            try {
+                const r = await fetch(`/api/group-values?session_id=${this.currentChatId || 'default'}&col=${encodeURIComponent(col)}`);
+                const d = await r.json();
+                data.col_values[col] = d.values || [];
+                return data.col_values[col];
+            } catch { return []; }
+        };
+
+        // Build rename input rows for any column
+        const buildLabelRows = (sectionId, rowsId, values) => {
+            const section = document.getElementById(sectionId);
+            const container = document.getElementById(rowsId);
+            if (!section || !container) return;
+            if (!values || !values.length) { section.style.display = 'none'; return; }
+            section.style.display = 'block';
+            container.innerHTML = values.map(v => `
+                <div style="display:flex;align-items:center;gap:.6rem">
+                    <span style="width:130px;font-size:.85rem;color:var(--text-secondary);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v}">${v}</span>
+                    <span style="color:var(--text-tertiary);font-size:.85rem">→</span>
+                    <input type="text" class="form-control cfg-label-input" data-orig="${v}"
+                        value="${v}" placeholder="显示名称"
+                        style="flex:1;height:30px;font-size:.85rem">
+                </div>`).join('');
+        };
+
+        // Rebuild group label rows when group col changes
+        const buildGroupLabelRows = async () => {
+            const values = await fetchColValues(grpSel?.value || '');
+            buildLabelRows('cfgGroupLabelSection', 'cfgGroupLabelRows', values);
+        };
+
+        // Rebuild celltype label rows when celltype col changes
+        const buildCelltypeLabelRows = async () => {
+            const values = await fetchColValues(ctSel?.value || '');
+            buildLabelRows('cfgCelltypeLabelSection', 'cfgCelltypeLabelRows', values);
+        };
+
+        grpSel?.addEventListener('change', buildGroupLabelRows);
+        ctSel?.addEventListener('change', buildCelltypeLabelRows);
+
+        // Pre-populate for guessed columns
+        buildGroupLabelRows();
+        buildCelltypeLabelRows();
+
+        // Error reset
+        const cfgError = document.getElementById('cfgError');
+        if (cfgError) { cfgError.style.display = 'none'; cfgError.textContent = ''; }
+
+        // Show modal
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+
+        // Bind buttons (remove old listeners by cloning)
+        const confirmBtn = document.getElementById('cfgConfirmBtn');
+        const cancelBtn = document.getElementById('cfgCancelBtn');
+        const newConfirm = confirmBtn.cloneNode(true);
+        const newCancel = cancelBtn.cloneNode(true);
+        confirmBtn.replaceWith(newConfirm);
+        cancelBtn.replaceWith(newCancel);
+
+        newCancel.addEventListener('click', () => {
+            modal.style.display = 'none';
+            modal.classList.remove('active');
+        });
+
+        newConfirm.addEventListener('click', async () => {
+            const celltypeCol = document.getElementById('cfgCelltypeCol')?.value || '';
+            const groupCol = document.getElementById('cfgGroupCol')?.value || '';
+            const enabledApis = [...document.querySelectorAll('.cfg-api:checked')].map(el => el.value);
+            const enabledDbs  = [...document.querySelectorAll('.cfg-db:checked')].map(el => el.value);
+
+            // Collect celltype label mappings {orig: display}
+            const celltypeLabels = {};
+            document.querySelectorAll('#cfgCelltypeLabelRows .cfg-label-input').forEach(inp => {
+                const orig = inp.dataset.orig || '';
+                const display = inp.value.trim() || orig;
+                if (orig) celltypeLabels[orig] = display;
+            });
+
+            // Collect group label mappings {orig: display}
+            const groupLabels = {};
+            document.querySelectorAll('#cfgGroupLabelRows .cfg-label-input').forEach(inp => {
+                const orig = inp.dataset.orig || '';
+                const display = inp.value.trim() || orig;
+                if (orig) groupLabels[orig] = display;
+            });
+
+            newConfirm.disabled = true;
+            newConfirm.textContent = '配置中...';
+
+            try {
+                const r = await fetch('/api/configure-dataset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: this.currentChatId || 'default',
+                        celltype_col: celltypeCol,
+                        group_col: groupCol,
+                        enabled_apis: enabledApis,
+                        enabled_dbs: enabledDbs,
+                        celltype_labels: celltypeLabels,
+                        group_labels: groupLabels,
+                    }),
+                });
+                if (!r.ok) {
+                    const e = await r.json().catch(() => ({}));
+                    throw new Error(e.detail || '配置失败');
+                }
+                modal.style.display = 'none';
+                modal.classList.remove('active');
+
+                this.showNotification(`数据集配置完成：${data.cells} 细胞 × ${data.genes} 基因`, 'success');
+
+                const greetingModule = document.getElementById('greetingModule');
+                if (greetingModule) greetingModule.style.display = 'none';
+
+                const messageInput = document.getElementById('messageInput');
+                if (messageInput) {
+                    messageInput.value = '';
+                    this.handleInputChange('');
+                    messageInput.focus();
+                }
+            } catch (err) {
+                const cfgError = document.getElementById('cfgError');
+                if (cfgError) { cfgError.textContent = err.message; cfgError.style.display = 'block'; }
+                newConfirm.disabled = false;
+                newConfirm.textContent = '确认并开始分析';
+            }
+        });
+    }
+
+    showToolsMenu() {
+        console.log('必填');
+        // TODO: 必填
+    }
+
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6'};
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            animation: slideInRight 0.3s ease-out;
+        `;
+
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.animation = 'slideOutRight 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+}
+
+// 必填必填选填
+// ========== Analysis Panel Tab + CSV Logic ==========
+(function() {
+    let _csvColumns = [];
+    let _csvSessionId = '';
+
+    // ---- Tab switching ----
+    window.apSwitchTab = function(tab) {
+        const h5adContent = document.getElementById('apContentH5ad');
+        const csvContent  = document.getElementById('apContentCsv');
+        const tabH5ad = document.getElementById('apTabH5ad');
+        const tabCsv  = document.getElementById('apTabCsv');
+        if (!h5adContent || !csvContent) return;
+        if (tab === 'csv') {
+            h5adContent.style.display = 'none';
+            csvContent.style.display  = '';
+            tabH5ad.style.color = '#9aa0ac'; tabH5ad.style.borderBottomColor = 'transparent';
+            tabCsv.style.color  = '#34d399'; tabCsv.style.borderBottomColor  = '#34d399';
+        } else {
+            csvContent.style.display  = 'none';
+            h5adContent.style.display = '';
+            tabCsv.style.color  = '#9aa0ac'; tabCsv.style.borderBottomColor  = 'transparent';
+            tabH5ad.style.color = '#8ab4f8'; tabH5ad.style.borderBottomColor = '#8ab4f8';
+        }
+    };
+
+    // ---- CSV file upload ----
+    async function apHandleCsvFile(file) {
+        window.apHandleCsvFile = apHandleCsvFile; // expose globally
+        const sid = window.e2seqApp?.currentChatId || 'default';
+        _csvSessionId = sid;
+        const formData = new FormData();
+        formData.append('session_id', sid);
+        formData.append('file', file);
+        const errEl = document.getElementById('apCsvError');
+        if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+        try {
+            const r = await fetch('/api/upload-csv', { method: 'POST', body: formData });
+            const d = await r.json();
+            if (!r.ok) { if (errEl) { errEl.textContent = d.detail || '上传失败'; errEl.style.display = 'block'; } return; }
+            _csvColumns = d.columns || [];
+            const elFname = document.getElementById('apCsvFileName');
+            if (elFname) elFname.textContent = d.filename || file.name;
+            const elRows = document.getElementById('apCsvRowCount');
+            if (elRows) elRows.textContent = d.n_rows;
+            const elCols = document.getElementById('apCsvColCount');
+            if (elCols) elCols.textContent = _csvColumns.length;
+            const selIds = ['apCsvGroupCol','apCsvGeneCol','apCsvExprCol','apCsvSigCol'];
+            selIds.forEach(id => {
+                const sel = document.getElementById(id);
+                if (!sel) return;
+                const keepEmpty = id === 'apCsvSigCol';
+                sel.innerHTML = keepEmpty ? '<option value="">-- 不使用 --</option>' : '';
+                _csvColumns.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c; opt.textContent = c;
+                    sel.appendChild(opt);
+                });
+            });
+            const guess = (hints) => _csvColumns.find(c => hints.some(h => c.toLowerCase().includes(h))) || _csvColumns[0] || '';
+            document.getElementById('apCsvGroupCol').value = guess(['group','condition','disease','phenotype']);
+            document.getElementById('apCsvGeneCol').value  = guess(['name','gene','protein','symbol']);
+            document.getElementById('apCsvExprCol').value  = guess(['log2fc','logfc','lfc','mean_expr','expr','fc']);
+            const sigGuess = _csvColumns.find(c => ['fdr','adj','padj','qval','p.adj'].some(h => c.toLowerCase().includes(h))) || '';
+            document.getElementById('apCsvSigCol').value = sigGuess;
+            // Update data status info (keep step1 visible, just update text)
+            const csvInfo = document.getElementById('apCsvDataInfo');
+            if (csvInfo) csvInfo.innerHTML = `<span style="color:#34d399">&#x2713;</span> ${d.filename || file.name} &middot; ${d.n_rows} 行 &middot; ${_csvColumns.length} 列`;
+            const csvClearBtn = document.getElementById('apCsvClearBtn');
+            if (csvClearBtn) csvClearBtn.style.display = 'block';
+            // Enable selects and confirm button now that data is uploaded
+            ['apCsvGroupCol','apCsvGeneCol','apCsvExprCol','apCsvSigCol'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = false;
+            });
+            const confirmBtn = document.getElementById('apCsvConfirmBtn');
+            if (confirmBtn) confirmBtn.disabled = false;
+        } catch(e) {
+            if (errEl) { errEl.textContent = '上传出错: ' + e.message; errEl.style.display = 'block'; }
+        }
+    }
+
+    window.apCsvDrop = function(e) {
+        e.preventDefault();
+        const dropZone = document.getElementById('apCsvDropZone');
+        if (dropZone) dropZone.style.borderColor = '#3d4460';
+        const file = e.dataTransfer.files[0];
+        if (file) apHandleCsvFile(file);
+    };
+
+    window.apCsvReset = function() {
+        document.getElementById('apCsvFileInput').value = '';
+        const csvInfo = document.getElementById('apCsvDataInfo');
+        if (csvInfo) csvInfo.textContent = '未加载数据';
+        const csvClearBtn = document.getElementById('apCsvClearBtn');
+        if (csvClearBtn) csvClearBtn.style.display = 'none';
+        // Reset selects to placeholder state
+        const groupSel = document.getElementById('apCsvGroupCol');
+        if (groupSel) { groupSel.innerHTML = '<option value="">— 上传文件后自动填充 —</option>'; groupSel.disabled = true; }
+        const geneSel = document.getElementById('apCsvGeneCol');
+        if (geneSel) { geneSel.innerHTML = '<option value="">name / gene_symbol</option>'; geneSel.disabled = true; }
+        const exprSel = document.getElementById('apCsvExprCol');
+        if (exprSel) { exprSel.innerHTML = '<option value="">log2FC / mean_expr</option>'; exprSel.disabled = true; }
+        const sigSel = document.getElementById('apCsvSigCol');
+        if (sigSel) { sigSel.innerHTML = '<option value="">-- 不使用 --</option>'; sigSel.disabled = true; }
+        const confirmBtn = document.getElementById('apCsvConfirmBtn');
+        if (confirmBtn) confirmBtn.disabled = true;
+        const errEl = document.getElementById('apCsvError');
+        if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    };
+
+    window.apCsvConfirm = async function() {
+        const btn = document.getElementById('apCsvConfirmBtn');
+        const errEl = document.getElementById('apCsvError');
+        if (errEl) errEl.style.display = 'none';
+        btn.disabled = true;
+        const origHTML = btn.innerHTML;
+        btn.textContent = '配置中...';
+        const exprTypeEl = document.getElementById('apCsvExprType');
+        const exprType = exprTypeEl.value === 'custom'
+            ? (document.getElementById('apCsvExprTypeCustom').value.trim() || 'value')
+            : exprTypeEl.value;
+        const exprThreshRaw = document.getElementById('apCsvExprThresh').value.trim();
+        const sigThreshRaw  = document.getElementById('apCsvSigThresh').value.trim();
+        const body = {
+            session_id:   _csvSessionId,
+            group_col:    document.getElementById('apCsvGroupCol').value,
+            gene_col:     document.getElementById('apCsvGeneCol').value,
+            expr_col:     document.getElementById('apCsvExprCol').value,
+            expr_type:    exprType,
+            expr_thresh:  exprThreshRaw ? parseFloat(exprThreshRaw) : null,
+            sig_col:      document.getElementById('apCsvSigCol').value,
+            sig_thresh:   sigThreshRaw ? parseFloat(sigThreshRaw) : 0.05,
+            enabled_apis: Array.from(document.querySelectorAll('#apCsvApiChecks input:checked')).map(el => el.value).filter(v => ['uniprot','mygene','quickgo','ensembl','chembl','pubmed','europepmc','opentargets','clinvar','gtex','reactome','gwas','biogrid'].includes(v)),
+            enabled_dbs:  Array.from(document.querySelectorAll('#apCsvApiChecks input:checked')).map(el => el.value).filter(v => ['string','hmdb','trrust','gutmgene'].includes(v)),
+            n_top_genes:  30,
+            dataset_description: (document.getElementById('apCsvDatasetDesc')?.value || '').trim(),
+        };
+        try {
+            const r = await fetch('/api/configure-csv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const d = await r.json();
+            if (!r.ok) {
+                if (errEl) { errEl.textContent = d.detail || '配置失败'; errEl.style.display = 'block'; }
+                btn.disabled = false; btn.innerHTML = origHTML; return;
+            }
+            const ap = window.analysisPanel;
+            if (ap && typeof ap.close === 'function') ap.close();
+            const grps = (d.groups || []).join(' / ');
+            window.e2seqApp?.showNotification('CSV 配置完成：' + d.n_genes + ' 个基因，分组：' + grps, 'success');
+            const gm = document.getElementById('greetingModule');
+            if (gm) gm.style.display = 'none';
+            window.e2seqApp?.navigateToChat?.();
+            const mi = document.getElementById('messageInput');
+            if (mi) { mi.value = ''; mi.focus(); }
+        } catch(e) {
+            if (errEl) { errEl.textContent = '请求失败: ' + e.message; errEl.style.display = 'block'; }
+        } finally {
+            btn.disabled = false; btn.innerHTML = origHTML;
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('apCsvExprType')?.addEventListener('change', function() {
+            const custom = document.getElementById('apCsvExprTypeCustom');
+            if (custom) custom.style.display = this.value === 'custom' ? '' : 'none';
+        });
+        document.getElementById('apCsvFileInput')?.addEventListener('change', function() {
+            if (this.files[0]) apHandleCsvFile(this.files[0]);
+        });
+    });
+
+    window.apClearData = async function() {
+        if (!confirm('确认清空当前数据？清空后需要重新上传文件才能分析。')) return;
+        const sid = window.e2seqApp?.currentChatId || 'default';
+        try {
+            const r = await fetch('/api/clear-data', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({session_id: sid})
+            });
+            if (r.ok) {
+                const result = await r.json();
+                logger.info('Clear result:', result);
+            }
+        } catch(e) {
+            logger.error('Clear failed:', e);
+        }
+        // Reset CSV panel
+        window.apCsvReset();
+        // Reset h5ad panel status
+        const info = document.getElementById('apDataInfo');
+        if (info) info.textContent = '未加载数据';
+        const clearBtn = document.getElementById('apClearDataBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
+        // Reset h5ad selects to '不使用'
+        const ctSel = document.getElementById('apCelltypeColSelect');
+        if (ctSel) { ctSel.innerHTML = '<option value="">— 不使用 —</option>'; }
+        const grpSel = document.getElementById('apGroupColSelect');
+        if (grpSel) { grpSel.innerHTML = '<option value="">— 不使用 —</option>'; }
+        const ctRows = document.getElementById('apCelltypeLabelRows');
+        if (ctRows) ctRows.innerHTML = '';
+        const grpRows = document.getElementById('apGroupLabelRows');
+        if (grpRows) grpRows.innerHTML = '';
+        // Clear localStorage labels
+        try { localStorage.removeItem('e2seq_user_labels'); } catch(_) {}
+        // Hide matrix preview
+        const matSec = document.getElementById('apMatrixSection');
+        if (matSec) matSec.style.display = 'none';
+        // Disable run button
+        const runBtn = document.getElementById('apRunBtn');
+        if (runBtn) { runBtn.disabled = true; }
+        // Show greeting module (clean slate)
+        const greetingModule = document.getElementById('greetingModule');
+        if (greetingModule) greetingModule.style.display = 'block';
+        // Refresh the analysis panel status to sync with server
+        if (window.analysisPanel) {
+            window.analysisPanel._colsLoaded = false;
+            window.analysisPanel.matrixData = null;
+            window.analysisPanel._userLabels = { celltype: {}, group: {} };
+            window.analysisPanel.checkDataStatus();
+        }
+        window.e2seqApp?.showNotification('数据已清空，请重新上传文件', 'info');
+    };
+})();
+
+// Fix CSV file input: use event delegation since panel may not be in DOM on DOMContentLoaded
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'apCsvFileInput') {
+        if (e.target.files[0]) window.apHandleCsvFile ? window.apHandleCsvFile(e.target.files[0]) : null;
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.e2seqApp = window.app = new E2seqApp();
+    // Always create a fresh AnalysisPanel instance.
+    if (typeof AnalysisPanel !== 'undefined') {
+        window.analysisPanel = new AnalysisPanel(window.e2seqApp);
+    }
+    // Bind header button to open analysis panel
+    // (removed per UX: upload now starts from right-side drawer only)
+    // 上传抽屉事件
+    document.getElementById('closeUploadDrawer')?.addEventListener('click', () => {
+        window.e2seqApp.closeUploadDrawer();
+    });
+    document.getElementById('uploadSingleCell')?.addEventListener('click', () => {
+        window.e2seqApp.openFilePicker('singlecell');
+    });
+    document.getElementById('uploadTable')?.addEventListener('click', () => {
+        window.e2seqApp.openFilePicker('table');
+    });
+    // 表格配置抽屉事件
+    document.getElementById('closeTableUploadDrawer')?.addEventListener('click', () => {
+        window.e2seqApp.closeTableDrawer();
+    });
+    document.getElementById('confirmTableUpload')?.addEventListener('click', () => {
+        window.e2seqApp.confirmTableUpload();
+    });
+});
+
+// 必填
+const style = document.createElement('style');
+style.textContent = `
+    .chat-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background 0.15s; }
+    .chat-item:hover { background:var(--bg-hover, rgba(255,255,255,0.06)); }
+    .chat-item.active { background:var(--accent-primary, #3b82f6)22; }
+    .chat-item-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+    .chat-item-title { font-size:0.875rem; color:var(--text-primary,#e8eaed); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .chat-item-time { font-size:0.72rem; color:var(--text-secondary,#9aa0ac); }
+    .chat-item-del { flex-shrink:0; width:20px; height:20px; border:none; background:transparent; color:var(--text-secondary,#9aa0ac); cursor:pointer; font-size:1rem; line-height:1; border-radius:4px; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s,color 0.15s; }
+    .chat-item:hover .chat-item-del { opacity:1; }
+    .chat-item-del:hover { color:#ef4444; }
+
+    @keyframes slideInRight {
+        from {
+            opacity: 0;
+            transform: translateX(100px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    @keyframes slideOutRight {
+        from {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        to {
+            opacity: 0;
+            transform: translateX(100px);
+        }
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        margin: 40px auto;
+        border: 4px solid rgba(138, 180, 248, 0.2);
+        border-top-color: #8ab4f8;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .loading-dots {
+        display: flex;
+        gap: 8px;
+        padding: 12px 0;
+    }
+
+    .loading-dots span {
+        width: 8px;
+        height: 8px;
+        background: #8ab4f8;
+        border-radius: 50%;
+        animation: bounce 1.4s infinite ease-in-out both;
+    }
+
+    .loading-dots span:nth-child(1) {
+        animation-delay: -0.32s;
+    }
+
+    .loading-dots span:nth-child(2) {
+        animation-delay: -0.16s;
+    }
+
+    @keyframes bounce {
+        0%, 80%, 100% {
+            transform: scale(0);
+        }
+        40% {
+            transform: scale(1);
+        }
+    }
+
+    .empty-state-small {
+        padding: 20px;
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .progress-log {
+        margin-top: 10px;
+        max-height: 220px;
+        overflow-y: auto;
+        font-size: 0.78rem;
+        font-family: 'Fira Mono', 'Consolas', monospace;
+        color: #8ab4f8;
+        line-height: 1.7;
+        border-left: 2px solid #3b82f633;
+        padding-left: 10px;
+    }
+
+    .progress-step {
+        padding: 1px 0;
+        white-space: pre-wrap;
+        word-break: break-all;
+        animation: fadeInUp 0.2s ease;
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== Dataset Config Modal ===== */
+    #datasetConfigModal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.55);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+    }
+    #datasetConfigModal.active { display: flex !important; }
+    #datasetConfigModal .modal-content {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-xl);
+        padding: 0;
+        width: 95%;
+        max-width: 560px;
+        box-shadow: var(--shadow-lg);
+    }
+    #datasetConfigModal .modal-header {
+        padding: 1.2rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    #datasetConfigModal .modal-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+    #datasetConfigModal .modal-body {
+        padding: 1.4rem 1.5rem;
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+    #datasetConfigModal .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: flex-end;
+        gap: .75rem;
+    }
+    .config-stat {
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        padding: .6rem 1.2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 90px;
+    }
+    .config-stat span {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--accent-secondary);
+    }
+    .config-stat small {
+        font-size: .75rem;
+        color: var(--text-tertiary);
+    }
+    .cfg-check-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .4rem .8rem;
+        margin-top: .5rem;
+    }
+
+    .chart-error {
+        padding: 40px;
+        text-align: center;
+        color: var(--text-secondary);
+    }
+
+    .chart-error p {
+        font-size: 1.125rem;
+        margin-bottom: 8px;
+    }
+
+    .chart-error small {
+        font-size: 0.875rem;
+        opacity: 0.7;
+    }
+    .cite-badge {
+        display: inline-block;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--accent-color, #60a5fa);
+        background: rgba(96,165,250,0.1);
+        border: 1px solid rgba(96,165,250,0.25);
+        border-radius: 4px;
+        padding: 0 4px;
+        margin: 0 1px;
+        vertical-align: baseline;
+        letter-spacing: 0.02em;
+    }
+    .message-content h1, .message-content h2, .message-content h3 {
+        margin: 1em 0 0.4em;
+        font-weight: 700;
+        line-height: 1.3;
+    }
+    .message-content h2 { font-size: 1.1rem; }
+    .message-content h3 { font-size: 1rem; }
+    .message-content p { margin: 0.5em 0; line-height: 1.7; }
+    .message-content strong { font-weight: 700; }
+    .message-content code {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85em;
+        background: rgba(255,255,255,0.08);
+        border-radius: 3px;
+        padding: 1px 4px;
+    }
+    .message-content hr { border: none; border-top: 1px solid var(--border-color); margin: 1em 0; }
+
+`;
+document.head.appendChild(style);
+
+
+// Markdown fallback renderer
+function _renderMarkdownFallback(text) {
+    if (!text) return '';
+    if (typeof marked !== 'undefined') {
+        try {
+            marked.setOptions({ breaks: true, gfm: true });
+            return marked.parse(text);
+        } catch(e) { console.warn('marked error', e); }
+    }
+    var html = text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_\n]+?)__/g, '<strong>$1</strong>')
+        .replace(/`([^`\n]+?)`/g, '<code>$1</code>')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\[([A-Za-z][A-Za-z0-9:_]+)\]/g, '<span class="cite-badge">[$1]</span>')
+        .replace(/^---+$/gm, '<hr>')
+        .replace(/\n{2,}/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+    return '<p>' + html + '</p>';
+}

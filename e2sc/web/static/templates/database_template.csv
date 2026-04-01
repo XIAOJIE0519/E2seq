@@ -1,0 +1,11 @@
+source,target,relationship,weight
+TP53,MDM2,regulation,0.95
+BRCA1,BRCA2,interaction,0.87
+EGFR,KRAS,binding,0.78
+MYC,MAX,binding,0.92
+STAT3,IL6,regulation,0.88
+AKT1,MTOR,phosphorylation,0.91
+PTEN,AKT1,inhibition,0.89
+RB1,E2F1,regulation,0.93
+CDKN1A,CDK2,inhibition,0.86
+BCL2,BAX,regulation,0.84
