@@ -4,6 +4,11 @@ venv/
 env/
 ENV/
 
+# Big Dataset (Large files)
+_datasets/
+*.h5ad
+reference.h5ad
+
 # Python
 __pycache__/
 *.py[cod]
