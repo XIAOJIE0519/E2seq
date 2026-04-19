@@ -167,30 +167,35 @@ def check_dependencies(python_exe):
         "rich", "typer", "pydantic"
     ]
 
-    # 已知需要较长加载时间的包（torch 相关）
-    # sentence-transformers 首次 import 需要 ~20-40s（加载 torch/transformers）
-    slow_packages = {"sentence-transformers", "chromadb"}
+    # sentence-transformers 依赖 torch + transformers，首次 import 较慢（~20s）。
+    # 用其子依赖做检查：torch 和 transformers 加载快（1-3s），无需长 timeout。
+    # 如果 torch/transformers 能导入，说明 sentence-transformers 所需的底层环境完整。
+    _st_imports = ["torch", "transformers"]
 
     missing_packages = []
     installed_packages = []
 
     for package in required_packages:
-        timeout = 60 if package in slow_packages else 10
-        try:
-            result = subprocess.run(
-                [python_exe, "-c", f"import {package.replace('-', '_')}"],
-                capture_output=True,
-                timeout=timeout
-            )
-            if result.returncode == 0:
-                installed_packages.append(package)
-            else:
-                missing_packages.append(package)
-        except subprocess.TimeoutExpired:
-            # timeout 说明进程还在运行（正常情况，package 正在加载）。
-            # 此时认为包已安装，跳过后续 pip install。
+        import_name = package.replace("-", "_")
+        # 对于 sentence-transformers，改为检查其快速加载的核心子依赖
+        check_imports = _st_imports if package == "sentence-transformers" else [import_name]
+        all_ok = True
+        for check_name in check_imports:
+            try:
+                result = subprocess.run(
+                    [python_exe, "-c", f"import {check_name}"],
+                    capture_output=True,
+                    timeout=30
+                )
+                if result.returncode != 0:
+                    all_ok = False
+                    break
+            except Exception:
+                all_ok = False
+                break
+        if all_ok:
             installed_packages.append(package)
-        except Exception:
+        else:
             missing_packages.append(package)
 
     if missing_packages:

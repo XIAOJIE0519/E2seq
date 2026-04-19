@@ -2790,14 +2790,14 @@ class E2scAgentOptimized:
         import pandas as pd
         fake_results = {
             "deg": {"results": pd.DataFrame({"names": genes_to_query}), "params": {}},
-                "plots": [],
+            "plots": [],
         }
-            if cell_type_context:
-                fake_results["matrix_context"] = {
-                    "cell_type_focus": cell_type_context,
-                    "genes_queried": genes_to_query,
-                    "top_genes_per_celltype": {cell_type_context: genes_to_query}
-                }
+        if cell_type_context:
+            fake_results["matrix_context"] = {
+                "cell_type_focus": cell_type_context,
+                "genes_queried": genes_to_query,
+                "top_genes_per_celltype": {cell_type_context: genes_to_query}
+            }
 
         # Inject cross-gene network analysis for coherent module-level synthesis
         cross_gene = self._build_cross_gene_analysis(knowledge)
