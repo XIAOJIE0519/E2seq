@@ -1944,8 +1944,69 @@ class E2scAgentOptimized:
             return ("biogrid", {})
 
         def _fetch_humanbase(gene: str) -> tuple:
-            """Query tissue-specific expression via TISSUES DB (Jensen Lab) + Human Protein Atlas."""
-            # Primary: Jensen Lab TISSUES database
+            """Query tissue-specific expression.
+            Strategy: resolve Ensembl ID via MyGene -> fetch HPA JSON with Ensembl ID.
+            Falls back to Jensen TISSUES and MyGene expression field.
+            """
+            # Primary: MyGene (resolve Ensembl) -> HPA JSON (Ensembl URL)
+            try:
+                # Resolve symbol -> Ensembl ID
+                r_mg = _req.get(
+                    "https://mygene.info/v3/query",
+                    params={"q": gene, "species": "human",
+                            "fields": "ensembl.gene,HGNC,symbol"},
+                    timeout=10,
+                )
+                ensembl_id = None
+                if r_mg.status_code == 200:
+                    mg_data = r_mg.json()
+                    hits = mg_data.get("hits", [])
+                    if hits:
+                        h = hits[0]
+                        ensembl_list = h.get("ensembl", [])
+                        if isinstance(ensembl_list, dict):
+                            ensembl_list = [ensembl_list]
+                        for e in ensembl_list:
+                            eid = e.get("gene", "") if isinstance(e, dict) else str(e)
+                            if eid and eid.startswith("ENSG"):
+                                ensembl_id = eid
+                                break
+                if ensembl_id:
+                    # Fetch HPA JSON using Ensembl ID (not gene symbol)
+                    r_hpa = _req.get(
+                        f"https://www.proteinatlas.org/{ensembl_id}.json",
+                        timeout=10,
+                    )
+                    if r_hpa.status_code == 200:
+                        hpa = r_hpa.json()
+                        tissues = []
+                        # RNA tissue distribution
+                        rna_data = hpa.get("rna_tissue_distribution", {})
+                        if isinstance(rna_data, dict):
+                            for entry in rna_data.get("tissue", [])[:8]:
+                                tissue = entry.get("tissue", "")
+                                level = entry.get("level", "")
+                                if tissue:
+                                    tissues.append(f"{tissue} (RNA: {level})")
+                        # Single cell type expression
+                        sc_data = hpa.get("cell_type_expression", {})
+                        if isinstance(sc_data, dict) and not tissues:
+                            for entry in sc_data.get("cellType", [])[:6]:
+                                cell = entry.get("cellType", "")
+                                tcells = entry.get("tissueCellType", "")
+                                level = entry.get("level", "")
+                                label = entry.get("enrichedIn", "")
+                                if cell:
+                                    src = f"{tcells} {cell}" if tcells else cell
+                                    tissues.append(f"{src} (SC: {level})")
+                        if tissues:
+                            return ("humanbase", {"humanbase_tissues": tissues[:8]})
+                    else:
+                        logger.debug(f"HPA JSON for {ensembl_id}: HTTP {r_hpa.status_code}")
+            except Exception as e:
+                logger.debug(f"HumanBase HPA route {gene}: {e}")
+
+            # Fallback 1: Jensen Lab TISSUES
             try:
                 r = _req.get(
                     "https://tissues.jensenlab.org/api/entity",
@@ -1961,32 +2022,17 @@ class E2scAgentOptimized:
                         source = item.get("source", "")
                         if tissue:
                             entry = tissue
-                            if score: entry += f" (score={score})"
-                            if source: entry += f" [{source}]"
+                            if score:
+                                entry += f" (score={score})"
+                            if source:
+                                entry += f" [{source}]"
                             tissues.append(entry)
                     if tissues:
                         return ("humanbase", {"humanbase_tissues": tissues[:8]})
             except Exception:
                 pass
-            # Fallback 1: Human Protein Atlas cell type specificity
-            try:
-                r2 = _req.get(
-                    f"https://www.proteinatlas.org/{gene}/single+cell+type.json",
-                    timeout=10,
-                )
-                if r2.status_code == 200:
-                    data2 = r2.json()
-                    entries = []
-                    for item in data2.get("cellExpression", {}).get("data", [])[:8]:
-                        cell = item.get("cellType", item.get("cell_type", ""))
-                        level = item.get("level", "")
-                        if cell:
-                            entries.append(f"{cell}: {level}" if level else cell)
-                    if entries:
-                        return ("humanbase", {"humanbase_tissues": entries[:8]})
-            except Exception:
-                pass
-            # Fallback 2: MyGene.info expression field
+
+            # Fallback 2: MyGene expression field
             try:
                 r3 = _req.get(
                     "https://mygene.info/v3/query",
@@ -2008,43 +2054,50 @@ class E2scAgentOptimized:
                         if tissues:
                             return ("humanbase", {"humanbase_tissues": tissues})
             except Exception as e:
-                logger.debug(f"HumanBase fallback {gene}: {e}")
+                logger.debug(f"HumanBase MyGene fallback {gene}: {e}")
             return ("humanbase", {})
 
         def _fetch_civic(gene: str) -> tuple:
-            """Query CIViC for cancer variant clinical evidence."""
+            """Query CIViC for cancer variant clinical evidence using POST GraphQL."""
             try:
-                r = _req.get(
-                    "https://civicdb.org/api/v2/graphql",
-                    json={"query": """
-                        query SearchGene($geneSymbol: String!) {
-                          genes(entrezSymbols: [$geneSymbol]) {
-                            nodes {
-                              id
-                              name
-                              variants {
-                                totalCount
+                r = _req.post(
+                    "https://civicdb.org/api/graphql",
+                    json={
+                        "query": """
+                            query SearchGene($geneSymbol: String!) {
+                              genes(entrezSymbols: [$geneSymbol]) {
                                 nodes {
                                   id
                                   name
-                                  variantTypes { name }
+                                  variants {
+                                    totalCount
+                                    nodes {
+                                      id
+                                      name
+                                      variantTypes { name }
+                                    }
+                                  }
                                 }
                               }
                             }
-                          }
-                        }
-                    """, "variables": {"geneSymbol": gene}},
+                        """,
+                        "variables": {"geneSymbol": gene}
+                    },
                     headers={"Content-Type": "application/json", "Accept": "application/json"},
                     timeout=15,
                 )
                 if r.status_code == 200:
                     data = r.json()
+                    if "errors" in data:
+                        logger.debug(f"CIViC GraphQL errors for {gene}: {data['errors']}")
                     genes_data = data.get("data", {}).get("genes", {}).get("nodes", [])
                     if genes_data:
                         variants = genes_data[0].get("variants", {}).get("nodes", [])[:10]
                         variant_names = [v.get("name", "") for v in variants if v.get("name")]
                         if variant_names:
                             return ("civic", {"civic_variants": variant_names[:8]})
+                else:
+                    logger.debug(f"CIViC {gene}: HTTP {r.status_code} {r.text[:200]}")
             except Exception as e:
                 logger.debug(f"CIViC {gene}: {e}")
             return ("civic", {})
