@@ -2236,23 +2236,54 @@ body {
 }
 
 .btn-save-new {
-    padding: 14px 48px;
-    background: var(--text-primary);
-    border: none;
-    border-radius: 10px;
-    color: var(--bg-primary);
-    font-weight: 600;
-    font-size: 1rem;
+    position: relative;
+    z-index: 0;
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 10px;
-    transition: all 0.2s ease;
+    padding: 14px 48px;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+    transition: color 0.5s ease, transform 0.3s ease;
+}
+
+.btn-save-new::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    transform: translateX(150%) translateY(150%) scale(2.5);
+    border-radius: 100%;
+    background: var(--text-primary);
+    transition: transform 1s ease;
 }
 
 .btn-save-new:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
+    color: var(--bg-primary);
+    transform: scale(1.03);
+}
+
+.btn-save-new:hover::before {
+    transform: translateX(0%) translateY(0%) scale(2.5);
+}
+
+.btn-save-new:active {
+    transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-save-new::before {
+    background: var(--bg-primary);
+}
+
+[data-theme="dark"] .btn-save-new:hover {
+    color: var(--text-primary);
 }
 
 /* 响应式 */
