@@ -1107,7 +1107,12 @@ async def get_progress(session_id: str):
 
 
 async def _stream_agent_chat(chat_id: str, message: str):
-    """Generator that yields SSE events for streaming agent chat."""
+    """Generator that yields SSE events for streaming agent chat.
+
+    Runs the agent in a thread executor and streams progress events via an async
+    queue as they are produced, so the frontend sees real-time updates instead of
+    waiting for the full response.
+    """
     import asyncio
     import plotly
     from e2sc.utils import get_config, get_security_manager
@@ -1122,7 +1127,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Initialize agent if needed
         config = get_config()
         if not config.llm.api_key:
-            yield "event: error\ndata: 请先在设置页面配置 API Key\n\n"
+            yield "event: error\ndata: \u8bf7\u5148\u5728\u8bbe\u7f6e\u9875\u9762\u914d\u7f6e API Key\n\n"
             return
 
         security = get_security_manager()
@@ -1139,7 +1144,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 )
                 agents[chat_id] = agent
             except Exception as e:
-                yield f"event: error\ndata: Agent初始化失败: {str(e)}\n\n"
+                yield f"event: error\ndata: Agent\u521d\u59cb\u5316\u5931\u8d25: {str(e)}\n\n"
                 return
 
         # Install progress handler
@@ -1147,14 +1152,87 @@ async def _stream_agent_chat(chat_id: str, message: str):
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
 
+        # Progress queue for real-time streaming
+        progress_queue = asyncio.Queue()
+
+        # Capture the running loop for thread-safe access from the executor thread
+        _running_loop = asyncio.get_running_loop()
+
+        def progress_callback(msg: str):
+            """Thread-safe callback: put progress message into the async queue."""
+            try:
+                _running_loop.call_soon_threadsafe(
+                    progress_queue.put_nowait, msg
+                )
+            except Exception:
+                pass
+
+        async def drain_queue():
+            """Drain all queued progress messages as SSE events."""
+            while not progress_queue.empty():
+                try:
+                    msg = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
+                    _push_progress(chat_id, msg)
+                    payload = json.dumps({"step": "progress", "content": msg})
+                    yield f"event: thinking\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    break
+
+        # Run agent in executor so we can interleave SSE yields with progress
+        loop = asyncio.get_event_loop()
+        agent_result_holder = {}
+
+        def run_agent():
+            try:
+                agent_result_holder["result"] = agent.chat(message, progress_callback=progress_callback)
+            except Exception as e:
+                agent_result_holder["error"] = e
+
+        # Kick off agent in thread pool
+        executor_future = loop.run_in_executor(None, run_agent)
+
+        # Concurrently drain progress queue while agent runs
+        async def stream_progress():
+            while not executor_future.done():
+                msg = await asyncio.wait_for(progress_queue.get(), timeout=0.3)
+                _push_progress(chat_id, msg)
+                payload = json.dumps({"step": "progress", "content": msg})
+                yield f"event: thinking\ndata: {payload}\n\n"
+
+        # Interleave progress streaming with agent execution
         try:
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, agent.chat, message)
+            async_gen = stream_progress()
+            async_iter = async_gen.__aiter__()
+            pending_iter = True
+            while pending_iter:
+                try:
+                    ev = await asyncio.wait_for(async_iter.__anext__(), timeout=0.5)
+                    yield ev
+                except StopAsyncIteration:
+                    pending_iter = False
+                except asyncio.TimeoutError:
+                    # No new progress in 0.5s, check if agent is done
+                    if executor_future.done():
+                        pending_iter = False
+        finally:
+            try:
+                async_gen.aclose()
+            except Exception:
+                pass
+
+        # Wait for agent to complete
+        try:
+            await loop.run_in_executor(None, lambda: executor_future.result())
         finally:
             _orch_logger.removeHandler(_prog_handler)
             _push_progress(chat_id, "[进度] 分析完成")
 
-        # Yield thinking steps as individual events
+        if "error" in agent_result_holder:
+            raise agent_result_holder["error"]
+
+        response = agent_result_holder.get("result", {})
+
+        # Yield thinking steps accumulated during execution
         for step in response.get("thinking", []):
             content = json.dumps({"step": step.get("step", ""), "content": step.get("content", "")})
             yield f"event: thinking\ndata: {content}\n\n"
@@ -1348,11 +1426,12 @@ async def chat(request: Request):
 
 # Provider-to-key mapping and model defaults
 PROVIDER_KEY_MAP = {
-    "openai": ("openai_key", "gpt-4o"),
+    "openai": ("openai_key", "gpt-5.4"),
     "anthropic": ("anthropic_key", "claude-opus-4-5"),
-    "gemini": ("gemini_key", "gemini-2.5-pro"),
-    "deepseek": ("deepseek_key", "deepseek-chat"),
+    "gemini": ("gemini_key", "gemini-2.5-pro-preview-06-05"),
+    "deepseek": ("deepseek_key", "deepseek-reasoner"),
     "siliconflow": ("siliconflow_key", "deepseek-ai/DeepSeek-V3"),
+    "glm": ("glm_key", "glm-5.1"),
 }
 
 
@@ -1390,11 +1469,13 @@ async def get_settings():
         "gemini_key": mask(config.llm.api_key) if current_provider == "gemini" else "",
         "deepseek_key": mask(config.llm.api_key) if current_provider == "deepseek" else "",
         "siliconflow_key": mask(config.llm.api_key) if current_provider == "siliconflow" else "",
+        "glm_key": mask(config.llm.api_key) if current_provider == "glm" else "",
         "openai_model": current_model if current_provider == "openai" else "",
         "anthropic_model": current_model if current_provider == "anthropic" else "",
         "gemini_model": current_model if current_provider == "gemini" else "",
         "deepseek_model": current_model if current_provider == "deepseek" else "",
         "siliconflow_model": current_model if current_provider == "siliconflow" else "",
+        "glm_model": current_model if current_provider == "glm" else "",
         # Embedding 配置
         "embedding_model": config.embedding.model_name,
         "embedding_models": embed_models,
@@ -1727,6 +1808,7 @@ async def fetch_models(body: Dict[str, Any]):
     - DeepSeek:  GET https://api.deepseek.com/models
     - Anthropic: GET https://api.anthropic.com/v1/models
     - Gemini:    GET https://generativelanguage.googleapis.com/v1beta/models
+    - GLM:       GET https://open.bigmodel.cn/api/paas/v4/models
     - Ollama:    GET http://localhost:11434/api/tags
     """
     import httpx
@@ -1826,6 +1908,26 @@ async def fetch_models(body: Dict[str, Any]):
                     models = [m["name"] for m in data.get("models", [])]
                 except httpx.ConnectError:
                     raise HTTPException(status_code=400, detail="Ollama not running. Run: ollama serve")
+
+            elif provider == "glm":
+                # https://docs.bigmodel.cn — GLM-5.1 / GLM-5 / GLM-4-Plus / GLM-Z1
+                resp = await client.get(
+                    "https://open.bigmodel.cn/api/paas/v4/models",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"GLM API error ({resp.status_code}): {resp.text[:300]}")
+                data = resp.json()
+                all_models = [m["id"] for m in data.get("data", []) if m.get("id")]
+                # Prioritize flagship models: GLM-5.1 > GLM-5 > GLM-4-Plus > GLM-4 > GLM-Z1
+                priority = ["glm-5.1", "glm-5", "glm-4-plus", "glm-4-0520", "glm-4", "glm-z1", "glm-3"]
+                def _glm_sort(m):
+                    ml = m.lower()
+                    for i, p in enumerate(priority):
+                        if ml.startswith(p):
+                            return (i, m)
+                    return (len(priority), m)
+                models = sorted(all_models, key=_glm_sort)
 
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")

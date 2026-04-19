@@ -340,8 +340,9 @@ class E2scAgentOptimized:
             logger.error(f"build_knowledge_base failed: {e}")
             return {"success": False, "n_docs": 0, "n_genes": 0, "error": str(e)}
 
-    def chat(self, message: str, stream: bool = False, use_agent_mode: bool = False):
-        """Agentic RAG chat: Agent thinks → RAG retrieves → Agent evaluates → re-retrieves → LLM answers."""
+    def chat(self, message: str, stream: bool = False, use_agent_mode: bool = False,
+             progress_callback=None):
+        """Agentic RAG chat: Agent thinks -> RAG retrieves -> Agent evaluates -> re-retrieves -> LLM answers."""
         import re
         logger.info(f"User message: {message}")
         self.state_manager.set_state(AgentState.PLANNING)
@@ -353,7 +354,7 @@ class E2scAgentOptimized:
             return self._chat_no_data(message, thinking_steps)
 
         # ── Agentic RAG loop (LLM auto-detects intent and data structure) ──
-        return self._chat_agentic_rag(message, thinking_steps)
+        return self._chat_agentic_rag(message, thinking_steps, progress_callback=progress_callback)
 
 
 
@@ -666,7 +667,7 @@ class E2scAgentOptimized:
         self.memory.working_memory.add_message("assistant", response_text)
         self.memory.save_current_session(success=True)
         return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
-    def _chat_agentic_rag(self, message: str, thinking_steps: list) -> dict:
+    def _chat_agentic_rag(self, message: str, thinking_steps: list, progress_callback=None) -> dict:
         """Agentic RAG: plan -> retrieve -> evaluate -> re-retrieve -> synthesize.
         Agent drives the entire flow; no pre-built KB cache is consulted.
         Gene selection is from the FULL dataset gene list, not just top-N.
@@ -944,6 +945,48 @@ class E2scAgentOptimized:
         if not to_ret:
             to_ret = top_ranked_genes[:]
         kws = list(OrderedDict.fromkeys(kws_pm + kws_em))  # merged, deduped
+
+        # Step 2b: Intelligent keyword expansion — generate multi-angle keywords if few provided
+        # This ensures rich literature coverage across biological, clinical, and methodological angles
+        _EXPANSION_PROMPT = (
+            "You are a biomedical literature search expert. Generate diverse search keywords.\n"
+            "Genes: {genes}\n"
+            "Disease/Context: {context}\n"
+            "Existing keywords: {existing}\n\n"
+            "Generate 3-5 additional keyword strings covering DIFFERENT angles:\n"
+            "1. gene + pathway/disease (biological mechanism)\n"
+            "2. gene + drug/treatment (therapeutic angle)\n"
+            "3. gene + single-cell/scRNA-seq (methodology)\n"
+            "4. gene + disease + biomarker (clinical)\n"
+            "5. gene + survival/prognosis (clinical outcome)\n"
+            "6. gene + interactome/network (molecular interaction)\n"
+            "Return JSON: {{\"pubmed_keywords\": [...], \"europepmc_keywords\": [...]}}\n"
+            "pubmed_keywords: focus on primary research (mechanism, biomarker, clinical trial)\n"
+            "europepmc_keywords: different angles (preprints, reviews, cross-species, omics)\n"
+            "Max 10 total per list. Use actual gene names from the list."
+        )
+        if len(kws) < 3 and to_ret:
+            try:
+                _exp_genes = to_ret[:8]  # cap for prompt length
+                _exp_ctx = context_hint or message[:120]
+                _exp_prompt = _EXPANSION_PROMPT.format(
+                    genes=", ".join(_exp_genes),
+                    context=_exp_ctx,
+                    existing=", ".join(kws) if kws else "(none)"
+                )
+                _exp_raw = self.llm.chat([{"role": "user", "content": _exp_prompt}])
+                _jm = _re_ar.search(r"\{[\s\S]*\}", _exp_raw)
+                if _jm:
+                    _exp = json.loads(_jm.group())
+                    _extra_pm = [str(k).strip() for k in _exp.get("pubmed_keywords", []) if str(k).strip()]
+                    _extra_em = [str(k).strip() for k in _exp.get("europepmc_keywords", []) if str(k).strip()]
+                    kws_pm = list(OrderedDict.fromkeys(kws_pm + _extra_pm))
+                    kws_em = list(OrderedDict.fromkeys(kws_em + _extra_em))
+                    kws = list(OrderedDict.fromkeys(kws_pm + kws_em))
+                    logger.info(f"[AgenticRAG] Keyword expansion: +{len(_extra_pm)} PM, +{len(_extra_em)} EPMC keywords")
+            except Exception as _ke:
+                logger.debug(f"Keyword expansion failed: {_ke}")
+
         thinking_steps.append({"step":"AgentPlan","content":"Focus: {} | {} genes selected | APIs: {} | DBs: {} | kws: {}".format(
             focus, len(to_ret), sorted(_agent_apis), sorted(_agent_dbs), kws[:3])})
         logger.info("[AgenticRAG] Plan: {} genes, {} keywords, APIs={}, DBs={}".format(
@@ -953,7 +996,8 @@ class E2scAgentOptimized:
         self.state_manager.set_state(AgentState.RETRIEVING)
         knowledge = self._build_group_knowledge(
             "agentic/{}".format(focus[:30]), to_ret,
-            context_hint=focus, enabled_apis=_agent_apis, enabled_dbs=_agent_dbs)
+            context_hint=focus, enabled_apis=_agent_apis, enabled_dbs=_agent_dbs,
+            progress_callback=progress_callback)
 
         # Step 3b: Agent-directed literature augmentation using direct API calls
         # PubMed and EuropePMC use SEPARATE keyword sets from the agent plan — no count cap
@@ -964,8 +1008,10 @@ class E2scAgentOptimized:
             if "pubmed" in _agent_apis:
                 pm_client = self.api_clients.get("pubmed")
                 if pm_client:
-                    for kw in kws_pm:  # no count cap
+                    for kw_idx, kw in enumerate(kws_pm, 1):
                         try:
+                            if progress_callback:
+                                progress_callback(f"[进度] 查询 PubMed ({kw_idx}/{len(kws_pm)}): {kw.strip()[:50]}")
                             pm = pm_client.search_and_get_details(kw.strip(), max_results=10)
                             for art in pm.get("articles", []):
                                 pmid = art.get("pmid", "")
@@ -974,8 +1020,10 @@ class E2scAgentOptimized:
                         except Exception as e:
                             logger.debug(f"PubMed search failed: {e}")
             if "europepmc" in _agent_apis:
-                for kw in kws_em:  # no count cap
+                for kw_idx, kw in enumerate(kws_em, 1):
                     try:
+                        if progress_callback:
+                            progress_callback(f"[进度] 查询 EuropePMC ({kw_idx}/{len(kws_em)}): {kw.strip()[:50]}")
                         r = _kw_req.get("https://www.ebi.ac.uk/europepmc/webservices/rest/search",
                             params={"query": kw.strip(), "resultType": "lite",
                                     "pageSize": 10, "format": "json", "sort": "CITED desc"},
@@ -1056,6 +1104,7 @@ class E2scAgentOptimized:
                     context_hint=focus,
                     enabled_apis=_agent_apis,
                     enabled_dbs=_agent_dbs,
+                    progress_callback=progress_callback,
                 )
                 knowledge.setdefault("genes", {}).update(ekb.get("genes", {}))
                 _sp2 = {a.get("pmid") for a in knowledge.get("pubmed", [])}
@@ -1077,8 +1126,10 @@ class E2scAgentOptimized:
                     pm_client = self.api_clients.get("pubmed")
                     if pm_client:
                         _sp = {a.get("pmid") for a in knowledge.get("pubmed", [])}
-                        for kw in extra_pm:
+                        for kw_idx, kw in enumerate(extra_pm, 1):
                             try:
+                                if progress_callback:
+                                    progress_callback(f"[进度] 查询 PubMed ({kw_idx}/{len(extra_pm)}): {kw[:50]}")
                                 pm = pm_client.search_and_get_details(kw, max_results=10)
                                 for art in pm.get("articles", []):
                                     pmid = art.get("pmid", "")
@@ -1089,8 +1140,10 @@ class E2scAgentOptimized:
                                 pass
                 if "europepmc" in _agent_apis and extra_em:
                     _sep = {a.get("pmid") or a.get("id") for a in knowledge.get("europepmc", [])}
-                    for kw in extra_em:
+                    for kw_idx, kw in enumerate(extra_em, 1):
                         try:
+                            if progress_callback:
+                                progress_callback(f"[进度] 查询 EuropePMC ({kw_idx}/{len(extra_em)}): {kw[:50]}")
                             r = _kw_req.get(
                                 "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
                                 params={"query": kw, "resultType": "lite", "pageSize": 10, "format": "json", "sort": "CITED desc"},
@@ -1478,7 +1531,8 @@ class E2scAgentOptimized:
         return self._gene_cache_lock
 
     def _build_group_knowledge(self, label: str, genes: list, context_hint: str = "",
-                                    enabled_apis: set = None, enabled_dbs: set = None) -> dict:
+                                    enabled_apis: set = None, enabled_dbs: set = None,
+                                    progress_callback=None) -> dict:
         """Query ALL APIs + local DBs for a gene group.
 
         Online APIs (UniProt, MyGene, QuickGO, Ensembl, ChEMBL, PubMed, EuropePMC)
@@ -2163,10 +2217,15 @@ class E2scAgentOptimized:
             if _cached is not None:
                 knowledge["genes"][gene] = dict(_cached)
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [OK] 使用缓存结果")
+                if progress_callback:
+                    progress_callback(f"[进度] [{gene}] {pct}% ({gene_idx}/{total_genes}) [缓存]")
                 continue
             gk: dict = {}
             active_apis = [a.upper() for a in ["uniprot","mygene","ensembl","chembl"] if a in enabled_apis]
-            logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询 {' / '.join(active_apis) if active_apis else '(无在线 API)'} ...")
+            _start_msg = f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询 {' / '.join(active_apis) if active_apis else '(无在线 API)'} ..."
+            logger.info(_start_msg)
+            if progress_callback:
+                progress_callback(_start_msg)
 
             # Concurrent online APIs -- only those enabled by user
             futures_map = {}
@@ -2195,24 +2254,36 @@ class E2scAgentOptimized:
                             _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
                             _src_stats["apis"][api_name]["hit_genes"].add(gene)
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
+                        if progress_callback:
+                            progress_callback(f"[进度] [{gene}] [{api_name.upper()}] OK")
                     except Exception as _api_e:
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
+                        if progress_callback:
+                            progress_callback(f"[进度] [{gene}] [{api_name.upper()}] FAIL")
 
             # QuickGO needs accession from UniProt (sequential dependency)
             accession = gk.get("uniprot_accession", "")
             if accession and "quickgo" in enabled_apis:
-                logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询 [QuickGO] GO注释 ...")
+                _qg_msg = f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询 [QuickGO] GO注释 ..."
+                logger.info(_qg_msg)
+                if progress_callback:
+                    progress_callback(_qg_msg)
                 _, qg_data = _fetch_quickgo(gene, accession)
                 gk.update(qg_data)
                 if qg_data:
                     _src_stats["apis"].setdefault("quickgo", {"hit_genes": set(), "total_genes": len(genes)})
                     _src_stats["apis"]["quickgo"]["hit_genes"].add(gene)
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [QuickGO] [OK]")
+                if progress_callback:
+                    progress_callback(f"[进度] [{gene}] [QuickGO] OK")
 
             # Local DBs (fast, serial) -- only those enabled by user
             active_dbs = [d.upper() for d in ["string","hmdb","trrust","gutmgene"] if d in enabled_dbs]
             if active_dbs:
-                logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询本地数据库 [{' / '.join(active_dbs)}] ...")
+                _db_msg = f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询本地数据库 [{' / '.join(active_dbs)}] ..."
+                logger.info(_db_msg)
+                if progress_callback:
+                    progress_callback(_db_msg)
             if "string" in enabled_dbs:
                 try:
                     with STRINGDatabase() as db:
@@ -2369,6 +2440,8 @@ class E2scAgentOptimized:
         if "pubmed" in enabled_apis:
             _pm_genes = genes_to_query  # no cap — query all selected genes
             logger.info(f"[进度] [{label}] 81% 并发查询 PubMed 文献 ({len(_pm_genes)} genes, 4-layer queries) ...")
+            if progress_callback:
+                progress_callback(f"[进度] 开始查询 PubMed ({len(_pm_genes)} genes) ...")
             with ThreadPoolExecutor(max_workers=8) as pool:
                 pubmed_futures = {pool.submit(_fetch_pubmed, g): g for g in _pm_genes}
                 done_count = 0
@@ -2378,6 +2451,8 @@ class E2scAgentOptimized:
                     g = pubmed_futures[fut]
                     arts = fut.result()
                     logger.info(f"[进度] [{label}] {pct}% [PubMed] [{g}] {str(len(arts)) + ' articles' if arts else 'no results'}")
+                    if progress_callback:
+                        progress_callback(f"[进度] PubMed [{g}] {pct}% {str(len(arts)) + ' articles' if arts else 'no results'}")
                     for art in arts:
                         if art.get("pmid") not in seen_pmids:
                             seen_pmids.add(art.get("pmid"))
@@ -2385,6 +2460,8 @@ class E2scAgentOptimized:
 
         if "europepmc" in enabled_apis:
             logger.info(f"[进度] [{label}] 92% 查询 Europe PMC 文献 (4-layer) ...")
+            if progress_callback:
+                progress_callback("[进度] 开始查询 EuropePMC ...")
             try:
                 # Build four-layer queries for EuropePMC using agent-selected genes
                 gene_set = " OR ".join(genes[:12])
@@ -2422,6 +2499,8 @@ class E2scAgentOptimized:
                     except Exception as _eq_e:
                         logger.debug(f"EuropePMC query '{eq[:40]}': {_eq_e}")
                 logger.info(f"[进度] [{label}] 96% [EuropePMC] {len(knowledge['europepmc'])} articles")
+                if progress_callback:
+                    progress_callback(f"[进度] EuropePMC 完成: {len(knowledge['europepmc'])} articles")
             except Exception as e:
                 logger.debug(f"EuropePMC {label}: {e}")
 
