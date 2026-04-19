@@ -303,6 +303,24 @@ class OllamaProvider(LLMProvider):
         )
 
 
+class GLMProvider(LLMProvider):
+    """Zhipu AI (GLM) API provider.
+
+    官方文档: https://docs.bigmodel.cn
+    API endpoint: https://open.bigmodel.cn/api/paas/v4/chat/completions
+    支持模型: GLM-5.1, GLM-5, GLM-4-Plus, GLM-4, GLM-Z1 (推理) 等
+    """
+
+    def _initialize_llm(self):
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=self.model,
+            openai_api_key=self.api_key,
+            openai_api_base="https://open.bigmodel.cn/api/paas/v4/",
+            temperature=self.temperature,
+        )
+
+
 # 所有支持的 provider 映射
 _PROVIDERS: Dict[str, type] = {
     "openai": OpenAIProvider,
@@ -310,17 +328,19 @@ _PROVIDERS: Dict[str, type] = {
     "deepseek": DeepSeekProvider,
     "gemini": GeminiProvider,
     "siliconflow": SiliconFlowProvider,
+    "glm": GLMProvider,
     "ollama": OllamaProvider,
 }
 
-# 各 provider 的默认模型
+# 各 provider 的默认模型（已升级为当前最强模型）
 _DEFAULT_MODELS: Dict[str, str] = {
-    "openai": "gpt-4o",
-    "anthropic": "claude-opus-4-5",
-    "deepseek": "deepseek-chat",
-    "gemini": "gemini-2.5-pro",
+    "openai":      "gpt-5.4",
+    "anthropic":   "claude-opus-4-5",
+    "deepseek":    "deepseek-reasoner",
+    "gemini":      "gemini-2.5-pro-preview-06-05",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
-    "ollama": "llama3.2",
+    "glm":         "glm-5.1",
+    "ollama":      "llama3.2",
 }
 
 
@@ -334,7 +354,7 @@ def create_llm_provider(
     """Factory function to create LLM provider.
 
     Args:
-        provider:    Provider name (openai, anthropic, deepseek, gemini, ollama)
+        provider:    Provider name (openai, anthropic, deepseek, gemini, siliconflow, glm, ollama)
         api_key:     明文 API key（server 层传入前已解密）
         model:       Model name，为空时使用各 provider 默认模型
         temperature: 生成温度

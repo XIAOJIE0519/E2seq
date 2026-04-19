@@ -145,27 +145,95 @@ class E2seqApp {
         document.getElementById('embedAddCustomBtn')?.addEventListener('click', () => this.addCustomEmbeddingModel());
 
         // key 输入框失焦时自动拉取模型
-        ['openai','anthropic','gemini','deepseek','siliconflow'].forEach(provider => {
+        ['openai','anthropic','gemini','deepseek','siliconflow','glm'].forEach(provider => {
             const keyEl = document.getElementById(provider + 'Key');
             const btnEl = document.querySelector(`.btn-fetch-models[data-provider='${provider}']`);
+            const clearBtnEl = document.querySelector(`.btn-clear-key[data-provider='${provider}']`);
+            const selEl = document.getElementById(provider + 'Model');
+            const statusEl = document.getElementById('status-' + provider);
+            const PROVIDER_FIELDS = {
+                openai: 'openai_key', anthropic: 'anthropic_key', gemini: 'gemini_key',
+                deepseek: 'deepseek_key', siliconflow: 'siliconflow_key', glm: 'glm_key'
+            };
+            const PROVIDER_LABELS = {
+                openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini',
+                deepseek: 'DeepSeek', siliconflow: '硅基流动', glm: 'GLM'
+            };
+
             if (keyEl) {
                 keyEl.addEventListener('blur', () => {
                     if (keyEl.value.trim()) this.fetchModels(provider);
                 });
                 keyEl.addEventListener('input', () => {
-                    // 清空时隐藏下拉框
                     if (!keyEl.value.trim()) {
-                        const sel = document.getElementById(provider + 'Model');
-                        if (sel) sel.style.display = 'none';
-                        const status = document.getElementById('status-' + provider);
-                        if (status) status.innerHTML = '';
+                        if (selEl) selEl.style.display = 'none';
+                        if (statusEl) statusEl.innerHTML = '';
                     }
                 });
             }
+
             if (btnEl) {
                 btnEl.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.fetchModels(provider);
+                });
+            }
+
+            // 清除按钮 — 清除 API key 并断开连接
+            if (clearBtnEl) {
+                clearBtnEl.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (!confirm(`确定要清除 ${PROVIDER_LABELS[provider]} 的 API Key 并断开连接吗？`)) return;
+                    try {
+                        const r = await fetch('/api/settings/clear', {
+                            method: 'POST',
+                            headers: {'Content-Type':'application/json'},
+                            body: JSON.stringify({provider})
+                        });
+                        const d = await r.json();
+                        if (d.success) {
+                            if (keyEl) keyEl.value = '';
+                            if (selEl) { selEl.style.display = 'none'; selEl.innerHTML = ''; }
+                            if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">' + d.message + '</span>';
+                            this._updateModelBadge('ollama', 'llama3.2');
+                            this.showNotification(d.message, 'info');
+                        } else {
+                            this.showNotification(d.detail || '清除失败', 'error');
+                        }
+                    } catch(err) {
+                        this.showNotification('清除失败: ' + err.message, 'error');
+                    }
+                });
+            }
+
+            // 模型下拉框切换 — 自动切换到新模型（无需保存 API key）
+            if (selEl) {
+                selEl.addEventListener('change', async () => {
+                    const selectedModel = selEl.value;
+                    if (!selectedModel) return;
+                    // 获取当前已配置的 provider 和 decrypted key（从 status badge 推断，或用已配置的）
+                    try {
+                        const r = await fetch('/api/settings/switch-model', {
+                            method: 'POST',
+                            headers: {'Content-Type':'application/json'},
+                            body: JSON.stringify({
+                                provider,
+                                model: selectedModel,
+                                key_field: PROVIDER_FIELDS[provider]
+                            })
+                        });
+                        const d = await r.json();
+                        if (d.success) {
+                            if (statusEl) statusEl.innerHTML = '<span style="color:#34d399;font-size:.8rem">✓ 已切换至 ' + selectedModel + '</span>';
+                            this._updateModelBadge(provider, selectedModel);
+                            this.showNotification(`${PROVIDER_LABELS[provider]} 已切换至 ${selectedModel}`, 'success');
+                        } else {
+                            this.showNotification(d.detail || '切换失败，请先保存 API Key', 'error');
+                            if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-size:.8rem">' + (d.detail||'切换失败') + '</span>';
+                        }
+                    } catch(err) {
+                        this.showNotification('切换失败: ' + err.message, 'error');
+                    }
                 });
             }
         });
