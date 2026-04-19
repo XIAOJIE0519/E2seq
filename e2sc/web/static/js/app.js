@@ -1365,7 +1365,8 @@ STAT3,IL6,regulation,0.88`;
         const progressTimer = setInterval(pollProgress, 800);
 
         try {
-            const response = await fetch('/api/chat', {
+            // Use SSE streaming for real-time progress and incremental text
+            const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1382,18 +1383,64 @@ STAT3,IL6,regulation,0.88`;
                 throw new Error(t('error.chatFailed'));
             }
 
-            const data = await response.json();
-            this.removeMessage(loadingId);
-            this.addMessage('assistant', data.response);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let partialLine = '';
+            let currentText = '';
+            let thinkingSteps = [];
+            let plotsData = [];
 
-            if (data.plots) {
-                this.displayPlots(data.plots);
+            // Parse SSE stream
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        partialLine = line.slice(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (partialLine === 'thinking') {
+                            thinkingSteps.push(data);
+                            const step = JSON.parse(data);
+                            const bubble = document.getElementById(loadingId);
+                            if (bubble) {
+                                const pl = bubble.querySelector('.progress-log');
+                                if (pl) {
+                                    const stepDiv = document.createElement('div');
+                                    stepDiv.className = 'progress-step';
+                                    stepDiv.textContent = `[${step.step}] ${step.content}`;
+                                    pl.appendChild(stepDiv);
+                                    pl.scrollTop = pl.scrollHeight;
+                                }
+                            }
+                        } else if (partialLine === 'plots') {
+                            plotsData = plotsData.concat(JSON.parse(data));
+                            this.displayPlots(plotsData);
+                        } else if (partialLine === 'source_stats') {
+                            // Pass source_stats to display for rendering in message
+                            currentText = currentText; // placeholder for now
+                        } else if (partialLine === 'done') {
+                            const result = JSON.parse(data);
+                            currentText = result.response || '';
+                        } else if (partialLine === 'error') {
+                            currentText = '[Error] ' + data;
+                        }
+                        partialLine = '';
+                    }
+                }
             }
 
-            // NOTE: do NOT overwrite this.currentChatId with data.chat_id.
-            // The frontend UUID is the authoritative session ID; the server
-            // echoes it back but we must not let a stale server value replace
-            // a freshly-generated chat ID (which would merge conversations).
+            this.removeMessage(loadingId);
+            if (currentText) {
+                this.addMessage('assistant', currentText);
+            }
+            if (plotsData.length > 0) {
+                this.displayPlots(plotsData);
+            }
 
             // Refresh history after new message
             this.loadChatHistory();

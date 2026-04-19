@@ -10,7 +10,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -1104,6 +1104,118 @@ async def get_progress(session_id: str):
     with _progress_lock:
         msgs = list(_progress.get(session_id, []))
     return {"session_id": session_id, "messages": msgs}
+
+
+async def _stream_agent_chat(chat_id: str, message: str):
+    """Generator that yields SSE events for streaming agent chat."""
+    import asyncio
+    import plotly
+    from e2sc.utils import get_config, get_security_manager
+    from e2sc import E2scAgent
+
+    try:
+        _push_progress(chat_id, f"[进度] 开始处理请求: {message[:60]}")
+
+        # Initialize agent if needed
+        config = get_config()
+        if not config.llm.api_key:
+            yield "event: error\ndata: 请先在设置页面配置 API Key\n\n"
+            return
+
+        security = get_security_manager()
+        decrypted_key = security.decrypt(config.llm.api_key)
+        adata = datasets.get(chat_id)
+        agent = agents.get(chat_id)
+        if agent is None:
+            try:
+                agent = E2scAgent(
+                    adata=adata,
+                    llm_provider=config.llm.provider,
+                    api_key=decrypted_key,
+                    model=config.llm.model,
+                )
+                agents[chat_id] = agent
+            except Exception as e:
+                yield f"event: error\ndata: Agent初始化失败: {str(e)}\n\n"
+                return
+
+        # Install progress handler
+        _prog_handler = _ProgressHandler(chat_id)
+        _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
+        _orch_logger.addHandler(_prog_handler)
+
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, agent.chat, message)
+        finally:
+            _orch_logger.removeHandler(_prog_handler)
+            _push_progress(chat_id, "[进度] 分析完成")
+
+        # Yield thinking steps as individual events
+        for step in response.get("thinking", []):
+            content = json.dumps({"step": step.get("step", ""), "content": step.get("content", "")})
+            yield f"event: thinking\ndata: {content}\n\n"
+
+        # Yield plot data
+        plots_data = []
+        if response.get("plots"):
+            for item in response["plots"]:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    plot_name, fig = item
+                else:
+                    continue
+                try:
+                    fig_json = plotly.io.to_json(fig)
+                    plots_data.append({"title": plot_name, "figure": fig_json})
+                except Exception:
+                    pass
+        if plots_data:
+            yield f"event: plots\ndata: {json.dumps(plots_data)}\n\n"
+
+        # Yield source_stats
+        src_stats = response.get("data", {}).get("source_stats", {})
+        if src_stats:
+            yield f"event: source_stats\ndata: {json.dumps(src_stats)}\n\n"
+
+        # Yield the full response text
+        resp_body = {
+            "response": response.get("text", ""),
+            "plots": plots_data,
+            "chat_id": chat_id,
+            "data": response.get("data", {}),
+        }
+        yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
+
+    except Exception as e:
+        logger.error(f"SSE stream error: {e}")
+        yield f"event: error\ndata: {str(e)}\n\n"
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: Request):
+    """Streaming chat with agent via Server-Sent Events."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    message = body.get("message", "").strip()
+    chat_id = body.get("chat_id") or None
+    if not chat_id:
+        import uuid as _uuid_mod
+        chat_id = str(_uuid_mod.uuid4())
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    return StreamingResponse(
+        _stream_agent_chat(chat_id, message),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.post("/api/chat")

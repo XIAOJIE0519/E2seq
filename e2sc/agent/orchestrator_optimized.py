@@ -537,7 +537,7 @@ class E2scAgentOptimized:
                 if pm_client:
                     for kw in kws_pm:  # no count cap
                         try:
-                            pm = pm_client.search_and_get_details(kw.strip(), max_results=5)
+                            pm = pm_client.search_and_get_details(kw.strip(), max_results=10)
                             for art in pm.get("articles", []):
                                 pmid = art.get("pmid", "")
                                 if pmid and pmid not in _sp:
@@ -966,7 +966,7 @@ class E2scAgentOptimized:
                 if pm_client:
                     for kw in kws_pm:  # no count cap
                         try:
-                            pm = pm_client.search_and_get_details(kw.strip(), max_results=5)
+                            pm = pm_client.search_and_get_details(kw.strip(), max_results=10)
                             for art in pm.get("articles", []):
                                 pmid = art.get("pmid", "")
                                 if pmid and pmid not in _sp:
@@ -1079,7 +1079,7 @@ class E2scAgentOptimized:
                         _sp = {a.get("pmid") for a in knowledge.get("pubmed", [])}
                         for kw in extra_pm:
                             try:
-                                pm = pm_client.search_and_get_details(kw, max_results=5)
+                                pm = pm_client.search_and_get_details(kw, max_results=10)
                                 for art in pm.get("articles", []):
                                     pmid = art.get("pmid", "")
                                     if pmid and pmid not in _sp:
@@ -2271,12 +2271,23 @@ class E2scAgentOptimized:
         #   Layer 4: Microbiome  (GUTMGENE level)
         # ------------------------------------------------------------------ #
         def _build_lit_queries(gene: str) -> list:
-            """Build literature queries from explicit context only (no generic default templates)."""
+            """Build diverse literature queries from explicit context (no generic default templates)."""
             qs = [gene]
             if context_hint:
                 qs.append(f"{gene} {context_hint}")
                 qs.append(f"{gene} {context_hint} mechanism")
-            return list(dict.fromkeys([q.strip() for q in qs if q and q.strip()]))
+                qs.append(f"{gene} {context_hint} biomarker")
+                qs.append(f"{gene} {context_hint} treatment")
+            # Layer 1: function/disease
+            qs.append(f"{gene} pathway")
+            qs.append(f"{gene} signaling")
+            # Layer 2: drug/target
+            qs.append(f"{gene} drug target")
+            qs.append(f"{gene} inhibitor")
+            # Layer 3: clinical
+            qs.append(f"{gene} biomarker")
+            qs.append(f"{gene} prognosis")
+            return list(dict.fromkeys([q.strip() for q in qs if q and q.strip()]))[:8]
 
         def _fetch_pubmed(gene: str) -> list:
             """Multi-layer PubMed search covering function/target/interaction/microbiome."""
@@ -2288,7 +2299,7 @@ class E2scAgentOptimized:
                     return arts
                 for q in _build_lit_queries(gene):
                     try:
-                        pm = pm_client.search_and_get_details(q.strip(), max_results=5)
+                        pm = pm_client.search_and_get_details(q.strip(), max_results=10)
                         for art in pm.get("articles", []):
                             pmid = art.get("pmid", "")
                             if pmid and pmid not in seen:
@@ -2338,7 +2349,7 @@ class E2scAgentOptimized:
                     try:
                         r = _req.get("https://www.ebi.ac.uk/europepmc/webservices/rest/search",
                             params={"query": eq, "resultType": "lite",
-                                    "pageSize": 3, "format": "json",
+                                    "pageSize": 10, "format": "json",
                                     "sort": "CITED desc"},
                             timeout=12)
                         hits = r.json().get("resultList", {}).get("result", [])
