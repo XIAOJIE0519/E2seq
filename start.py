@@ -54,8 +54,8 @@ def print_banner():
     print()
     print(f"{Colors.PURPLE}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
     print(f"{Colors.PURPLE}║                                                            ║{Colors.NC}")
-    print(f"{Colors.PURPLE}║{Colors.NC}           {Colors.CYAN}E2seq - Easy to Chat with Sequencing{Colors.NC}         {Colors.PURPLE}║{Colors.NC}")
-    print(f"{Colors.PURPLE}║{Colors.NC}                    {Colors.GREEN}一键启动脚本{Colors.NC}                          {Colors.PURPLE}║{Colors.NC}")
+    print(f"{Colors.PURPLE}║{Colors.NC}           {Colors.CYAN}E2seq - Easy to Chat with Sequencing{Colors.NC}             {Colors.PURPLE}║{Colors.NC}")
+    print(f"{Colors.PURPLE}║{Colors.NC}                    {Colors.GREEN}一键启动脚本{Colors.NC}                            {Colors.PURPLE}║{Colors.NC}")
     print(f"{Colors.PURPLE}║                                                            ║{Colors.NC}")
     print(f"{Colors.PURPLE}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
     print()
@@ -167,20 +167,29 @@ def check_dependencies(python_exe):
         "rich", "typer", "pydantic"
     ]
 
+    # 已知需要较长加载时间的包（torch 相关）
+    # sentence-transformers 首次 import 需要 ~20-40s（加载 torch/transformers）
+    slow_packages = {"sentence-transformers", "chromadb"}
+
     missing_packages = []
     installed_packages = []
 
     for package in required_packages:
+        timeout = 60 if package in slow_packages else 10
         try:
             result = subprocess.run(
                 [python_exe, "-c", f"import {package.replace('-', '_')}"],
                 capture_output=True,
-                timeout=10
+                timeout=timeout
             )
             if result.returncode == 0:
                 installed_packages.append(package)
             else:
                 missing_packages.append(package)
+        except subprocess.TimeoutExpired:
+            # timeout 说明进程还在运行（正常情况，package 正在加载）。
+            # 此时认为包已安装，跳过后续 pip install。
+            installed_packages.append(package)
         except Exception:
             missing_packages.append(package)
 
