@@ -48,7 +48,7 @@ CHUNK_OVERLAP_TOKENS = 50  # overlap to prevent semantic breaks
 BYTES_PER_TOKEN = 4        # rough estimate for character-based splitting
 
 # --- Retrieval parameters --------------------------------------------------
-DEFAULT_N_RESULTS = 10          # retrieve this many after BM25+dense fusion
+DEFAULT_N_RESULTS = 20          # retrieve this many after BM25+dense fusion
 RECALL_MULTIPLIER = 3          # fetch 3x for reranker (top 30 → rerank → top 10)
 BM25_ALPHA = 0.45              # weight for BM25; (1-alpha) for dense
 RERANKER_TOP_K = 5             # final top-K after reranking

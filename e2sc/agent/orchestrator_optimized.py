@@ -1067,6 +1067,8 @@ class E2scAgentOptimized:
                     _id = a.get("pmid") or a.get("id")
                     if _id not in _se2:
                         knowledge.setdefault("europepmc", []).append(a)
+                # Merge _source_stats from refinement round into accumulated stats
+                self._merge_source_stats(knowledge, ekb)
 
             # Re-query literature with extra keywords
             try:
@@ -1176,6 +1178,21 @@ class E2scAgentOptimized:
         if not isinstance(resp, dict):
             resp = {"text":str(resp),"plots":[],"data":{}}
         resp["thinking"] = thinking_steps
+
+        # Append source statistics report to response text and data
+        src_stats = knowledge.get("_source_stats", {})
+        if src_stats:
+            report_text = self._generate_source_report(src_stats)
+            resp["text"] = resp.get("text", "") + "\n" + report_text
+            # Serialize sets -> lists for JSON response
+            _ss: dict = dict(src_stats)
+            for _cat in ("apis", "dbs"):
+                if _cat in _ss and isinstance(_ss[_cat], dict):
+                    for _sn, _si in _ss[_cat].items():
+                        if isinstance(_si, dict) and isinstance(_si.get("hit_genes"), set):
+                            _si["hit_genes"] = list(_si["hit_genes"])
+            resp.setdefault("data", {})["source_stats"] = _ss
+
         self.memory.working_memory.add_message("assistant", resp.get("text",""))
         self.memory.save_current_session(success=True)
         self.state_manager.set_state(AgentState.COMPLETED)
@@ -1296,6 +1313,25 @@ class E2scAgentOptimized:
         if not isinstance(resp, dict):
             resp = {"text": str(resp), "plots": [], "data": {}}
         resp["thinking"] = thinking_steps
+
+        # Basic source stats for cached knowledge path
+        _ng = len(focused_gi)
+        _npm = len(all_pm)
+        _nem = len(all_em)
+        _sc_note = (
+            f"\n\n---\n**数据来源统计 | Data Source Coverage**\n"
+            f"基因检索 (Genes retrieved): {_ng}\n"
+            f"文献 (Literature): PubMed {_npm} 篇 + Europe PMC {_nem} 篇\n"
+            f"---\n"
+        )
+        resp["text"] = resp.get("text", "") + _sc_note
+        resp.setdefault("data", {})["source_stats"] = {
+            "total_genes_queried": _ng,
+            "pubmed_articles": _npm,
+            "europepmc_articles": _nem,
+            "note": "cached_knowledge",
+        }
+
         self.memory.working_memory.add_message("assistant", resp.get("text", ""))
         self.memory.save_current_session(success=True)
         self.state_manager.set_state(AgentState.COMPLETED)
@@ -1455,8 +1491,14 @@ class E2scAgentOptimized:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from e2sc.data.local_db import HMDBDatabase, TRRUSTDatabase, GUTMGENEDatabase, STRINGDatabase
 
-        knowledge = {"genes": {}, "pubmed": [], "europepmc": []}
+        knowledge = {"genes": {}, "pubmed": [], "europepmc": [], "_source_stats": {}}
         seen_pmids = set()
+        # Per-source hit tracking: {source_name: {"hit": set of genes with data, "total": int}}
+        _src_stats: dict = {
+            "apis": {s: {"hit_genes": set(), "total_genes": len(genes)} for s in _ALL_APIS},
+            "dbs":  {s: {"hit_genes": set(), "total_genes": len(genes)} for s in _ALL_DBS},
+            "total_genes": len(genes),
+        }
         # 已确认可用的API列表（含reactome/opentargets/clinvar）
         _ALL_APIS = {"uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","gtex","humanbase","gwas","biogrid","civic","alliance","reactome","opentargets","clinvar"}
         _ALL_DBS  = {"string","hmdb","trrust","gutmgene"}
@@ -2091,13 +2133,17 @@ class E2scAgentOptimized:
                 if "opentargets" in enabled_apis: futures_map[pool.submit(_fetch_opentargets, gene)] = "opentargets"
                 if "clinvar"     in enabled_apis: futures_map[pool.submit(_fetch_clinvar,     gene)] = "clinvar"
                 for fut in as_completed(futures_map):
-                    api_name = futures_map[fut].upper()
+                    api_name = futures_map[fut].lower()
                     try:
                         _, data = fut.result()
                         gk.update(data)
-                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name}] [OK]")
+                        # Track source stats: non-empty data means a hit for this gene
+                        if data:
+                            _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
+                            _src_stats["apis"][api_name]["hit_genes"].add(gene)
+                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
                     except Exception as _api_e:
-                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name}] [FAIL]")
+                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
 
             # QuickGO needs accession from UniProt (sequential dependency)
             accession = gk.get("uniprot_accession", "")
@@ -2105,6 +2151,9 @@ class E2scAgentOptimized:
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) 正在查询 [QuickGO] GO注释 ...")
                 _, qg_data = _fetch_quickgo(gene, accession)
                 gk.update(qg_data)
+                if qg_data:
+                    _src_stats["apis"].setdefault("quickgo", {"hit_genes": set(), "total_genes": len(genes)})
+                    _src_stats["apis"]["quickgo"]["hit_genes"].add(gene)
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [QuickGO] [OK]")
 
             # Local DBs (fast, serial) -- only those enabled by user
@@ -2131,6 +2180,8 @@ class E2scAgentOptimized:
                                 partners.append({"partner": p, "score": score})
                         if partners:
                             gk["interactions"] = partners
+                            _src_stats["dbs"].setdefault("string", {"hit_genes": set(), "total_genes": len(genes)})
+                            _src_stats["dbs"]["string"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [STRING] [OK] {len(partners)} 互作")
                 except Exception as e:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [STRING] [FAIL]")
@@ -2149,6 +2200,9 @@ class E2scAgentOptimized:
                                 if m.get("metabolite_name")
                             ]
                     n_met = len(gk.get("metabolites", []))
+                    if n_met > 0:
+                        _src_stats["dbs"].setdefault("hmdb", {"hit_genes": set(), "total_genes": len(genes)})
+                        _src_stats["dbs"]["hmdb"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [HMDB] [OK] {n_met} 代谢物")
                 except Exception as e:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [HMDB] [FAIL]")
@@ -2159,18 +2213,24 @@ class E2scAgentOptimized:
                     with TRRUSTDatabase() as db:
                         tf_targets = db.get_targets(gene)
                         regulators = db.get_regulators(gene)
+                        has_trrust_data = False
                         if tf_targets:
                             gk["tf_targets"] = [
                                 {"target_gene": t.get("target_gene", ""),
                                  "effect": t.get("function", t.get("mode", ""))}
                                 for t in tf_targets[:5] if t.get("target_gene")
                             ]
+                            has_trrust_data = True
                         if regulators:
                             gk["regulators"] = [
                                 {"tf": r.get("tf", ""),
                                  "effect": r.get("function", r.get("mode", ""))}
                                 for r in regulators[:5] if r.get("tf")
                             ]
+                            has_trrust_data = True
+                        if has_trrust_data:
+                            _src_stats["dbs"].setdefault("trrust", {"hit_genes": set(), "total_genes": len(genes)})
+                            _src_stats["dbs"]["trrust"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] ({gene_idx}/{total_genes}) [TRRUST] [OK]")
                 except Exception as e:
                     logger.debug(f"TRRUST {gene}: {e}")
@@ -2191,6 +2251,9 @@ class E2scAgentOptimized:
                                 for m in microbes[:5]
                                 if m.get("gut_microbiota") or m.get("microbe")
                             ]
+                            if gk.get("gut_microbes"):
+                                _src_stats["dbs"].setdefault("gutmgene", {"hit_genes": set(), "total_genes": len(genes)})
+                                _src_stats["dbs"]["gutmgene"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] ({gene_idx}/{total_genes}) [GUTMGENE] [OK]")
                 except Exception as e:
                     logger.debug(f"GUTMGENE {gene}: {e}")
@@ -2299,6 +2362,41 @@ class E2scAgentOptimized:
                 logger.debug(f"EuropePMC {label}: {e}")
 
         logger.info(f"[进度] [{label}] 100% 知识查询完成: {len(knowledge['genes'])} 基因, {len(knowledge['pubmed'])} 篇文献")
+
+        # Build source stats report from tracked data
+        total_genes = _src_stats["total_genes"]
+        apis_hit = sum(1 for s in _src_stats["apis"].values() if s["hit_genes"])
+        dbs_hit = sum(1 for s in _src_stats["dbs"].values() if s["hit_genes"])
+
+        # Serialize sets to lists for JSON transport
+        _final_stats = {
+            "total_genes_queried": total_genes,
+            "apis_hit_count": apis_hit,
+            "dbs_hit_count": dbs_hit,
+            "total_sources_hit": apis_hit + dbs_hit,
+            "total_sources_enabled": len(_src_stats["apis"]) + len(_src_stats["dbs"]),
+            "apis": {
+                name: {
+                    "hit_count": len(st["hit_genes"]),
+                    "total_genes": st["total_genes"],
+                    "pct": round(len(st["hit_genes"]) / st["total_genes"] * 100) if st["total_genes"] > 0 else 0,
+                    "hit_genes": list(st["hit_genes"]),
+                }
+                for name, st in _src_stats["apis"].items()
+            },
+            "dbs": {
+                name: {
+                    "hit_count": len(st["hit_genes"]),
+                    "total_genes": st["total_genes"],
+                    "pct": round(len(st["hit_genes"]) / st["total_genes"] * 100) if st["total_genes"] > 0 else 0,
+                    "hit_genes": list(st["hit_genes"]),
+                }
+                for name, st in _src_stats["dbs"].items()
+            },
+            "pubmed_articles": len(knowledge.get("pubmed", [])),
+            "europepmc_articles": len(knowledge.get("europepmc", [])),
+        }
+        knowledge["_source_stats"] = _final_stats
 
         # NOTE: Per-group vector store build is intentionally removed here.
         # The unified reset_and_build is called once at the end of build_knowledge_base()
@@ -2466,6 +2564,7 @@ class E2scAgentOptimized:
         all_europepmc = []
         all_gene_info = {}
         seen_pmids_comp = set()
+        _merged_stats = None
         for _kb in list(ct_knowledge.values()) + list(grp_knowledge.values()):
             for art in _kb.get("pubmed", []):
                 if art.get("pmid") not in seen_pmids_comp:
@@ -2476,11 +2575,35 @@ class E2scAgentOptimized:
                     seen_pmids_comp.add(art.get("pmid"))
                     all_europepmc.append(art)
             all_gene_info.update(_kb.get("genes", {}))
+            # Merge _source_stats from each group KB
+            _kb_stats = _kb.get("_source_stats")
+            if _kb_stats:
+                if _merged_stats is None:
+                    _merged_stats = dict(_kb_stats)
+                    for _cat in ("apis", "dbs"):
+                        if _cat in _merged_stats:
+                            for _sn in _merged_stats[_cat]:
+                                if isinstance(_merged_stats[_cat][_sn], dict) and isinstance(_merged_stats[_cat][_sn].get("hit_genes"), (list, set)):
+                                    _merged_stats[_cat][_sn]["hit_genes"] = set(_merged_stats[_cat][_sn]["hit_genes"])
+                else:
+                    for _cat in ("apis", "dbs"):
+                        for _sn, _si in _kb_stats.get(_cat, {}).items():
+                            if _cat not in _merged_stats:
+                                _merged_stats[_cat] = {}
+                            if _sn not in _merged_stats[_cat]:
+                                _merged_stats[_cat][_sn] = {
+                                    "hit_genes": set(),
+                                    "total_genes": _si.get("total_genes", _merged_stats.get("total_genes_queried", 0)),
+                                }
+                            if isinstance(_si.get("hit_genes"), (list, set)):
+                                _merged_stats[_cat][_sn].setdefault("hit_genes", set()).update(_si["hit_genes"])
         combined_knowledge = {
             "genes": all_gene_info,
             "pubmed": all_pubmed,
             "europepmc": all_europepmc,
         }
+        if _merged_stats:
+            combined_knowledge["_source_stats"] = _merged_stats
         # RAG: inject vector store context into combined_knowledge if available
         if self._vector_store is not None and self._vector_store.count() > 0:
             try:
@@ -2532,7 +2655,20 @@ class E2scAgentOptimized:
         self.memory.save_current_session(success=True)
         self.state_manager.set_state(AgentState.COMPLETED)
         response_comp["thinking"] = thinking_steps
-        response_comp["data"] = {"ct_map": ct_map, "grp_map": grp_map}
+        # Append source stats report to comprehensive response
+        if _merged_stats:
+            _report = self._generate_source_report(_merged_stats)
+            response_comp["text"] = response_comp.get("text", "") + "\n" + _report
+            # Serialize sets -> lists
+            _ss2 = dict(_merged_stats)
+            for _cat in ("apis", "dbs"):
+                if _cat in _ss2 and isinstance(_ss2[_cat], dict):
+                    for _sn, _si in _ss2[_cat].items():
+                        if isinstance(_si, dict) and isinstance(_si.get("hit_genes"), set):
+                            _si["hit_genes"] = list(_si["hit_genes"])
+            response_comp["data"] = {"ct_map": ct_map, "grp_map": grp_map, "source_stats": _ss2}
+        else:
+            response_comp["data"] = {"ct_map": ct_map, "grp_map": grp_map}
         return response_comp
 
 
@@ -2943,7 +3079,20 @@ class E2scAgentOptimized:
             
             # Add error recovery stats to response
             response["error_recovery_stats"] = self.error_recovery.get_error_summary()
-            
+
+            # Append a basic source coverage note for _chat_complete (uses retriever, not _build_group_knowledge)
+            _rs = knowledge.get("retrieval_stats", {})
+            _gs = len(knowledge.get("genes", {}))
+            _pm = len(knowledge.get("pubmed", []))
+            _em = len(knowledge.get("europepmc", []))
+            _sc_note = (
+                f"\n\n---\n**数据来源统计 | Data Source Coverage**\n"
+                f"基因检索 (Genes retrieved): {_gs}/{_rs.get('genes_queried', _gs)}\n"
+                f"文献 (Literature): PubMed {_pm} 篇 + Europe PMC {_em} 篇\n"
+                f"---\n"
+            )
+            response["text"] = response.get("text", "") + _sc_note
+
             return response
             
         except Exception as e:
@@ -3227,7 +3376,84 @@ class E2scAgentOptimized:
                 "thinking": [{"step": "Error", "content": str(e)}],
                 "agent_mode": False
             }
-    
+
+    def _merge_source_stats(self, accum: dict, new_kb: dict) -> None:
+        """Merge _source_stats from a refinement KB round into the accumulated knowledge dict."""
+        ns = new_kb.get("_source_stats", {})
+        if not ns:
+            return
+        acc_stats = accum.get("_source_stats")
+        if acc_stats is None:
+            accum["_source_stats"] = dict(ns)
+            return
+        for cat in ("apis", "dbs"):
+            for name, info in ns.get(cat, {}).items():
+                if name not in acc_stats.get(cat, {}):
+                    acc_stats.setdefault(cat, {})[name] = {
+                        "hit_genes": set(info.get("hit_genes", [])),
+                        "total_genes": info.get("total_genes", acc_stats.get("total_genes_queried", 0)),
+                    }
+                else:
+                    acc_stats[cat][name].setdefault("hit_genes", set()).update(info.get("hit_genes", []))
+
+    def _generate_source_report(self, stats: dict) -> str:
+        """Format source stats as a readable markdown report."""
+        total_genes = stats.get("total_genes_queried", 0)
+        apis = stats.get("apis", {})
+        dbs = stats.get("dbs", {})
+        pubmed_n = stats.get("pubmed_articles", 0)
+        europepmc_n = stats.get("europepmc_articles", 0)
+
+        apis_hit = sum(1 for s in apis.values() if s.get("hit_genes"))
+        dbs_hit = sum(1 for s in dbs.values() if s.get("hit_genes"))
+        total_enabled = len(apis) + len(dbs)
+        total_hit = apis_hit + dbs_hit
+
+        lines = []
+        lines.append("")
+        lines.append("---")
+        lines.append("**数据来源统计 | Data Source Coverage**")
+        lines.append("")
+        lines.append(f"**分析基因总数 (Total genes queried): {total_genes}**")
+        lines.append(f"**文献检索 (Literature): PubMed {pubmed_n} 篇 + Europe PMC {europepmc_n} 篇**")
+        lines.append("")
+        lines.append("**在线 API | Online APIs**")
+        lines.append("")
+
+        api_order = ["uniprot","mygene","quickgo","ensembl","chembl","opentargets",
+                     "clinvar","reactome","gtex","humanbase","gwas","biogrid","civic",
+                     "alliance","pubmed","europepmc"]
+        for name in api_order:
+            if name not in apis:
+                continue
+            info = apis[name]
+            hit = len(info.get("hit_genes", []))
+            pct = info.get("pct", 0)
+            filled = int(pct / 5)
+            bar = "[" + "\u2588" * filled + "\u2591" * (20 - filled) + "]"
+            label = name.upper().replace("OPENTARGETS", "Open Targets").replace("HUMANBASE", "HumanBase").replace("BIOMED", "BioGRID")
+            lines.append(f"  {label:16s} {bar:s} {hit:3d} / {total_genes:3d} ({pct:3d}%)")
+
+        lines.append("")
+        lines.append("**本地数据库 | Local Databases**")
+        lines.append("")
+        for name in ["string", "hmdb", "trrust", "gutmgene"]:
+            if name not in dbs:
+                continue
+            info = dbs[name]
+            hit = len(info.get("hit_genes", []))
+            pct = info.get("pct", 0)
+            filled = int(pct / 5)
+            bar = "[" + "\u2588" * filled + "\u2591" * (20 - filled) + "]"
+            label = name.upper()
+            lines.append(f"  {label:16s} {bar:s} {hit:3d} / {total_genes:3d} ({pct:3d}%)")
+
+        lines.append("")
+        lines.append(f"**汇总 | Summary: 有数据的数据源 {total_hit}/{total_enabled}**")
+        lines.append("---")
+        lines.append("")
+        return "\n".join(lines)
+
     def get_history(self) -> List[Dict[str, str]]:
         """Get conversation history from memory system."""
         return self.memory.working_memory.conversation_history

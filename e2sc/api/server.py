@@ -1216,6 +1216,7 @@ async def chat(request: Request):
             "plots": plots_data,
             "chat_id": chat_id,
             "thinking": response.get("thinking", []),
+            "data": response.get("data", {}),
         }
     except KeyError as e:
         raise HTTPException(status_code=500, detail=f"Invalid response format from agent: {str(e)}")
