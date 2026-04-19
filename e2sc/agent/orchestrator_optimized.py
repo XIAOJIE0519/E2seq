@@ -199,19 +199,31 @@ class E2scAgentOptimized:
                 
                 logger.info(f"[离线构建] CSV模式知识库: {len(groups)} 个分组, {len(all_genes)} 个基因")
                 
+                # Build per-group gene lists from CSV records (no n_top cap)
+                import pandas as pd
+                records_json = uns.get("e2sc_csv_records", "[]")
+                _df = pd.read_json(records_json, orient="records")
+                _gene_col = uns.get("e2sc_gene_col", "name")
+                _grp_col = uns.get("e2sc_group_col", "")
+                _expr_col = uns.get("e2sc_expr_col", "log2FC")
+                
+                _grp_genes_map = {}  # {group: [genes sorted by |expr|]}
+                for _grp in groups:
+                    _sub = _df[_df[_grp_col].astype(str) == str(_grp)].copy()
+                    _sub = _sub.sort_values(_expr_col, key=abs, ascending=False)
+                    _grp_genes_map[_grp] = list(_sub[_gene_col].astype(str).unique())
+                
                 # Build KB for each group concurrently
                 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc
                 def _build_csv_grp(args):
                     idx, grp, genes = args
-                    logger.info(f"[进度] [离线构建] 分组 {idx}/{len(groups)}: {grp} | TOP{KB_TOP}: {', '.join(genes[:10])}...")
+                    _preview = ", ".join(genes[:5])
+                    logger.info(f"[进度] [离线构建] 分组 {idx}/{len(groups)}: {grp} | {len(genes)} 个基因 | 前5: {_preview}...")
                     return grp, self._build_group_knowledge(
-                        grp, genes[:KB_TOP], context_hint=grp,
+                        grp, genes, context_hint=grp,
                         enabled_apis=enabled_apis, enabled_dbs=enabled_dbs)
                 
-                grp_map = {}
-                for grp in groups:
-                    grp_genes = all_genes[:KB_TOP]  # Use top genes for each group
-                    grp_map[group_labels.get(grp, grp)] = grp_genes
+                grp_map = {group_labels.get(_grp, _grp): _grp_genes_map.get(_grp, []) for _grp in groups}
                 
                 with _TPE(max_workers=min(len(grp_map), 4)) as _pool:
                     _grp_futs = {_pool.submit(_build_csv_grp, (i, grp, genes)): grp
@@ -380,7 +392,6 @@ class E2scAgentOptimized:
         all_genes  = uns.get("e2sc_all_genes", [])
         enabled_apis = set(uns.get("e2sc_enabled_apis", ["uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","reactome","gtex","humanbase","gwas","biogrid","civic","alliance","opentargets","clinvar"]))
         enabled_dbs  = set(uns.get("e2sc_enabled_dbs", ["string","hmdb","trrust","gutmgene"]))
-        _n_ctx = int(uns.get("e2sc_n_top_genes", 50))
 
         # Load filtered CSV records
         import pandas as pd
@@ -388,16 +399,16 @@ class E2scAgentOptimized:
         df = pd.read_json(records_json, orient="records")
 
         # --- Step 1: Build GeneContext from CSV ---
-        # Per-group top genes by |expr|
+        # Per-group genes by |expr| — no cap, include ALL genes
         grp_summary = {}   # {group: [(gene, expr_val), ...]}
         grp_all_genes = {} # {group: set of genes}
         for grp in groups:
             sub = df[df[group_col].astype(str) == str(grp)].copy()
             sub = sub.sort_values(expr_col, key=abs, ascending=False)
-            top = sub.head(_n_ctx)
+            # Show top 50 per group in the prompt summary for LLM readability
             grp_summary[grp] = [
                 "{g}({et}={v:.3f})".format(g=str(row[gene_col]), et=expr_type, v=float(row[expr_col]))
-                for _, row in top.iterrows()
+                for _, row in sub.head(50).iterrows()
             ]
             grp_all_genes[grp] = set(sub[gene_col].astype(str).tolist())
 
@@ -411,20 +422,17 @@ class E2scAgentOptimized:
             for g in groups
         )
 
-        # Union of top genes across all groups
-        top_ranked_genes = list(OrderedDict.fromkeys(
-            g for grp in groups for entry in grp_summary.get(grp, [])
-            for g in [entry.split("(")[0]]
-        ))
+        # Union of ALL genes across all groups — no cap, from all_dataset_genes
+        top_ranked_genes = all_genes  # already the full unique gene set from filtered CSV
 
         gctx = (
             "{desc_line}"
             "Data type: CSV differential expression / expression table{sig_note}\n"
             "Expression metric: {expr_type} (column: {expr_col})\n"
             "Groups ({n_gr}): {grp_names}\n"
-            "Total genes after filter: {n_genes}\n"
-            "Top {n_top_per} genes per group (ranked by |{expr_type}|, gene({expr_type}=value)):\n  {grp_str}\n"
-            "All top-ranked genes union ({n_top} genes): {top}\n"
+            "Total genes in dataset: {n_genes}\n"
+            "Top {n_top_per} genes per group shown (ranked by |{expr_type}|, gene({expr_type}=value)):\n  {grp_str}\n"
+            "ALL genes in dataset ({n_top} total, for gene retrieval): {top}\n"
             "IMPORTANT: All values are actual {expr_type} from the uploaded table.\n"
             "Genes not present in a group have no entry in that group's comparison."
         ).format(
@@ -435,7 +443,7 @@ class E2scAgentOptimized:
             n_gr=len(groups),
             grp_names=", ".join(groups),
             n_genes=len(all_genes),
-            n_top_per=_n_ctx,
+            n_top_per=50,  # grp_summary shows top 50 per group for readability
             grp_str=grp_str,
             n_top=len(top_ranked_genes),
             top=", ".join(top_ranked_genes[:100]),  # 展示更多基因给LLM
@@ -503,6 +511,9 @@ class E2scAgentOptimized:
             plan = json.loads(_jm.group()) if _jm else {}
             _gene_set = set(all_dataset_genes)
             to_ret = [g for g in plan.get("genes_to_retrieve", []) if g in _gene_set]  # no cap
+            # Union with all filtered genes so every gene in the dataset gets retrieved
+            _seen = set(to_ret)
+            to_ret.extend([g for g in all_dataset_genes if g not in _seen])
             # 强制使用用户启用的全部来源（20源），保证全面覆盖
             _csv_agent_apis = set(enabled_apis)
             _csv_agent_dbs  = set(enabled_dbs)
