@@ -1114,6 +1114,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
     from e2sc import E2scAgent
 
     try:
+        # Persist user message immediately so it's never lost even if agent crashes
+        _save_chat_message(chat_id, "user", message)
+
         _push_progress(chat_id, f"[进度] 开始处理请求: {message[:60]}")
 
         # Initialize agent if needed
@@ -1176,6 +1179,12 @@ async def _stream_agent_chat(chat_id: str, message: str):
         src_stats = response.get("data", {}).get("source_stats", {})
         if src_stats:
             yield f"event: source_stats\ndata: {json.dumps(src_stats)}\n\n"
+
+        # Persist assistant response after completion
+        try:
+            _save_chat_message(chat_id, "assistant", response.get("text", ""))
+        except Exception as _pe:
+            logger.warning(f"Failed to persist chat message: {_pe}")
 
         # Yield the full response text
         resp_body = {
