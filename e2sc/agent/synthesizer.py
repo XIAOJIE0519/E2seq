@@ -76,10 +76,11 @@ class SynthesizerAgent:
 
         # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
         results_summary = self._format_results(results, knowledge=knowledge)
-        results_summary = self._truncate_to_token_budget(results_summary, max_chars=6000)
+        results_summary = self._truncate_to_token_budget(results_summary, max_chars=12000)
         knowledge_summary = self._format_knowledge(knowledge)
-        knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=16000)
+        knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=25000)
         similar_cases_summary = self._format_similar_cases(knowledge.get("similar_cases", []))
+        similar_cases_summary = self._truncate_to_token_budget(similar_cases_summary, max_chars=2000)
         has_knowledge = bool(knowledge.get("genes")) or bool(knowledge.get("similar_cases"))
 
         prompt = SYNTHESIZER_PROMPT.format(
@@ -94,8 +95,8 @@ class SynthesizerAgent:
         if rag_context:
             # Cap RAG context to fit within the model's context window (32768 tokens)
             # Total budget: system(~2500) + history(~2000) + template(~800)
-            #   + results(4000) + knowledge(6000) + rag(3000) ≈ 18300 chars ≤ 32768 tokens
-            rag_context = self._truncate_to_token_budget(rag_context, max_chars=3000)
+            #   + results(8000) + knowledge(15000) + rag(6000) ≈ 34300 chars ≤ 32768 tokens
+            rag_context = self._truncate_to_token_budget(rag_context, max_chars=6000)
             prompt = (
                 "=== RAG Retrieved Knowledge (highest priority — primary evidence source) ===\n"
                 + rag_context
@@ -103,7 +104,7 @@ class SynthesizerAgent:
                 + prompt
             )
 
-        system_message = self._build_system_message(question, is_comprehensive, output_mode)
+        system_message = self._build_system_message(question, is_comprehensive, output_mode, knowledge=knowledge)
 
         messages = [{"role": "system", "content": system_message}]
         if history:
@@ -149,9 +150,20 @@ class SynthesizerAgent:
     # System message builder
     # ------------------------------------------------------------------
     def _build_system_message(
-        self, question: str, is_comprehensive: bool, output_mode: str
+        self, question: str, is_comprehensive: bool, output_mode: str,
+        knowledge: Dict[str, Any] = None
     ) -> str:
-        return (
+        # Check whether cross-gene module data is available
+        cross_gene = {}
+        if knowledge:
+            cross_gene = knowledge.get("cross_gene_analysis") or {}
+        has_modules = bool(
+            cross_gene.get("modules") or
+            cross_gene.get("all_edges") or
+            (knowledge or {}).get("genes", {})
+        )
+
+        base_rules = (
             "You are an expert computational biologist and translational medicine scientist. "
             "You have been given a rich multi-database knowledge base built by querying every gene "
             "against ALL of the following sources: "
@@ -160,18 +172,17 @@ class SynthesizerAgent:
             "STRING, HMDB, TRRUST, GUTMGENE (local).\n\n"
             "Your task is to answer the user's question by synthesizing ALL available evidence from this "
             "knowledge base into flowing, rigorous academic Chinese prose.\n\n"
-            "RULES:\n"
+            "STRICT RULES (violations will be flagged):\n"
             "1. ONLY use information explicitly present in the provided knowledge base context."
-            " Do NOT fabricate data."
+            " Do NOT fabricate data.\n"
             " Do NOT cite papers not listed in the PubMed/EuropePMC sections.\n"
             "2. Cite the source inline after every biological claim: "
             "[UniProt], [MyGene], [QuickGO], [Ensembl], [ChEMBL], [Open Targets], [ClinVar], [CIViC], "
             "[GWAS], [Reactome], [GTEx], [HumanBase], [BioGRID], [Alliance], [STRING], [HMDB], "
             "[TRRUST], [GUTMGENE], [PubMed:PMID], [EuropePMC:PMID].\n"
-            "3. When a source returned no data for a particular gene, simply omit that source-gene "
-            "combination — do NOT write phrases like 'No data', '未检索到', '暂无', '相关数据有限', "
-            "'数据缺口', '尚无', '未找到', 'Network unavailable', or any similar gap-filler. "
-            "Focus entirely on what IS present in the data.\n"
+            "3. If a data source returned no results for a gene, do NOT mention that gene in the output. "
+            "If you cannot find evidence for a claim in the provided context, write: "
+            "'[No evidence in retrieved data - omitted]' instead of speculating.\n"
             "4. Use the EXACT disease group names, cell type names, and expression values from the "
             "input context — never substitute generic terms.\n"
             "5. Let the user's question and the actual evidence freely determine the narrative "
@@ -180,25 +191,42 @@ class SynthesizerAgent:
             "6. Never truncate mid-sentence. Complete every thought.\n"
             "7. Write at the level of a Nature / Cell / Nature Medicine research article discussion "
             "or review section — precise, mechanistic, deeply integrated across evidence layers.\n"
-            "8. CROSS-GENE SYNTHESIS (MANDATORY when gene modules are present):\n"
-            "   a. LEAD with the gene interaction modules — identify which genes form dense PPI clusters, "
-            "share TF regulators, or are co-enriched for the same pathways.\n"
-            "   b. Characterize each module by its collective theme (e.g., 'inflammatory signaling module', "
-            "'DNA repair hub', 'metabolic co-regulation axis').\n"
-            "   c. Discuss coordinated regulation — which genes are likely co-regulated by the same TF, "
-            "respond to the same upstream signal, or participate in the same pathway cascade.\n"
-            "   d. Cross-validate: how do the expression patterns (mean expr, log-fold-change) align with "
-            "the retrieved interaction/reulation knowledge? Genes that are highly expressed AND well-connected "
-            "in the network are likely key drivers.\n"
-            "   e. If modules have shared pathway enrichment, explain what biological process the module "
-            "collectively represents.\n"
-            "   f. Weave individual gene descriptions INTO the module narrative — do not describe genes "
-            "one after another in isolation. Each gene description should support or refine the module-level story.\n"
-            "9. When NO modules are detected (genes are largely isolated in knowledge), still discuss "
-            "potential indirect connections via shared diseases, pathways, or tissue expression patterns.\n"
-            "10. Cross-gene synthesis is NOT a separate section at the end — it is the organizational "
-            "principle of the entire response."
+            "8. Do NOT use generic phrases like 'high expression', 'significantly enriched', "
+            "'strongly associated' without citing specific values from the data.\n"
+            "9. Do NOT force a network or interaction analysis template if the question is about "
+            "something else (e.g., drug targets, biomarkers, pathway mechanisms). "
+            "Focus on answering the user's specific question directly.\n"
         )
+
+        if has_modules:
+            return base_rules + (
+                "10. CROSS-GENE SYNTHESIS (apply when module/network data is present):\n"
+                "    a. LEAD with the gene interaction modules — identify which genes form dense PPI clusters, "
+                "share TF regulators, or are co-enriched for the same pathways.\n"
+                "    b. Characterize each module by its collective theme (e.g., 'inflammatory signaling module', "
+                "'DNA repair hub', 'metabolic co-regulation axis').\n"
+                "    c. Discuss coordinated regulation — which genes are likely co-regulated by the same TF, "
+                "respond to the same upstream signal, or participate in the same pathway cascade.\n"
+                "    d. Cross-validate: how do the expression patterns (mean expr, log-fold-change) align with "
+                "the retrieved interaction/regulation knowledge? Genes that are highly expressed AND well-connected "
+                "in the network are likely key drivers.\n"
+                "    e. If modules have shared pathway enrichment, explain what biological process the module "
+                "collectively represents.\n"
+                "    f. Weave individual gene descriptions INTO the module narrative — do not describe genes "
+                "one after another in isolation. Each gene description should support or refine the module-level story.\n"
+                "11. When NO modules are detected (genes are largely isolated in knowledge), still discuss "
+                "potential indirect connections via shared diseases, pathways, or tissue expression patterns.\n"
+                "12. Cross-gene synthesis is NOT a separate section at the end — it is the organizational "
+                "principle of the entire response."
+            )
+        else:
+            return base_rules + (
+                "10. FOCUS on answering the user's specific question directly. "
+                "If the question asks about drug targets, discuss drug-target relationships. "
+                "If it asks about pathways, discuss pathway mechanisms. "
+                "If it asks about biomarkers, discuss biomarker evidence. "
+                "Do NOT default to interaction/network analysis unless the question explicitly requests it."
+            )
 
     # ------------------------------------------------------------------
     # Formatting helpers
