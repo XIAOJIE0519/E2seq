@@ -1311,11 +1311,11 @@ STAT3,IL6,regulation,0.88`;
     }
 
     applyLanguage() {
-        // 必填 data-i18n 选填?
+        // 翻译所有 data-i18n 元素
         document.querySelectorAll('[data-i18n]').forEach(element => {
             const key = element.getAttribute('data-i18n');
             const translation = t(key, this.currentLanguage);
-            
+
             if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
                 if (element.placeholder !== undefined) {
                     element.placeholder = translation;
@@ -1329,6 +1329,21 @@ STAT3,IL6,regulation,0.88`;
                 }
             }
         });
+
+        // 翻译所有 data-i18n-title 元素的 title 属性
+        document.querySelectorAll('[data-i18n-title]').forEach(element => {
+            const key = element.getAttribute('data-i18n-title');
+            element.title = t(key, this.currentLanguage);
+        });
+
+        // 翻译所有 data-i18n-placeholder 元素的 placeholder 属性
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+            const key = element.getAttribute('data-i18n-placeholder');
+            element.placeholder = t(key, this.currentLanguage);
+        });
+
+        // 更新 Embedding 信息的动态后缀（依赖 i18n key 的部分）
+        this.updateEmbeddingInfo();
 
         // 必填?
         const suggestions = [
@@ -2022,6 +2037,7 @@ STAT3,IL6,regulation,0.88`;
         if (drawer) {
             drawer.classList.add('active');
             if (overlay) overlay.classList.add('active');
+            document.getElementById('mainContent')?.classList.add('drawer-open');
         }
     }
 
@@ -2031,6 +2047,11 @@ STAT3,IL6,regulation,0.88`;
         const overlay = document.getElementById('drawerOverlay');
         if (drawer) drawer.classList.remove('active');
         if (overlay) overlay.classList.remove('active');
+        // Only remove drawer-open if no other drawer is active
+        const anyDrawerActive = document.querySelector('.drawer.active');
+        if (!anyDrawerActive) {
+            document.getElementById('mainContent')?.classList.remove('drawer-open');
+        }
     }
 
     // 打开表格配置抽屉
@@ -2040,6 +2061,7 @@ STAT3,IL6,regulation,0.88`;
         if (drawer) {
             drawer.classList.add('active');
             if (overlay) overlay.classList.add('active');
+            document.getElementById('mainContent')?.classList.add('drawer-open');
         }
     }
 
@@ -2052,6 +2074,7 @@ STAT3,IL6,regulation,0.88`;
         if (!anyDrawerActive) {
             const overlay = document.getElementById('drawerOverlay');
             if (overlay) overlay.classList.remove('active');
+            document.getElementById('mainContent')?.classList.remove('drawer-open');
         }
     }
 
@@ -2117,6 +2140,7 @@ STAT3,IL6,regulation,0.88`;
         sigColEl.innerHTML = '<option value="">— 不使用 —</option>';
         drawer.classList.add('active');
         document.getElementById('drawerOverlay')?.classList.add('active');
+        document.getElementById('mainContent')?.classList.add('drawer-open');
 
         // 上传并获取列信息
         const formData = new FormData();

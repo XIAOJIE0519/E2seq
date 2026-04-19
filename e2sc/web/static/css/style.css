@@ -373,6 +373,22 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     width: 100%;
+    transition: max-width 0.3s ease, padding-right 0.3s ease;
+}
+
+.drawer-open .chat-container {
+    max-width: calc(1200px - 420px);
+    padding-right: calc(var(--spacing-xl) + 420px);
+}
+
+.panel-open .chat-container {
+    max-width: calc(1200px - 320px);
+    padding-right: calc(var(--spacing-xl) + 320px);
+}
+
+.panel-open.drawer-open .chat-container {
+    max-width: calc(1200px - 420px - 320px);
+    padding-right: calc(var(--spacing-xl) + 420px + 320px);
 }
 
 .greeting-module {
@@ -501,6 +517,19 @@ body {
     padding: var(--spacing-xl);
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
+    transition: padding-right 0.3s ease;
+}
+
+.drawer-open .input-container {
+    padding-right: calc(var(--spacing-xl) + 420px);
+}
+
+.panel-open .input-container {
+    padding-right: calc(var(--spacing-xl) + 320px);
+}
+
+.panel-open.drawer-open .input-container {
+    padding-right: calc(var(--spacing-xl) + 420px + 320px);
 }
 
 .input-wrapper {

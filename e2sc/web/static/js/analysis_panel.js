@@ -354,14 +354,13 @@ class AnalysisPanel {
 
     open() {
         document.getElementById('analysisPanel').classList.add('open');
+        document.getElementById('mainContent')?.classList.add('panel-open');
         this.isOpen = true;
-        // Do NOT call checkDataStatus() here — it would re-run loadAvailableGroups
-        // if _colsLoaded were somehow false, potentially overwriting user edits.
-        // Status was already polled on init and will poll every 60 s.
     }
 
     close() {
         document.getElementById('analysisPanel').classList.remove('open');
+        document.getElementById('mainContent')?.classList.remove('panel-open');
         this.isOpen = false;
     }
 
