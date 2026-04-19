@@ -1747,6 +1747,8 @@ STAT3,IL6,regulation,0.88`;
             chats.forEach(chat => {
                 const chatItem = document.createElement('div');
                 chatItem.className = 'chat-item';
+                chatItem.dataset.id = chat.id;
+                chatItem.dataset.title = chat.title || '';
                 // 格式化时间
                 let timeStr = '';
                 if (chat.updated_at) {
@@ -1755,7 +1757,7 @@ STAT3,IL6,regulation,0.88`;
                 }
                 chatItem.innerHTML =
                     '<div class="chat-item-body">' +
-                    '<span class="chat-item-title">' + (chat.title || '新对话') + '</span>' +
+                    '<span class="chat-item-title">' + this._escapeHtml(chat.title || '新对话') + '</span>' +
                     '<span class="chat-item-time">' + timeStr + '</span>' +
                     '</div>' +
                     '<button class="chat-item-del" title="删除" data-chat-del="' + chat.id + '">×</button>';
@@ -1764,6 +1766,11 @@ STAT3,IL6,regulation,0.88`;
                     if (delBtn) { e.stopPropagation(); this.deleteChat(delBtn.dataset.chatDel); return; }
                     this.navigateToChat();
                     this.loadChat(chat.id);
+                });
+                // Right-click context menu for rename
+                chatItem.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    this._showChatContextMenu(e, chat.id, chat.title);
                 });
                 chatList.appendChild(chatItem);
             });
@@ -1780,6 +1787,10 @@ STAT3,IL6,regulation,0.88`;
             const chat = await response.json();
             this.currentChatId = chatId;
             this.messages = chat.messages || [];
+
+            // Sync title into sidebar dataset so rename reads the current title
+            const sidebarItem = document.querySelector(`.chat-item[data-id="${chatId}"]`);
+            if (sidebarItem) sidebarItem.dataset.title = chat.title || '新对话';
 
             const messagesArea = document.getElementById('messagesArea');
             if (messagesArea) messagesArea.innerHTML = '';
@@ -1841,6 +1852,150 @@ STAT3,IL6,regulation,0.88`;
             console.error('clearAllHistory error:', e);
             this.showNotification('清空历史失败: ' + e.message, 'error');
         }
+    }
+
+    _escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    _showChatContextMenu(e, chatId, currentTitle) {
+        // Remove any existing menu
+        const existing = document.getElementById('chat-context-menu');
+        if (existing) existing.remove();
+
+        const menu = document.createElement('div');
+        menu.id = 'chat-context-menu';
+        menu.className = 'chat-context-menu';
+
+        // Rename button
+        const renameBtn = document.createElement('div');
+        renameBtn.className = 'context-menu-item';
+        renameBtn.textContent = '重命名';
+        renameBtn.addEventListener('click', () => {
+            this._showRenameInput(chatId, currentTitle);
+            menu.remove();
+        });
+
+        // Delete button
+        const deleteBtn = document.createElement('div');
+        deleteBtn.className = 'context-menu-item context-menu-item-danger';
+        deleteBtn.textContent = '删除';
+        deleteBtn.addEventListener('click', () => {
+            menu.remove();
+            this.deleteChat(chatId);
+        });
+
+        menu.appendChild(renameBtn);
+        menu.appendChild(deleteBtn);
+        document.body.appendChild(menu);
+
+        // Position near cursor, clamp to viewport
+        const rect = menu.getBoundingClientRect();
+        let x = e.clientX;
+        let y = e.clientY;
+        if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+        if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+
+        // Dismiss on outside click or Escape
+        const dismiss = (ev) => {
+            if (!menu.contains(ev.target)) {
+                menu.remove();
+                document.removeEventListener('click', dismiss);
+                document.removeEventListener('keydown', onEsc);
+            }
+        };
+        const onEsc = (ev) => {
+            if (ev.key === 'Escape') { menu.remove(); document.removeEventListener('click', dismiss); }
+        };
+        setTimeout(() => {
+            document.addEventListener('click', dismiss);
+            document.addEventListener('keydown', onEsc);
+        }, 10);
+    }
+
+    _showRenameInput(chatId, currentTitle) {
+        // Remove any existing input
+        const existing = document.querySelector('.chat-rename-input-wrapper');
+        if (existing) existing.remove();
+
+        const item = document.querySelector(`.chat-item[data-id="${chatId}"]`);
+        if (!item) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chat-rename-input-wrapper';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'chat-rename-input';
+        input.value = currentTitle || '';
+        input.maxLength = 200;
+        input.placeholder = '输入新标题...';
+
+        // Confirm on Enter, cancel on Escape or blur
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                this._doRename(chatId, input.value.trim(), item);
+            } else if (ev.key === 'Escape') {
+                wrapper.remove();
+            }
+        });
+        input.addEventListener('blur', () => {
+            // Small delay to allow Enter key to fire first
+            setTimeout(() => {
+                if (document.contains(wrapper)) {
+                    this._doRename(chatId, input.value.trim(), item);
+                }
+            }, 150);
+        });
+
+        wrapper.appendChild(input);
+        item.querySelector('.chat-item-body').replaceWith(wrapper);
+        input.focus();
+        input.select();
+    }
+
+    async _doRename(chatId, newTitle, itemEl) {
+        const wrapper = document.querySelector('.chat-rename-input-wrapper');
+        if (wrapper) wrapper.remove();
+
+        if (!newTitle || newTitle === (itemEl.dataset.title || '')) {
+            // Restore the original body if no change
+            this._restoreChatItemBody(itemEl, itemEl.dataset.title || '新对话');
+            return;
+        }
+
+        try {
+            const r = await fetch(`/api/chats/${chatId}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title: newTitle})
+            });
+            if (!r.ok) throw new Error('Rename failed');
+            itemEl.dataset.title = newTitle;
+            this._restoreChatItemBody(itemEl, newTitle);
+            this.showNotification('已重命名', 'success');
+        } catch (e) {
+            console.error('_doRename error:', e);
+            this._restoreChatItemBody(itemEl, itemEl.dataset.title || '新对话');
+            this.showNotification('重命名失败: ' + e.message, 'error');
+        }
+    }
+
+    _restoreChatItemBody(itemEl, title) {
+        // Rebuild the body HTML after rename input is removed
+        const timeEl = itemEl.querySelector('.chat-item-time');
+        const timeStr = timeEl ? timeEl.textContent : '';
+        const body = document.createElement('div');
+        body.className = 'chat-item-body';
+        body.innerHTML =
+            '<span class="chat-item-title">' + this._escapeHtml(title) + '</span>' +
+            '<span class="chat-item-time">' + timeStr + '</span>';
+        itemEl.insertBefore(body, itemEl.querySelector('.chat-item-del'));
     }
 
     handleAttachment(fileArg) {

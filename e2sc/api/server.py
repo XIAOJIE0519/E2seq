@@ -222,6 +222,19 @@ def _delete_chat(chat_id: str):
     conn.close()
 
 
+def _rename_chat(chat_id: str, new_title: str) -> bool:
+    """Rename a chat session. Returns True if updated, False if not found."""
+    if not _CHAT_DB_PATH.exists():
+        return False
+    conn = _sqlite3.connect(str(_CHAT_DB_PATH))
+    cur = conn.execute("UPDATE chats SET title=?, updated_at=? WHERE id=?",
+                       (new_title, _datetime.utcnow().isoformat(), chat_id))
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize databases on server startup."""
@@ -1700,6 +1713,24 @@ async def get_chat(chat_id: str):
     if not messages:
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"id": chat_id, "messages": messages}
+
+
+@app.patch("/api/chats/{chat_id}")
+async def rename_chat(chat_id: str, request: Request):
+    """Rename a chat session title."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    new_title = body.get("title", "").strip()
+    if not new_title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    if len(new_title) > 200:
+        raise HTTPException(status_code=400, detail="Title too long (max 200 characters)")
+    updated = _rename_chat(chat_id, new_title)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return {"success": True, "title": new_title}
 
 
 @app.delete("/api/chats/{chat_id}")

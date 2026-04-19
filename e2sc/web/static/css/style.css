@@ -197,6 +197,72 @@ body {
     color: var(--text-primary);
 }
 
+.chat-item {
+    position: relative;
+}
+
+/* Right-click context menu */
+.chat-context-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 120px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    padding: 4px 0;
+    animation: contextMenuFadeIn 0.12s ease-out;
+}
+
+@keyframes contextMenuFadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+.context-menu-item {
+    padding: 8px 16px;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border-radius: 0;
+}
+
+.context-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.context-menu-item-danger {
+    color: #ef4444;
+}
+
+.context-menu-item-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Inline rename input */
+.chat-rename-input-wrapper {
+    padding: 6px 8px;
+}
+
+.chat-rename-input {
+    width: 100%;
+    background: var(--bg-hover);
+    border: 1px solid var(--accent-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    padding: 4px 8px;
+    outline: none;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+.chat-rename-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
 .sidebar-footer {
     padding: var(--spacing-md);
     border-top: 1px solid var(--border-color);
