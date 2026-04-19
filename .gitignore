@@ -46,3 +46,6 @@ _check_ws.txt
 
 # Cursor IDE config (local only)
 .cursor/
+
+# Literal %USERPROFILE% folder (bad npm/git variable expansion artifact)
+%USERPROFILE%/
