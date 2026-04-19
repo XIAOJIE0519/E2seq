@@ -30,13 +30,19 @@ dist/
 *.log
 .e2sc/
 
-# Temp
+# Local runtime data (do not commit)
+database/
+
+# Temp / debug
 *.tmp
 ~$*
+_check_ws.txt
+
+# GitNexus index (local only)
 .gitnexus/
 
-# GitNexus skill files
+# GitNexus skill files (local only)
 .claude/skills/gitnexus/
 
-# User profile npm cache
-%USERPROFILE%/
+# Cursor IDE config (local only)
+.cursor/
