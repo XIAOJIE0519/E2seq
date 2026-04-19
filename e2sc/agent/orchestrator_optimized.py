@@ -613,6 +613,10 @@ class E2scAgentOptimized:
             "n_genes": len(all_genes),
             "analysis_focus": focus,
         }
+        # Inject cross-gene network analysis for coherent module-level synthesis
+        cross_gene = self._build_cross_gene_analysis(knowledge)
+        if cross_gene and cross_gene.get("modules"):
+            knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         ok, resp, err = self.error_recovery.execute_with_retry(
@@ -1157,6 +1161,10 @@ class E2scAgentOptimized:
                 "analysis_focus": focus,
             }
         }
+        # Inject cross-gene network analysis so synthesizer can produce coherent module-level narrative
+        cross_gene = self._build_cross_gene_analysis(knowledge)
+        if cross_gene and cross_gene.get("modules"):
+            knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         ok, resp, err = self.error_recovery.execute_with_retry(
@@ -1273,6 +1281,10 @@ class E2scAgentOptimized:
                 "analysis_focus": focus,
             }
         }
+        # Inject cross-gene network analysis for coherent module-level synthesis
+        cross_gene = self._build_cross_gene_analysis(cached_k)
+        if cross_gene and cross_gene.get("modules"):
+            cached_k["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         ok, resp, err = self.error_recovery.execute_with_retry(
@@ -1288,6 +1300,138 @@ class E2scAgentOptimized:
         self.memory.save_current_session(success=True)
         self.state_manager.set_state(AgentState.COMPLETED)
         return resp
+
+    # --------------------------------------------------------------------------
+    # Cross-gene module analysis: extract PPI/TF/metabolite/microbiome networks
+    # and identify gene clusters to enable coherent cross-gene synthesis.
+    # --------------------------------------------------------------------------
+    def _build_cross_gene_analysis(self, knowledge: dict) -> dict:
+        """Build structured cross-gene network analysis from retrieved knowledge.
+
+        Extracts:
+        - PPI edges (gene -- partner[score])
+        - TF regulation edges (TF -- target[mode])
+        - Shared-metabolite edges (gene -- metabolite -- gene2)
+        - Shared-microbiome edges (gene -- microbe[condition])
+        - Gene modules (connected components of the above graph)
+        - Shared pathway enrichment per module
+
+        Returns a dict with keys: ppi_edges, tf_edges, metabolite_edges,
+        microbiome_edges, modules, shared_pathways.
+        """
+        genes_info = knowledge.get("genes", {})
+        if not genes_info:
+            return {}
+
+        ppi_edges = []       # [(gene, partner, score)]
+        tf_edges = []        # [(tf, target, mode)]
+        metabolite_edges = [] # [(gene, metabolite)]
+        microbiome_edges = [] # [(gene, microbe, condition)]
+
+        for gene, info in genes_info.items():
+            ppi = info.get("interactions") or []
+            for iact in ppi[:8]:
+                partner = iact.get("partner", "") if isinstance(iact, dict) else str(iact)
+                score = iact.get("score", 0) if isinstance(iact, dict) else 0
+                if partner and partner != gene:
+                    ppi_edges.append((gene, partner, score))
+
+            regs = info.get("regulators") or []
+            for r in regs[:5]:
+                tf = r.get("tf", "") if isinstance(r, dict) else str(r)
+                eff = r.get("effect", "") if isinstance(r, dict) else ""
+                if tf:
+                    tf_edges.append((tf, gene, eff))
+
+            targets = info.get("targets") or []
+            for t in targets[:5]:
+                tg = t.get("target_gene", "") if isinstance(t, dict) else str(t)
+                eff = t.get("effect", "") if isinstance(t, dict) else ""
+                if tg:
+                    tf_edges.append((gene, tg, eff))
+
+            mets = info.get("metabolites") or []
+            for m in mets[:5]:
+                mn = (m.get("name") or m.get("metabolite_name", "")) if isinstance(m, dict) else str(m)
+                if mn:
+                    metabolite_edges.append((gene, mn))
+
+            microbes = info.get("gut_microbes") or []
+            for m in microbes[:3]:
+                mn = (m.get("microbe") or m.get("gut_microbiota", "")) if isinstance(m, dict) else str(m)
+                cond = (m.get("Condition") or m.get("condition", "")) if isinstance(m, dict) else ""
+                if mn:
+                    microbiome_edges.append((gene, mn, cond))
+
+        all_edges = []
+        seen = set()
+        for gene, partner, score in ppi_edges:
+            key = (min(gene, partner), max(gene, partner))
+            if key not in seen:
+                seen.add(key)
+                all_edges.append({"type": "PPI", "a": gene, "b": partner, "score": score})
+
+        seen_tf = set()
+        for tf, target, mode in tf_edges:
+            key = (tf, target)
+            if key not in seen_tf:
+                seen_tf.add(key)
+                all_edges.append({"type": "TF", "a": tf, "b": target, "mode": mode})
+
+        # Build adjacency for module detection
+        adj = {}
+        for gene in genes_info:
+            adj.setdefault(gene, set())
+        for e in all_edges:
+            adj.setdefault(e["a"], set()).add(e["b"])
+            adj.setdefault(e["b"], set()).add(e["a"])
+
+        visited = set()
+        modules = []
+        for start in adj:
+            if start in visited:
+                continue
+            component = set()
+            queue = [start]
+            while queue:
+                node = queue.pop()
+                if node in visited:
+                    continue
+                visited.add(node)
+                component.add(node)
+                queue.extend(adj.get(node, set()) - visited)
+            if len(component) >= 2:
+                modules.append(sorted(component))
+
+        # Shared pathways per module
+        shared_pathways = {}
+        for i, mod in enumerate(modules):
+            pw_count = {}
+            for g in mod:
+                info = genes_info.get(g, {})
+                pws = info.get("pathways") or info.get("reactome_pathways") or []
+                for p in pws:
+                    pw_count[p] = pw_count.get(p, 0) + 1
+            shared = [(p, c) for p, c in pw_count.items() if c >= 2]
+            shared_pathways[f"Module_{i+1}"] = sorted(shared, key=lambda x: -x[1])[:5]
+
+        # PPI hubs (highest degree)
+        ppi_degree = {}
+        for gene, partner, score in ppi_edges:
+            ppi_degree[gene] = ppi_degree.get(gene, 0) + 1
+            ppi_degree[partner] = ppi_degree.get(partner, 0) + 1
+        hubs = sorted(ppi_degree.items(), key=lambda x: -x[1])[:10]
+
+        return {
+            "ppi_edges": ppi_edges,
+            "tf_edges": tf_edges,
+            "metabolite_edges": metabolite_edges,
+            "microbiome_edges": microbiome_edges,
+            "modules": modules,
+            "shared_pathways": shared_pathways,
+            "ppi_hubs": hubs,
+            "all_edges": all_edges,
+        }
 
     _gene_cache_lock = None  # threading.Lock, lazily initialized
 
@@ -2366,6 +2510,10 @@ class E2scAgentOptimized:
                 # token explosion. All knowledge is passed via combined_knowledge dict.
             }
         }
+        # Inject cross-gene network analysis for coherent module-level synthesis
+        cross_gene = self._build_cross_gene_analysis(combined_knowledge)
+        if cross_gene and cross_gene.get("modules"):
+            combined_knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info("[进度] 所有数据库查询完成，正在调用 synthesizer 进行综合解读...")
@@ -2492,6 +2640,10 @@ class E2scAgentOptimized:
             }
             logger.info(f"[进度] 使用缓存知识回答后续问题，跳过API查询 ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles)")
             thinking_steps.append({"step": "CacheReuse", "content": f"Answering from cached knowledge ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles) + RAG vector store"})
+            # Inject cross-gene network analysis for coherent module-level synthesis
+            _cross_gene = self._build_cross_gene_analysis(_cached_knowledge)
+            if _cross_gene and _cross_gene.get("modules"):
+                _cached_knowledge["cross_gene_analysis"] = _cross_gene
             _output_mode = str(self.adata.uns.get("e2sc_output_mode", "detailed")) if self.adata is not None else "detailed"
             _history = self.memory.get_conversation_history()
             _success, _response, _error = self.error_recovery.execute_with_retry(
@@ -2640,13 +2792,17 @@ class E2scAgentOptimized:
             "deg": {"results": pd.DataFrame({"names": genes_to_query}), "params": {}},
                 "plots": [],
         }
-        if cell_type_context:
-            fake_results["matrix_context"] = {
-                "cell_type_focus": cell_type_context,
-                "genes_queried": genes_to_query,
-                "top_genes_per_celltype": {cell_type_context: genes_to_query}
-            }
+            if cell_type_context:
+                fake_results["matrix_context"] = {
+                    "cell_type_focus": cell_type_context,
+                    "genes_queried": genes_to_query,
+                    "top_genes_per_celltype": {cell_type_context: genes_to_query}
+                }
 
+        # Inject cross-gene network analysis for coherent module-level synthesis
+        cross_gene = self._build_cross_gene_analysis(knowledge)
+        if cross_gene and cross_gene.get("modules"):
+            knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         success, response, error = self.error_recovery.execute_with_retry(
@@ -2743,7 +2899,12 @@ class E2scAgentOptimized:
             
             # STATE: Synthesizing
             self.state_manager.set_state(AgentState.SYNTHESIZING)
-            
+
+            # Inject cross-gene network analysis for coherent module-level synthesis
+            cross_gene = self._build_cross_gene_analysis(knowledge)
+            if cross_gene and cross_gene.get("modules"):
+                knowledge["cross_gene_analysis"] = cross_gene
+
             # Synthesize with error recovery
             success, response, error = self.error_recovery.execute_with_retry(
                 self.synthesizer.synthesize,

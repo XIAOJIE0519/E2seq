@@ -74,7 +74,8 @@ class SynthesizerAgent:
         """Synthesize Graph-RAG knowledge into a Nature/Cell-level response."""
         logger.info("Synthesizing final report")
 
-        results_summary = self._format_results(results)
+        # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
+        results_summary = self._format_results(results, knowledge=knowledge)
         results_summary = self._truncate_to_token_budget(results_summary, max_chars=6000)
         knowledge_summary = self._format_knowledge(knowledge)
         knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=16000)
@@ -178,13 +179,31 @@ class SynthesizerAgent:
             "or topic list on the output.\n"
             "6. Never truncate mid-sentence. Complete every thought.\n"
             "7. Write at the level of a Nature / Cell / Nature Medicine research article discussion "
-            "or review section — precise, mechanistic, deeply integrated across evidence layers."
+            "or review section — precise, mechanistic, deeply integrated across evidence layers.\n"
+            "8. CROSS-GENE SYNTHESIS (MANDATORY when gene modules are present):\n"
+            "   a. LEAD with the gene interaction modules — identify which genes form dense PPI clusters, "
+            "share TF regulators, or are co-enriched for the same pathways.\n"
+            "   b. Characterize each module by its collective theme (e.g., 'inflammatory signaling module', "
+            "'DNA repair hub', 'metabolic co-regulation axis').\n"
+            "   c. Discuss coordinated regulation — which genes are likely co-regulated by the same TF, "
+            "respond to the same upstream signal, or participate in the same pathway cascade.\n"
+            "   d. Cross-validate: how do the expression patterns (mean expr, log-fold-change) align with "
+            "the retrieved interaction/reulation knowledge? Genes that are highly expressed AND well-connected "
+            "in the network are likely key drivers.\n"
+            "   e. If modules have shared pathway enrichment, explain what biological process the module "
+            "collectively represents.\n"
+            "   f. Weave individual gene descriptions INTO the module narrative — do not describe genes "
+            "one after another in isolation. Each gene description should support or refine the module-level story.\n"
+            "9. When NO modules are detected (genes are largely isolated in knowledge), still discuss "
+            "potential indirect connections via shared diseases, pathways, or tissue expression patterns.\n"
+            "10. Cross-gene synthesis is NOT a separate section at the end — it is the organizational "
+            "principle of the entire response."
         )
 
     # ------------------------------------------------------------------
     # Formatting helpers
     # ------------------------------------------------------------------
-    def _format_results(self, results: Dict[str, Any]) -> str:
+    def _format_results(self, results: Dict[str, Any], knowledge: Dict[str, Any] = None) -> str:
         sections = []
 
         # ── CSV / differential expression table mode ──────────────────────
@@ -192,17 +211,21 @@ class SynthesizerAgent:
             sections.append(results["gene_context"])
             return "\n".join(sections)
 
+        # ── Cross-gene network analysis (injected by orchestrator into knowledge dict) ──
+        # Can be in results (orchestrator injects via fake_results) or knowledge (direct inject)
+        cross_gene = results.get("cross_gene_analysis") or (knowledge or {}).get("cross_gene_analysis")
+        if cross_gene:
+            sections.append(self._format_cross_gene_section(results, knowledge))
+
         # ── scRNA-seq / h5ad mode with matrix_context ──────────────────
         if results.get("matrix_context"):
             ctx = results["matrix_context"]
             genes = ctx.get("genes_queried", [])
             ct_focus = ctx.get("cell_type_focus", "all cell types")
             sections.append(f"Cell type focus: {ct_focus}")
-            # 显示基因（上限50个）
             sections.append(f"ALL genes from this analysis ({len(genes)} total): {', '.join(genes[:50])}")
             if len(genes) > 50:
                 sections.append(f"... 以及其他 {len(genes) - 50} 个基因")
-            # Disease group expression — 每个组最多10个基因
             grp_map = ctx.get("top_genes_per_group", {})
             if grp_map:
                 sections.append("\n=== TOP EXPRESSED GENES PER DISEASE GROUP (gene: mean_expr) ===")
@@ -212,24 +235,21 @@ class SynthesizerAgent:
                     else:
                         genes_str = ", ".join(str(g) for g in gs[:10])
                     sections.append(f"  {grp}: {genes_str}")
-            # Differential genes — 每组最多8个
             diff_map = ctx.get("diff_genes_per_group", {})
             if diff_map:
                 sections.append("\n=== DIFFERENTIALLY HIGH GENES PER GROUP VS OTHERS (gene: fold_change) ===")
                 for grp, gene_list in diff_map.items():
                     if gene_list:
                         sections.append(f"  {grp}: {', '.join(gene_list[:8])}")
-            # Cell type — 每型最多6个
             ct_map = ctx.get("top_genes_per_celltype", {})
             if ct_map:
                 sections.append("\n=== TOP EXPRESSED GENES PER CELL TYPE ===")
                 for ct, gs in ct_map.items():
                     g_list = list(gs.keys())[:6] if isinstance(gs, dict) else gs[:6]
                     sections.append(f"  {ct}: {', '.join(g_list)}")
-            # Cell type × group joint — 每组最多4个
             ct_grp_joint = ctx.get("ct_grp_joint", {})
             if ct_grp_joint:
-                sections.append("\n=== CELL TYPE × DISEASE GROUP JOINT TOP GENES (gene(expr)) ===")
+                sections.append("\n=== CELL TYPE x DISEASE GROUP JOINT TOP GENES (gene(expr)) ===")
                 for ct_lbl, grp_dict in ct_grp_joint.items():
                     parts = []
                     for grp_lbl, genes_list in grp_dict.items():
@@ -243,6 +263,83 @@ class SynthesizerAgent:
             top_genes = deg_df["names"].head(10).tolist() if "names" in deg_df.columns else []
             sections.append(f"DEG top genes: {', '.join(top_genes)}")
         return "\n".join(sections) if sections else "No analysis results available."
+
+    def _format_cross_gene_section(self, results: Dict[str, Any], knowledge: Dict[str, Any] = None) -> str:
+        """Format cross-gene network analysis as the leading section.
+
+        Shows PPI/TF/metabolite/microbiome edges and gene modules first,
+        so the LLM organizes the entire response around module-level patterns
+        rather than describing genes one-by-one in isolation.
+        """
+        cross = results.get("cross_gene_analysis") or (knowledge or {}).get("cross_gene_analysis")
+        if not cross:
+            return ""
+
+        lines = ["\n=== CROSS-GENE NETWORK ANALYSIS (ORGANIZE RESPONSE AROUND THESE MODULES) ===\n"]
+
+        all_edges = cross.get("all_edges", [])
+        ppi_lines, tf_lines = [], []
+        for e in all_edges:
+            etype = e.get("type", "")
+            a, b = e.get("a", ""), e.get("b", "")
+            if etype == "PPI":
+                s = e.get("score", 0)
+                ppi_lines.append(f"  {a} --[PPI:{s:.2f}]-- {b}")
+            elif etype == "TF":
+                m = e.get("mode", "")
+                tf_lines.append(f"  {a} --[TF:{m}]--> {b}")
+        if ppi_lines:
+            lines.append("--- PPI NETWORK (protein-protein interactions) ---")
+            lines.extend(ppi_lines[:80])
+            lines.append("")
+        if tf_lines:
+            lines.append("--- TF REGULATION (transcription factor -> target) ---")
+            lines.extend(tf_lines[:40])
+            lines.append("")
+
+        metabolite_edges = cross.get("metabolite_edges", [])
+        if metabolite_edges:
+            lines.append("--- METABOLITE BRIDGES (shared metabolites link genes) ---")
+            seen_met = {}
+            for gene, met in metabolite_edges:
+                if met not in seen_met:
+                    seen_met[met] = []
+                seen_met[met].append(gene)
+            for met, genes in seen_met.items():
+                if len(genes) > 1:
+                    lines.append(f"  {', '.join(genes)} <--[{met}]")
+            lines.append("")
+
+        microbiome_edges = cross.get("microbiome_edges", [])
+        if microbiome_edges:
+            lines.append("--- GUT MICROBIOME AXIS ---")
+            for gene, microbe, cond in microbiome_edges[:20]:
+                cond_str = f" [{cond}]" if cond else ""
+                lines.append(f"  {gene} --[{microbe}{cond_str}]")
+            lines.append("")
+
+        modules = cross.get("modules", [])
+        if modules:
+            lines.append("--- GENE MODULES (connected PPI/TF components) ---")
+            for i, mod in enumerate(modules):
+                lines.append(f"  Module_{i+1} ({len(mod)} genes): {', '.join(mod)}")
+            lines.append("")
+
+        shared_pw = cross.get("shared_pathways", {})
+        if shared_pw:
+            lines.append("--- SHARED PATHWAYS PER MODULE ---")
+            for mod_name, pws in shared_pw.items():
+                if pws:
+                    pw_str = ", ".join(f"{p}({c})" for p, c in pws[:5])
+                    lines.append(f"  {mod_name}: {pw_str}")
+            lines.append("")
+
+        hubs = cross.get("ppi_hubs", [])
+        if hubs:
+            hub_str = ", ".join(f"{g}(degree={d})" for g, d in hubs[:10])
+            lines.append(f"--- PPI HUB GENES (highest interaction degree) ---\n  {hub_str}\n")
+
+        return "\n".join(lines)
 
     def _format_knowledge(self, knowledge: Dict[str, Any]) -> str:
         """Compact, high-density gene knowledge formatting to fit within token budget.
