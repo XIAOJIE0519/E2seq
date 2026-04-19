@@ -814,6 +814,7 @@ STAT3,IL6,regulation,0.88`;
                 ['geminiKey', 'gemini_key'],
                 ['deepseekKey', 'deepseek_key'],
                 ['siliconflowKey', 'siliconflow_key'],
+                ['glmKey', 'glm_key'],
             ];
             // 回填已保存的模型名称
             const modelFields = [
@@ -822,6 +823,7 @@ STAT3,IL6,regulation,0.88`;
                 ['geminiModel', 'gemini_model'],
                 ['deepseekModel', 'deepseek_model'],
                 ['siliconflowModel', 'siliconflow_model'],
+                ['glmModel', 'glm_model'],
             ];
             modelFields.forEach(([elemId, dataKey]) => {
                 const el = document.getElementById(elemId);
@@ -837,14 +839,15 @@ STAT3,IL6,regulation,0.88`;
             if (data.provider && data.provider !== 'ollama') {
                 const currentModel = data[data.provider + '_model'];
                 const CURATED = {
-                    openai: ['gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o3','o3-mini','o4-mini','gpt-4-turbo'],
+                    openai: ['gpt-5.4','gpt-5.4-mini','gpt-5.2','gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini'],
                     anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
-                    gemini: ['gemini-2.5-pro','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-                    deepseek: ['deepseek-chat','deepseek-reasoner'],
+                    gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+                    deepseek: ['deepseek-reasoner','deepseek-chat'],
                     siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
+                    glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
                 };
                 // Show curated lists for ALL providers so user can switch immediately
-                ['openai','anthropic','gemini','deepseek','siliconflow'].forEach(p => {
+                ['openai','anthropic','gemini','deepseek','siliconflow','glm'].forEach(p => {
                     const curated = CURATED[p] || [];
                     if (!curated.length) return;
                     const pModel = data[p + '_model'];
@@ -1024,11 +1027,12 @@ STAT3,IL6,regulation,0.88`;
         if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">获取模型列表...</span>';
         // Show curated list immediately for siliconflow and deepseek
         const CURATED = {
-            openai: ['gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o3','o3-mini','o4-mini','gpt-4-turbo'],
+            openai: ['gpt-5.4','gpt-5.4-mini','gpt-5.2','gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini'],
             anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
-            gemini: ['gemini-2.5-pro','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-            deepseek: ['deepseek-chat','deepseek-reasoner'],
+            gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+            deepseek: ['deepseek-reasoner','deepseek-chat'],
             siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
+            glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
         };
         const curated = CURATED[provider] || [];
         // Populate with curated list first
@@ -1068,7 +1072,7 @@ STAT3,IL6,regulation,0.88`;
         if (provider && model) {
             const providerLabels = {
                 openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini',
-                deepseek: 'DeepSeek', siliconflow: '硅基流动', ollama: 'Ollama'
+                deepseek: 'DeepSeek', siliconflow: '硅基流动', glm: 'GLM', ollama: 'Ollama'
             };
             const pLabel = providerLabels[provider] || provider;
             badge.textContent = `${pLabel} · ${model}`;
@@ -1388,8 +1392,43 @@ STAT3,IL6,regulation,0.88`;
             let buffer = '';
             let partialLine = '';
             let currentText = '';
+            let streamingText = '';
             let thinkingSteps = [];
             let plotsData = [];
+            let messageDiv = null;
+            let messageContent = null;
+
+            // Helper: create or update the assistant message bubble with incremental content
+            const ensureBubble = () => {
+                if (!messageDiv) {
+                    this.removeMessage(loadingId);
+                    messageDiv = this.addMessage('assistant', '', false);
+                    const el = document.getElementById(messageDiv);
+                    if (el) {
+                        messageContent = el.querySelector('.message-content');
+                    }
+                }
+            };
+
+            // Helper: render markdown text incrementally (partial parse)
+            const renderIncrementalMarkdown = (text) => {
+                if (!messageContent) return;
+                try {
+                    if (typeof marked !== 'undefined') {
+                        messageContent.innerHTML = marked.parse(text || '');
+                        messageContent.querySelectorAll('pre code').forEach(function(b) {
+                            if (typeof hljs !== 'undefined') hljs.highlightElement(b);
+                        });
+                    } else {
+                        messageContent.innerHTML = _renderMarkdownFallback(text);
+                    }
+                } catch (e) {
+                    messageContent.textContent = text;
+                }
+                // Scroll to bottom
+                const messagesArea = document.getElementById('messagesArea');
+                if (messagesArea) messagesArea.scrollTop = messagesArea.scrollHeight;
+            };
 
             // Parse SSE stream
             while (true) {
@@ -1404,28 +1443,64 @@ STAT3,IL6,regulation,0.88`;
                     } else if (line.startsWith('data: ')) {
                         const data = line.slice(6);
                         if (partialLine === 'thinking') {
-                            thinkingSteps.push(data);
-                            const step = JSON.parse(data);
-                            const bubble = document.getElementById(loadingId);
-                            if (bubble) {
-                                const pl = bubble.querySelector('.progress-log');
+                            try {
+                                const step = JSON.parse(data);
+                                // Real-time progress step from backend
+                                ensureBubble();
+                                const pl = messageDiv && document.getElementById(messageDiv)
+                                    ? document.getElementById(messageDiv).querySelector('.progress-log')
+                                    : null;
                                 if (pl) {
                                     const stepDiv = document.createElement('div');
                                     stepDiv.className = 'progress-step';
-                                    stepDiv.textContent = `[${step.step}] ${step.content}`;
+                                    stepDiv.textContent = step.content || `[${step.step}]`;
                                     pl.appendChild(stepDiv);
                                     pl.scrollTop = pl.scrollHeight;
+                                }
+                                // If the backend sends actual text content in thinking step, render it
+                                if (step.text) {
+                                    streamingText += step.text;
+                                    ensureBubble();
+                                    renderIncrementalMarkdown(streamingText);
+                                }
+                            } catch (e) {
+                                // Non-JSON thinking data — treat as raw progress message
+                                const bubble = document.getElementById(loadingId);
+                                if (bubble) {
+                                    const pl = bubble.querySelector('.progress-log');
+                                    if (pl) {
+                                        const stepDiv = document.createElement('div');
+                                        stepDiv.className = 'progress-step';
+                                        stepDiv.textContent = data;
+                                        pl.appendChild(stepDiv);
+                                        pl.scrollTop = pl.scrollHeight;
+                                    }
                                 }
                             }
                         } else if (partialLine === 'plots') {
                             plotsData = plotsData.concat(JSON.parse(data));
                             this.displayPlots(plotsData);
                         } else if (partialLine === 'source_stats') {
-                            // Pass source_stats to display for rendering in message
-                            currentText = currentText; // placeholder for now
+                            // Handled in done event
+                        } else if (partialLine === 'text') {
+                            // Incremental text chunk from streaming LLM
+                            try {
+                                const chunk = JSON.parse(data);
+                                streamingText += chunk.content || '';
+                                ensureBubble();
+                                renderIncrementalMarkdown(streamingText);
+                            } catch (e) {
+                                streamingText += data;
+                                ensureBubble();
+                                renderIncrementalMarkdown(streamingText);
+                            }
                         } else if (partialLine === 'done') {
                             const result = JSON.parse(data);
-                            currentText = result.response || '';
+                            // Use streamed text if available, otherwise use full response
+                            if (!streamingText) {
+                                streamingText = result.response || '';
+                            }
+                            currentText = streamingText;
                         } else if (partialLine === 'error') {
                             currentText = '[Error] ' + data;
                         }
@@ -1437,6 +1512,8 @@ STAT3,IL6,regulation,0.88`;
             this.removeMessage(loadingId);
             if (currentText) {
                 this.addMessage('assistant', currentText);
+            } else if (streamingText) {
+                this.addMessage('assistant', streamingText);
             }
             if (plotsData.length > 0) {
                 this.displayPlots(plotsData);
