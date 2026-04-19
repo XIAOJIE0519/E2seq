@@ -33,3 +33,10 @@ dist/
 # Temp
 *.tmp
 ~$*
+.gitnexus/
+
+# GitNexus skill files
+.claude/skills/gitnexus/
+
+# User profile npm cache
+%USERPROFILE%/
