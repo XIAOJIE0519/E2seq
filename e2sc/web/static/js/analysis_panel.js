@@ -1,4 +1,20 @@
 // ========== Analysis Control Panel ==========
+
+// Global t() function for i18n (delegates to window.i18n or uses global t if available)
+function t(key, lang, vars) {
+    if (typeof window.t === 'function') {
+        return window.t(key, lang, vars);
+    }
+    const currentLang = lang || localStorage.getItem('e2seq_language') || 'zh-CN';
+    let text = (window.i18n && window.i18n[currentLang]?.[key]) || key;
+    if (vars && typeof vars === 'object') {
+        for (const [k, v] of Object.entries(vars)) {
+            text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), String(v));
+        }
+    }
+    return text;
+}
+
 class AnalysisPanel {
     constructor(app) {
         this.app = app;

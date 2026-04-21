@@ -582,6 +582,12 @@ function t(key, lang = null, vars = null) {
     return text;
 }
 
+// 导出到全局
+if (typeof window !== 'undefined') {
+    window.i18n = i18n;
+    window.t = t;
+}
+
 // 导出
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { i18n, t };
