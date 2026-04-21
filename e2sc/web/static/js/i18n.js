@@ -7,7 +7,8 @@ const i18n = {
         'nav.knowledgeBase': '我的知识库',
         'nav.settings': '设置和帮助',
         'nav.back': '返回',
-        
+        'nav.clearHistory': '清空历史',
+
         // 聊天页面
         'chat.title': 'E2seq',
         'chat.greeting': '✨ 你好，研究者',
@@ -18,7 +19,8 @@ const i18n = {
         'chat.tools': '工具',
         'chat.charts': '可视化图表',
         'chat.hint': 'E2seq 可能会出错，请核实重要信息',
-        
+        'chat.pleaseSelectFile': '点击选择文件',
+
         // 建议提示词
         'suggestion.deg': '分析所选细胞类型的高表达基因疾病关联',
         'suggestion.enrichment': '解读基因通路与生物过程（Reactome + QuickGO）',
@@ -26,7 +28,7 @@ const i18n = {
         'suggestion.hub': '解读药物靶点潜力（ChEMBL + Open Targets）',
         'suggestion.umap': '分析代谢物与肠道菌群关联（HMDB + GUTMGENE）',
         'suggestion.upload': '加载我的h5ad数据文件',
-        
+
         // 知识库页面
         'kb.title': '我的知识库',
         'kb.builtin': '内置数据库',
@@ -51,13 +53,14 @@ const i18n = {
         'kb.formatRequirements': '文件格式要求',
         'kb.required': '必需',
         'kb.optional': '可选',
-        
+        'kb.customBadge': '自定义',
+
         // 数据库描述
         'db.string.desc': '蛋白质-蛋白质相互作用',
         'db.hmdb.desc': '基因-代谢物关联',
         'db.trrust.desc': '转录因子调控关系',
         'db.gutmgene.desc': '肠道微生物-基因关联',
-        
+
         // 数据库详情
         'dbDetail.title': '数据库详情',
         'dbDetail.basicInfo': '基本信息',
@@ -68,7 +71,7 @@ const i18n = {
         'dbDetail.fields': '字段说明',
         'dbDetail.example': '数据示例',
         'dbDetail.close': '关闭',
-        
+
         // 设置页面
         'settings.title': '设置',
         'settings.apiKeys': 'API Keys',
@@ -90,7 +93,45 @@ const i18n = {
         'settings.uploadData': '上传数据文件',
         'settings.save': '保存设置',
         'settings.testConnection': '测试连接',
-        
+
+        // API Keys 面板
+        'settings.apiKeysDesc': '配置 LLM 服务提供商的 API Key',
+        'settings.fetchModels': '获取模型',
+        'settings.clearDisconnect': '清除并断开',
+
+        // Embedding 模型
+        'settings.embeddingModel': 'Embedding 模型',
+        'settings.embeddingModelDesc': '选择用于知识库向量化处理的 Embedding 模型',
+        'settings.modelPathPlaceholder': '模型本地路径（该模型需要路径时填写）',
+        'settings.saveModelPath': '保存当前模型路径',
+        'settings.embeddingLoading': '加载中...',
+        'settings.modelSize': '模型大小',
+        'settings.localOnly': '仅使用本地模型',
+        'settings.testModel': '测试模型',
+        'settings.addCustomModel': '新增自定义 Embedding 模型',
+        'settings.customIdPlaceholder': '模型ID（例如 my-embed-model）',
+        'settings.customNamePlaceholder': '显示名称（可选）',
+        'settings.customPathPlaceholder': '本地路径（必填）',
+        'settings.customDimPlaceholder': '维度（可选）',
+        'settings.customSizePlaceholder': '大小（可选）',
+        'settings.addCustomModelBtn': '添加自定义模型',
+        'settings.modelPath': '本地路径',
+        'settings.modelPathNeeded': '需要配置本地路径',
+        'settings.builtinNoPath': '内置模型，无需路径',
+        'settings.downloadHF': '可从 HuggingFace 下载',
+        'settings.pathNeeded': '需填写路径',
+        'settings.localAvailable': '本地可用',
+        'settings.needDownload': '需下载',
+        'settings.dim': '维',
+
+        // 偏好设置
+        'settings.preferences': '偏好设置',
+        'settings.preferencesDesc': '自定义界面语言和主题',
+        'settings.interfaceLang': '界面语言',
+        'settings.theme': '主题',
+        'settings.themeLight': '浅色',
+        'settings.themeDark': '深色',
+
         // 可视化面板
         'charts.title': '📊 可视化图表',
         'charts.umap': 'UMAP/tSNE 散点图',
@@ -107,7 +148,7 @@ const i18n = {
         'charts.close': '关闭',
         'charts.noData': '暂无数据',
         'charts.noDataHint': '请先上传数据文件（h5ad格式）以查看可视化图表',
-        
+
         // 通知消息
         'notify.uploadSuccess': '文件上传成功',
         'notify.uploadFailed': '文件上传失败',
@@ -121,7 +162,35 @@ const i18n = {
         'notify.dbDeleted': '数据库已删除',
         'notify.dbDeleteFailed': '数据库删除失败',
         'notify.templateDownloaded': '模板文件已下载',
-        
+        'notify.clearKey': '清除失败',
+        'notify.clearKeyWithError': '清除失败: {error}',
+        'notify.switchModel': '{provider} 已切换至 {model}',
+        'notify.switchFailed': '切换失败，请先保存 API Key',
+        'notify.switchFailedWithError': '切换失败: {error}',
+        'notify.savePathFailed': '保存路径失败',
+        'notify.pathSaved': '模型路径已保存',
+        'notify.customModelRequired': '自定义模型需要填写模型ID和本地路径',
+        'notify.addCustomFailed': '添加自定义模型失败',
+        'notify.customAdded': '自定义模型已添加',
+        'notify.clearHistory': '已清空 {count} 条历史记录',
+        'notify.clearHistoryLatest': '历史记录已是最新，无需清空',
+        'notify.clearHistoryFailed': '清空历史失败: {error}',
+        'notify.renameSuccess': '已重命名',
+        'notify.renameFailed': '重命名失败: {error}',
+        'notify.tableUploadSuccess': '表格数据上传成功：{count} 个基因',
+        'notify.uploading': '正在上传并解析数据集，请稍候...',
+        'notify.dataUploadSuccess': '数据上传成功：{cells} 细胞 × {genes} 基因',
+        'notify.confirmClearKey': '确定要清除 {provider} 的 API Key 并断开连接吗？',
+        'notify.deleteRecord': '确认删除这条历史记录？',
+        'notify.clearAllConfirm': '确认清空所有历史对话？',
+        'notify.testing': '测试中...',
+        'notify.testFailed': '测试失败: {error}',
+        'notify.fetchFailed': '获取失败',
+        'notify.netError': '网络错误',
+        'notify.modelConnected': '连接成功',
+        'notify.modelDisconnected': '连接失败',
+        'notify.modelConnecting': '连接中...',
+
         // 错误消息
         'error.chatFailed': '对话失败，请稍后重试',
         'error.loadFailed': '加载失败',
@@ -135,20 +204,95 @@ const i18n = {
         'error.emptyFile': '文件为空或格式错误',
         'error.missingFields': '缺少必需字段',
         'error.fileReadError': '文件读取失败',
-        
+
         // 对话历史
         'history.title': '对话',
         'history.newChat': '新对话',
         'history.empty': '暂无对话历史',
+        'history.rename': '重命名',
+        'history.delete': '删除',
+
+        // 数据集配置弹窗
+        'dataset.configTitle': '配置数据',
+        'dataset.cells': '细胞',
+        'dataset.genes': '基因',
+        'dataset.celltypeCol': '细胞类型列',
+        'dataset.groupCol': '分组列（可选）',
+        'dataset.apiData': 'API 数据',
+        'dataset.localData': '本地数据',
+        'dataset.cancel': '取消',
+        'dataset.confirmAndAnalyze': '确认并开始分析',
+
+        // 上传抽屉
+        'upload.title': '上传数据',
+        'upload.singlecellTitle': '单细胞数据',
+        'upload.singlecellFormats': '支持 .h5ad / .csv / .rds 格式',
+        'upload.singlecellDesc': '用于细胞类型注释、基因表达分析、UMAP可视化等',
+        'upload.tableTitle': '表格数据',
+        'upload.tableFormats': '支持 .csv / .tsv / .xlsx 格式',
+        'upload.tableDesc': '用于差异基因列表、表达矩阵、通路分析',
+        'upload.tableConfig': '配置表格数据',
+        'upload.fileSelected': '已选择文件',
+        'upload.geneCol': '基因',
+        'upload.exprType': '表达类型',
+        'upload.exprCol': '表达值列',
+        'upload.exprThresh': '表达值筛选（|值| ≥）',
+        'upload.sigCol': '显著性列（可选）',
+        'upload.sigThresh': '显著性阈值（≤）',
+        'upload.maxGenes': '基因数量上限',
+        'upload.enabledApis': '启用的数据库查询',
+        'upload.enabledLocal': '启用的本地数据库',
+        'upload.confirmUpload': '确认上传',
+        'upload.downloadTemplate': '下载模板',
+        'upload.notes': '注意事项',
+
+        // 分析面板
+        'analysis.dataSettings': '数据设置',
+        'analysis.noDataLoaded': '未加载数据',
+        'analysis.clearData': '清除数据',
+        'analysis.tableMode': '表格数据',
+        'analysis.singlecellMode': '单细胞数据',
+        'analysis.singlecellDropzone': '当前是单细胞模式：上传 .h5ad / .csv / .rds 文件，点击选择文件',
+        'analysis.tableDropzone': '当前是表格模式：上传 .csv / .tsv / .xlsx 文件，点击选择文件',
+        'analysis.topGenes': '每类高表达基因数量（5-100，默认50）',
+        'analysis.topGenesPreview': '高表达基因预览',
+        'analysis.descPlaceholder': '数据集描述（可选）',
+        'analysis.startAnalysis': '开始分析并查询',
+        'analysis.currentlyLoaded': '当前会话已有数据，请先清空后再上传',
+        'analysis.confirmClear': '确定要清除当前数据集吗？',
+        'analysis.dataCleared': '数据集已清除',
+        'analysis.clearFailed': '清除失败',
+        'analysis.selectColumn': '请至少选择一个列进行分析',
+        'analysis.analyzing': '分析中...',
+        'analysis.configFailed': '配置失败',
+        'analysis.startFailed': '分析启动失败',
+        'analysis.configComplete': '配置完成，可以开始提问',
+        'analysis.uploadSuccess': '表格数据上传成功：{count} 个基因',
+        'analysis.uploading': '正在上传并解析数据集，请稍候...',
+        'analysis.uploadSuccess2': '数据上传成功：{cells} 细胞 × {genes} 基因',
+        'analysis.tableModeLoaded': '当前已加载单细胞数据，请先清空后再上传表格数据',
+        'analysis.singlecellModeLoaded': '当前已加载表格数据，请先清空后再配置单细胞',
+        'analysis.modeSwitchBlocked': '当前已加载另一种数据，请先清空后再切换',
+        'analysis.dataClearedInfo': '数据已清空，请重新上传文件',
+        'analysis.filteredGenes': '当前过滤后基因数',
+        'analysis.statFailed': '统计失败',
+        'analysis.readingFile': '正在读取',
+        'analysis.readFailed': '表格读取失败',
+        'analysis.uploadFailed': '上传失败',
+        'analysis.selectGeneCol': '请先上传文件并选择基因列',
+        'analysis.displayName': '显示名称',
+        'analysis.needUploadSinglecell': '请先上传并应用单细胞数据',
+        'analysis.needUploadTable': '请先上传并应用表格数据',
     },
-    
+
     'en-US': {
         // Navigation
         'nav.newChat': 'New Chat',
         'nav.knowledgeBase': 'Knowledge Base',
         'nav.settings': 'Settings & Help',
         'nav.back': 'Back',
-        
+        'nav.clearHistory': 'Clear History',
+
         // Chat page
         'chat.title': 'E2seq',
         'chat.greeting': '✨ Hello, Researcher',
@@ -159,7 +303,8 @@ const i18n = {
         'chat.tools': 'Tools',
         'chat.charts': 'Charts',
         'chat.hint': 'E2seq may make mistakes. Please verify important information.',
-        
+        'chat.pleaseSelectFile': 'Click to Select File',
+
         // Suggestion chips
         'suggestion.deg': 'Analyze differential genes in Enterocytes',
         'suggestion.enrichment': 'Perform GO enrichment analysis',
@@ -167,7 +312,7 @@ const i18n = {
         'suggestion.hub': 'Identify hub genes and query functions',
         'suggestion.umap': 'Visualize UMAP dimensionality reduction',
         'suggestion.upload': 'Load my h5ad data file',
-        
+
         // Knowledge base page
         'kb.title': 'Knowledge Base',
         'kb.builtin': 'Built-in Databases',
@@ -181,13 +326,25 @@ const i18n = {
         'kb.format': 'Format',
         'kb.status': 'Loaded',
         'kb.description': 'Description',
-        
+        'kb.uploadInstructions': 'Upload Custom Database',
+        'kb.requiredFields': 'Required Fields',
+        'kb.csvFormatDesc': 'Please upload a CSV format file with the following required fields:',
+        'kb.formatExample': 'Format Example',
+        'kb.notes': 'Notes',
+        'kb.cancel': 'Cancel',
+        'kb.selectFile': 'Select File',
+        'kb.downloadTemplate': 'Download Template',
+        'kb.formatRequirements': 'File Format Requirements',
+        'kb.required': 'Required',
+        'kb.optional': 'Optional',
+        'kb.customBadge': 'Custom',
+
         // Database descriptions
         'db.string.desc': 'Protein-Protein Interactions',
         'db.hmdb.desc': 'Gene-Metabolite Associations',
         'db.trrust.desc': 'Transcription Factor Regulations',
         'db.gutmgene.desc': 'Gut Microbiota-Gene Associations',
-        
+
         // Database details
         'dbDetail.title': 'Database Details',
         'dbDetail.basicInfo': 'Basic Information',
@@ -198,7 +355,7 @@ const i18n = {
         'dbDetail.fields': 'Fields',
         'dbDetail.example': 'Example',
         'dbDetail.close': 'Close',
-        
+
         // Settings page
         'settings.title': 'Settings',
         'settings.apiKeys': 'API Keys',
@@ -220,7 +377,45 @@ const i18n = {
         'settings.uploadData': 'Upload Data File',
         'settings.save': 'Save Settings',
         'settings.testConnection': 'Test Connection',
-        
+
+        // API Keys panel
+        'settings.apiKeysDesc': 'Configure API Keys for LLM service providers',
+        'settings.fetchModels': 'Fetch Models',
+        'settings.clearDisconnect': 'Clear & Disconnect',
+
+        // Embedding model
+        'settings.embeddingModel': 'Embedding Model',
+        'settings.embeddingModelDesc': 'Choose an Embedding model for knowledge base vectorization',
+        'settings.modelPathPlaceholder': 'Local model path (fill in when required)',
+        'settings.saveModelPath': 'Save Current Model Path',
+        'settings.embeddingLoading': 'Loading...',
+        'settings.modelSize': 'Model Size',
+        'settings.localOnly': 'Local Models Only',
+        'settings.testModel': 'Test Model',
+        'settings.addCustomModel': 'Add Custom Embedding Model',
+        'settings.customIdPlaceholder': 'Model ID (e.g., my-embed-model)',
+        'settings.customNamePlaceholder': 'Display name (optional)',
+        'settings.customPathPlaceholder': 'Local path (required)',
+        'settings.customDimPlaceholder': 'Dimension (optional)',
+        'settings.customSizePlaceholder': 'Size (optional)',
+        'settings.addCustomModelBtn': 'Add Custom Model',
+        'settings.modelPath': 'Local Path',
+        'settings.modelPathNeeded': 'Local path needs to be configured',
+        'settings.builtinNoPath': 'Built-in model, no path needed',
+        'settings.downloadHF': 'Can be downloaded from HuggingFace',
+        'settings.pathNeeded': 'Path required',
+        'settings.localAvailable': 'Local available',
+        'settings.needDownload': 'Needs download',
+        'settings.dim': 'dim',
+
+        // Preferences
+        'settings.preferences': 'Preferences',
+        'settings.preferencesDesc': 'Customize interface language and theme',
+        'settings.interfaceLang': 'Interface Language',
+        'settings.theme': 'Theme',
+        'settings.themeLight': 'Light',
+        'settings.themeDark': 'Dark',
+
         // Visualization panel
         'charts.title': '📊 Visualization Charts',
         'charts.umap': 'UMAP/tSNE Scatter Plot',
@@ -237,7 +432,7 @@ const i18n = {
         'charts.close': 'Close',
         'charts.noData': 'No Data Available',
         'charts.noDataHint': 'Please upload a data file (h5ad format) first to view visualizations',
-        
+
         // Notification messages
         'notify.uploadSuccess': 'File uploaded successfully',
         'notify.uploadFailed': 'File upload failed',
@@ -251,7 +446,35 @@ const i18n = {
         'notify.dbDeleted': 'Database deleted',
         'notify.dbDeleteFailed': 'Database delete failed',
         'notify.templateDownloaded': 'Template file downloaded',
-        
+        'notify.clearKey': 'Failed to clear',
+        'notify.clearKeyWithError': 'Failed to clear: {error}',
+        'notify.switchModel': '{provider} switched to {model}',
+        'notify.switchFailed': 'Switch failed, please save API Key first',
+        'notify.switchFailedWithError': 'Switch failed: {error}',
+        'notify.savePathFailed': 'Failed to save path',
+        'notify.pathSaved': 'Model path saved',
+        'notify.customModelRequired': 'Custom model requires model ID and local path',
+        'notify.addCustomFailed': 'Failed to add custom model',
+        'notify.customAdded': 'Custom model added',
+        'notify.clearHistory': 'Cleared {count} history records',
+        'notify.clearHistoryLatest': 'History is already up to date',
+        'notify.clearHistoryFailed': 'Failed to clear history: {error}',
+        'notify.renameSuccess': 'Renamed',
+        'notify.renameFailed': 'Rename failed: {error}',
+        'notify.tableUploadSuccess': 'Table data uploaded successfully: {count} genes',
+        'notify.uploading': 'Uploading and parsing dataset, please wait...',
+        'notify.dataUploadSuccess': 'Data uploaded successfully: {cells} cells × {genes} genes',
+        'notify.confirmClearKey': 'Are you sure you want to clear {provider}\'s API Key and disconnect?',
+        'notify.deleteRecord': 'Confirm delete this history record?',
+        'notify.clearAllConfirm': 'Confirm clear all history?',
+        'notify.testing': 'Testing...',
+        'notify.testFailed': 'Test failed: {error}',
+        'notify.fetchFailed': 'Fetch failed',
+        'notify.netError': 'Network error',
+        'notify.modelConnected': 'Connected',
+        'notify.modelDisconnected': 'Disconnected',
+        'notify.modelConnecting': 'Connecting...',
+
         // Error messages
         'error.chatFailed': 'Chat failed, please try again later',
         'error.loadFailed': 'Load failed',
@@ -265,18 +488,98 @@ const i18n = {
         'error.emptyFile': 'File is empty or invalid format',
         'error.missingFields': 'Missing required fields',
         'error.fileReadError': 'Failed to read file',
-        
+
         // Chat history
         'history.title': 'Chats',
         'history.newChat': 'New Chat',
         'history.empty': 'No chat history',
+        'history.rename': 'Rename',
+        'history.delete': 'Delete',
+
+        // Dataset config modal
+        'dataset.configTitle': 'Configure Data',
+        'dataset.cells': 'Cells',
+        'dataset.genes': 'Genes',
+        'dataset.celltypeCol': 'Cell Type Column',
+        'dataset.groupCol': 'Group Column (optional)',
+        'dataset.apiData': 'API Data',
+        'dataset.localData': 'Local Data',
+        'dataset.cancel': 'Cancel',
+        'dataset.confirmAndAnalyze': 'Confirm and Start Analysis',
+
+        // Upload drawer
+        'upload.title': 'Upload Data',
+        'upload.singlecellTitle': 'Single-Cell Data',
+        'upload.singlecellFormats': 'Supports .h5ad / .csv / .rds formats',
+        'upload.singlecellDesc': 'For cell type annotation, gene expression analysis, UMAP visualization, etc.',
+        'upload.tableTitle': 'Table Data',
+        'upload.tableFormats': 'Supports .csv / .tsv / .xlsx formats',
+        'upload.tableDesc': 'For differential gene lists, expression matrices, pathway analysis',
+        'upload.tableConfig': 'Configure Table Data',
+        'upload.fileSelected': 'File Selected',
+        'upload.geneCol': 'Gene',
+        'upload.exprType': 'Expression Type',
+        'upload.exprCol': 'Expression Value Column',
+        'upload.exprThresh': 'Expression Filter (|value| ≥)',
+        'upload.sigCol': 'Significance Column (optional)',
+        'upload.sigThresh': 'Significance Threshold (≤)',
+        'upload.maxGenes': 'Max Gene Count',
+        'upload.enabledApis': 'Enabled Database Queries',
+        'upload.enabledLocal': 'Enabled Local Databases',
+        'upload.confirmUpload': 'Confirm Upload',
+        'upload.downloadTemplate': 'Download Template',
+        'upload.notes': 'Notes',
+
+        // Analysis panel
+        'analysis.dataSettings': 'Data Settings',
+        'analysis.noDataLoaded': 'No Data Loaded',
+        'analysis.clearData': 'Clear Data',
+        'analysis.tableMode': 'Table Data',
+        'analysis.singlecellMode': 'Single-Cell Data',
+        'analysis.singlecellDropzone': 'Single-cell mode: upload .h5ad / .csv / .rds file, click to select',
+        'analysis.tableDropzone': 'Table mode: upload .csv / .tsv / .xlsx file, click to select',
+        'analysis.topGenes': 'Top genes per cell type (5-100, default 50)',
+        'analysis.topGenesPreview': 'Top Genes Preview',
+        'analysis.descPlaceholder': 'Dataset description (optional)',
+        'analysis.startAnalysis': 'Start Analysis',
+        'analysis.currentlyLoaded': 'Data already exists in session, please clear first',
+        'analysis.confirmClear': 'Are you sure you want to clear the current dataset?',
+        'analysis.dataCleared': 'Dataset cleared',
+        'analysis.clearFailed': 'Clear failed',
+        'analysis.selectColumn': 'Please select at least one column for analysis',
+        'analysis.analyzing': 'Analyzing...',
+        'analysis.configFailed': 'Configuration failed',
+        'analysis.startFailed': 'Analysis start failed',
+        'analysis.configComplete': 'Configuration complete, you can start asking',
+        'analysis.uploadSuccess': 'Table data uploaded successfully: {count} genes',
+        'analysis.uploading': 'Uploading and parsing dataset, please wait...',
+        'analysis.uploadSuccess2': 'Data uploaded successfully: {cells} cells × {genes} genes',
+        'analysis.tableModeLoaded': 'Single-cell data loaded, please clear before uploading table data',
+        'analysis.singlecellModeLoaded': 'Table data loaded, please clear before configuring single-cell',
+        'analysis.modeSwitchBlocked': 'Different data type loaded, please clear before switching',
+        'analysis.dataClearedInfo': 'Data cleared, please upload file again',
+        'analysis.filteredGenes': 'Currently filtered gene count',
+        'analysis.statFailed': 'Statistics failed',
+        'analysis.readingFile': 'Reading file',
+        'analysis.readFailed': 'Failed to read table',
+        'analysis.uploadFailed': 'Upload failed',
+        'analysis.selectGeneCol': 'Please upload file and select gene column',
+        'analysis.displayName': 'Display Name',
+        'analysis.needUploadSinglecell': 'Please upload and apply single-cell data first',
+        'analysis.needUploadTable': 'Please upload and apply table data first',
     }
 };
 
-// 获取翻译文本
-function t(key, lang = null) {
+// 获取翻译文本，支持模板变量替换
+function t(key, lang = null, vars = null) {
     const currentLang = lang || localStorage.getItem('e2seq_language') || 'zh-CN';
-    return i18n[currentLang]?.[key] || key;
+    let text = i18n[currentLang]?.[key] || key;
+    if (vars && typeof vars === 'object') {
+        for (const [k, v] of Object.entries(vars)) {
+            text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), String(v));
+        }
+    }
+    return text;
 }
 
 // 导出
