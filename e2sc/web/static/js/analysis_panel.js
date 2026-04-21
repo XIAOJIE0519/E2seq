@@ -41,13 +41,93 @@ class AnalysisPanel {
         try { localStorage.removeItem('e2seq_user_labels'); } catch (_) {}
     }
 
+    /** Apply i18n translations to all static text in the analysis panel. */
+    applyI18n(lang = null) {
+        const _t = (key) => {
+            const currentLang = lang || localStorage.getItem('e2seq_language') || 'zh-CN';
+            return i18n[currentLang]?.[key] || key;
+        };
+
+        // Panel title and info
+        const panelTitle = document.getElementById('apPanelTitle');
+        if (panelTitle) panelTitle.textContent = _t('analysis.dataSettings');
+
+        // Tab buttons
+        const apModeTable = document.getElementById('apModeTable');
+        if (apModeTable) apModeTable.textContent = _t('analysis.tableMode');
+        const apModeSc = document.getElementById('apModeSinglecell');
+        if (apModeSc) apModeSc.textContent = _t('analysis.singlecellMode');
+
+        // Drop zone text
+        this._updateDropZoneText();
+
+        // Column labels
+        const ctLabel = document.getElementById('apCelltypeColLabel');
+        if (ctLabel) ctLabel.textContent = _t('analysis.celltypeCol');
+        const grpLabel = document.getElementById('apGroupColLabel');
+        if (grpLabel) grpLabel.textContent = _t('analysis.groupCol');
+
+        // Top genes label
+        const tgLabel = document.getElementById('apTopGenesLabel');
+        if (tgLabel) tgLabel.textContent = _t('analysis.topGenes');
+
+        // Matrix preview title
+        const matrixTitle = document.getElementById('apMatrixTitle');
+        if (matrixTitle) matrixTitle.textContent = _t('analysis.topGenesPreview');
+
+        // Description label
+        const descLabel = document.getElementById('apDescLabel');
+        if (descLabel) descLabel.textContent = _t('analysis.descPlaceholder');
+
+        // Run button text
+        const runBtn = document.getElementById('apRunBtn');
+        if (runBtn) {
+            const span = runBtn.querySelector('span[data-i18n]');
+            if (span) span.textContent = _t('analysis.startAnalysis');
+        }
+
+        // Clear data button text
+        const clearBtn = document.getElementById('apClearDataBtn');
+        if (clearBtn) {
+            const span = clearBtn.querySelector('span[data-i18n]');
+            if (span) span.textContent = _t('analysis.clearData');
+        }
+
+        // Data info text
+        const apDataInfo = document.getElementById('apDataInfo');
+        if (apDataInfo) {
+            if (!this._dataStatus?.data_loaded) {
+                apDataInfo.textContent = _t('analysis.noDataLoaded');
+            }
+        }
+    }
+
+    _updateDropZoneText() {
+        const _t = (key) => {
+            const lang = localStorage.getItem('e2seq_language') || 'zh-CN';
+            return i18n[lang]?.[key] || key;
+        };
+        const zone = document.getElementById('apH5adDropZone');
+        if (!zone) return;
+        const span = document.getElementById('apDropZoneText');
+        if (!span) return;
+        const isSc = this.currentMode !== 'table';
+        const prefix = isSc ? _t('analysis.singlecellDropzone') : _t('analysis.tableDropzone');
+        const clickText = _t('chat.pleaseSelectFile');
+        // Replace the text node before the button, keep the button element intact
+        const btn = span.querySelector('button');
+        const textNode = Array.from(span.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+        if (textNode) textNode.textContent = prefix + '，';
+        if (btn) btn.textContent = clickText;
+    }
+
     init() {
         this.ensureModeUI();
         document.getElementById('closeAnalysisPanel')?.addEventListener('click', () => this.close());
         document.getElementById('apDropUploadBtn')?.addEventListener('click', () => {
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification('当前会话已有数据，请先清空后再上传', 'error');
+                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             if (this.currentMode === 'table') this.app.openFilePicker('table');
@@ -56,7 +136,7 @@ class AnalysisPanel {
         document.getElementById('apTableUploadBtn')?.addEventListener('click', () => {
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification('当前会话已有数据，请先清空后再上传', 'error');
+                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             this.app.openFilePicker('table');
@@ -73,7 +153,7 @@ class AnalysisPanel {
 
         // 清除数据按钮
         document.getElementById('apClearDataBtn')?.addEventListener('click', async () => {
-            if (!confirm('确定要清除当前数据集吗？')) return;
+            if (!confirm(t('analysis.confirmClear'))) return;
             try {
                 await fetch('/api/clear-data', {
                     method: 'POST',
@@ -86,9 +166,9 @@ class AnalysisPanel {
                 this._clearLabelsStorage();
                 await this.checkDataStatus();
                 this._resetSelectorsToUnused();
-                this.app.showNotification('数据集已清除', 'success');
+                this.app.showNotification(t('analysis.dataCleared'), 'success');
             } catch(e) {
-                this.app.showNotification('清除失败', 'error');
+                this.app.showNotification(t('analysis.clearFailed'), 'error');
             }
         });
 
@@ -99,7 +179,7 @@ class AnalysisPanel {
             if (dropZone) dropZone.style.borderColor = 'var(--border-color,#3d4460)';
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification('当前会话已有数据，请先清空后再上传', 'error');
+                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             if (this.currentMode === 'table') this.app.openFilePicker('table');
@@ -196,27 +276,39 @@ class AnalysisPanel {
         } catch (_) { /* non-fatal — labels still live in localStorage */ }
     }
 
+    _bindModeTabListeners() {
+        document.getElementById('apModeSinglecell')?.addEventListener('click', () => this.switchMode('singlecell'));
+        document.getElementById('apModeTable')?.addEventListener('click', () => this.switchMode('table'));
+    }
+
     ensureModeUI() {
         const panel = document.getElementById('analysisPanel');
         if (!panel) return;
 
-        // Create mode tabs if missing
-        let tabs = panel.querySelector('.ap-mode-tabs');
+        // Tab buttons now exist in HTML — only ensure labels are correct (i18n)
+        this._bindModeTabListeners();
+
+        // Tab buttons exist in HTML; do NOT recreate them here to avoid overwriting i18n
+        const tabs = panel.querySelector('.ap-mode-tabs');
         if (!tabs) {
             tabs = document.createElement('div');
             tabs.className = 'ap-mode-tabs';
             tabs.style.cssText = 'display:flex;gap:8px;margin:10px 0 12px;';
-            tabs.innerHTML = '<button id="apModeTable" class="ap-mode-tab" type="button">表格数据</button>' +
-                             '<button id="apModeSinglecell" class="ap-mode-tab active" type="button">单细胞数据</button>';
+            tabs.innerHTML = `<button id="apModeTable" class="ap-mode-tab" type="button">${t('analysis.tableMode')}</button>` +
+                             `<button id="apModeSinglecell" class="ap-mode-tab active" type="button">${t('analysis.singlecellMode')}</button>`;
             const drop = document.getElementById('apH5adDropZone');
             if (drop) panel.insertBefore(tabs, drop);
         }
 
-        // Create table section if missing
+        // Create table section if missing (use i18n for all text)
         if (!document.getElementById('apTableSection')) {
             const sec = document.createElement('div');
             sec.id = 'apTableSection';
             sec.style.display = 'none';
+            const _t2 = (k) => {
+                const lang = localStorage.getItem('e2seq_language') || 'zh-CN';
+                return i18n[lang]?.[k] || k;
+            };
             sec.innerHTML = `
                 <div class="ap-drop-zone"
                     ondragover="event.preventDefault(); this.style.borderColor='var(--accent-primary)'"
@@ -227,51 +319,51 @@ class AnalysisPanel {
                         <polyline points="17 8 12 3 7 8"></polyline>
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
-                    <span>当前是表格模式：上传 .csv / .tsv / .xlsx 文件 <button id="apTableUploadBtn" style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;text-decoration:underline">点击选择文件</button></span>
+                    <span>${_t2('analysis.tableDropzone')} <button id="apTableUploadBtn" style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;text-decoration:underline">${_t2('chat.pleaseSelectFile')}</button></span>
                 </div>
                 <div class="ap-col-section" style="padding-top:4px;">
                     <div class="ap-col-row">
-                        <label>基因列</label>
+                        <label>${_t2('upload.geneCol')}</label>
                         <select id="apTableGeneCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>分组列（可选）</label>
+                        <label>${_t2('upload.groupCol')}</label>
                         <select id="apTableGroupCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>表达值列</label>
+                        <label>${_t2('upload.exprCol')}</label>
                         <select id="apTableExprCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>表达类型名称</label>
+                        <label>${_t2('upload.exprType')}</label>
                         <select id="apTableExprTypePreset" class="form-control ap-select">
                             <option value="log2FC">log2FC</option>
                             <option value="logFC">logFC</option>
-                            <option value="mean_expr">mean express</option>
-                            <option value="custom">自定义名称</option>
+                            <option value="mean_expr">mean expression</option>
+                            <option value="custom">custom</option>
                         </select>
-                        <input id="apTableExprTypeCustom" class="form-control ap-select" type="text" value="" placeholder="输入表达类型名称" style="margin-top:8px;display:none;" />
+                        <input id="apTableExprTypeCustom" class="form-control ap-select" type="text" value="" placeholder="${_t2('analysis.displayName')}" style="margin-top:8px;display:none;" />
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>表达值过滤（|值| ≥）</label>
-                        <input id="apTableExprThresh" class="form-control ap-select" type="number" step="0.01" placeholder="例如 0.5" />
+                        <label>${_t2('upload.exprThresh')}</label>
+                        <input id="apTableExprThresh" class="form-control ap-select" type="number" step="0.01" placeholder="0.5" />
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>显著性列（可选）</label>
+                        <label>${_t2('upload.sigCol')}</label>
                         <select id="apTableSigCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>显著性阈值（≤）</label>
+                        <label>${_t2('upload.sigThresh')}</label>
                         <input id="apTableSigThresh" class="form-control ap-select" type="number" step="0.01" value="0.05" />
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
-                        <label>数据集描述（可选）</label>
-                        <textarea id="apTableDatasetDesc" class="form-control ap-select" rows="3" placeholder="例如：GSE12345 差异基因结果，疾病组 vs 对照组，阈值已筛选"></textarea>
+                        <label>${_t2('analysis.descPlaceholder')}</label>
+                        <textarea id="apTableDatasetDesc" class="form-control ap-select" rows="3" placeholder="${_t2('analysis.descPlaceholder')}"></textarea>
                     </div>
-                    <div id="apTableInfo" style="margin-top:10px;font-size:.8rem;color:var(--text-secondary)">未加载表格数据</div>
-                    <div id="apTableGeneCountInfo" style="margin-top:4px;font-size:.8rem;color:var(--accent-secondary)">当前过滤后基因数：-</div>
+                    <div id="apTableInfo" style="margin-top:10px;font-size:.8rem;color:var(--text-secondary)">${_t2('analysis.noDataLoaded')}</div>
+                    <div id="apTableGeneCountInfo" style="margin-top:4px;font-size:.8rem;color:var(--accent-secondary)">${_t2('analysis.filteredGenes')}: -</div>
                     <div id="apTableError" style="margin-top:8px;font-size:.8rem;color:#ef4444;display:none"></div>
-                    <button id="apTableConfirmBtn" class="ap-btn-run" style="margin-top:12px;" disabled>确认上传并应用</button>
+                    <button id="apTableConfirmBtn" class="ap-btn-run" style="margin-top:12px;" disabled>${_t2('upload.confirmUpload')}</button>
                 </div>`;
             const footer = panel.querySelector('.ap-footer');
             if (footer) footer.parentNode.insertBefore(sec, footer.nextSibling);
@@ -291,11 +383,11 @@ class AnalysisPanel {
 
         if (runBtn) {
             runBtn.disabled = !singleReady;
-            runBtn.title = singleReady ? '' : '请先上传并应用单细胞数据';
+            runBtn.title = singleReady ? '' : t('analysis.needUploadSinglecell');
         }
         if (tableBtn) {
             tableBtn.disabled = !tableReady;
-            tableBtn.title = tableReady ? '' : '请先上传并应用表格数据';
+            tableBtn.title = tableReady ? '' : t('analysis.needUploadTable');
         }
     }
 
@@ -307,9 +399,9 @@ class AnalysisPanel {
         ['apCelltypeColSelect', 'apGroupColSelect', 'apTableGeneCol', 'apTableGroupCol', 'apTableExprCol', 'apTableSigCol'].forEach(setNone);
 
         const infoEl = document.getElementById('apTableInfo');
-        if (infoEl) infoEl.textContent = '未加载表格数据';
+        if (infoEl) infoEl.textContent = t('analysis.noDataLoaded');
         const geneInfoEl = document.getElementById('apTableGeneCountInfo');
-        if (geneInfoEl) geneInfoEl.textContent = '当前过滤后基因数：-';
+        if (geneInfoEl) geneInfoEl.textContent = t('analysis.filteredGenes') + ': -';
 
         const ctRows = document.getElementById('apCelltypeLabelRows');
         const gpRows = document.getElementById('apGroupLabelRows');
@@ -323,7 +415,7 @@ class AnalysisPanel {
         const target = mode === 'table' ? 'table' : 'singlecell';
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== target) {
-            this.app.showNotification('当前已加载另一种数据，请先清空后再切换', 'error');
+            this.app.showNotification(t('analysis.modeSwitchBlocked'), 'error');
             return;
         }
 
@@ -372,8 +464,11 @@ class AnalysisPanel {
             const infoEl = document.getElementById('apDataInfo');
             if (data.data_loaded) {
                 this._dataStatus = { data_loaded: true, data_mode: data.data_mode || 'singlecell' };
-                const modeText = (this._dataStatus.data_mode === 'table') ? '表格' : '单细胞';
-                infoEl.innerHTML = `<span style="color:var(--accent-secondary)">&#x2713;</span> [${modeText}] ${(data.cells||0).toLocaleString()} ${data.data_mode==='table' ? '行记录' : '细胞'} &middot; ${(data.genes||0).toLocaleString()} ${data.data_mode==='table' ? '基因/蛋白' : '基因'}`;
+                const isTable = this._dataStatus.data_mode === 'table';
+                const modeText = isTable ? t('analysis.tableMode') : t('analysis.singlecellMode');
+                const cellUnit = t('dataset.cells');
+                const geneUnit = t('dataset.genes');
+                infoEl.innerHTML = `<span style="color:var(--accent-secondary)">&#x2713;</span> [${modeText}] ${(data.cells||0).toLocaleString()} ${cellUnit} &middot; ${(data.genes||0).toLocaleString()} ${geneUnit}`;
                 // Show clear button when data is loaded
                 const clearBtn = document.getElementById('apClearDataBtn');
                 if (clearBtn) clearBtn.style.display = 'block';
@@ -387,7 +482,7 @@ class AnalysisPanel {
                 if (!this.matrixData) this.loadMatrix();
             } else {
                 this._dataStatus = { data_loaded: false, data_mode: null };
-                infoEl.textContent = '未加载数据';
+                infoEl.textContent = t('analysis.noDataLoaded');
                 const clearBtn = document.getElementById('apClearDataBtn');
                 if (clearBtn) clearBtn.style.display = 'none';
                 this._colsLoaded = false;
@@ -509,7 +604,7 @@ class AnalysisPanel {
         const sigThreshRaw = document.getElementById('apTableSigThresh')?.value || '';
 
         if (!geneCol) {
-            infoEl.textContent = '当前过滤后基因数：-';
+                infoEl.textContent = t('analysis.filteredGenes') + ': -';
             return;
         }
 
@@ -525,9 +620,9 @@ class AnalysisPanel {
             const response = await fetch('/api/csv-gene-count', { method: 'POST', body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '统计失败');
-            infoEl.textContent = `当前过滤后基因数：${(data.n_genes || 0).toLocaleString()}（${(data.n_rows_filtered || 0).toLocaleString()} 行）`;
+            infoEl.textContent = `${t('analysis.filteredGenes')}: ${(data.n_genes || 0).toLocaleString()} (${(data.n_rows_filtered || 0).toLocaleString()} rows)`;
         } catch (_) {
-            infoEl.textContent = '当前过滤后基因数：统计失败';
+            infoEl.textContent = `${t('analysis.filteredGenes')}: ${t('analysis.statFailed')}`;
         }
     }
 
@@ -600,7 +695,7 @@ class AnalysisPanel {
     async confirmTableUpload() {
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== 'table') {
-            this.app.showNotification('当前已加载单细胞数据，请先清空后再上传表格数据', 'error');
+            this.app.showNotification(t('analysis.tableModeLoaded'), 'error');
             return;
         }
 
@@ -637,7 +732,7 @@ class AnalysisPanel {
             const response = await fetch('/api/configure-csv', { method: 'POST', body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '配置失败');
-            this.app.showNotification(`表格数据上传成功：${data.n_genes} 个基因`, 'success');
+            this.app.showNotification(t('analysis.uploadSuccess', null, {count: data.n_genes}), 'success');
             const clearBtn = document.getElementById('apClearDataBtn');
             if (clearBtn) clearBtn.style.display = 'block';
             this._colsLoaded = false;
@@ -728,7 +823,7 @@ class AnalysisPanel {
     async runAnalysis() {
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== 'singlecell') {
-            this.app.showNotification('当前已加载表格数据，请先清空后再配置单细胞', 'error');
+            this.app.showNotification(t('analysis.singlecellModeLoaded'), 'error');
             return;
         }
 
@@ -740,12 +835,13 @@ class AnalysisPanel {
         const groupLabels    = this.getLabelMap('group');
 
         if (!ctCol && !grpCol) {
-            alert('请至少选择一个列进行分析');
+            alert(t('analysis.selectColumn'));
             return;
         }
 
         runBtn.disabled = true;
-        runBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="10"/></svg> 分析中...';
+        const spinnerSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="10"/></svg>';
+        runBtn.innerHTML = `${spinnerSvg} ${t('analysis.analyzing')}`;
 
         try {
             const cfgResp = await fetch('/api/configure-dataset', {
@@ -771,13 +867,15 @@ class AnalysisPanel {
                 this.app.navigateToChat();
                 // Agentic RAG: no offline KB build needed — queries are answered on demand
                 this.app._setInputLocked(false, '');
-                this.app.showNotification('配置完成，可以开始提问', 'success');
+                this.app.showNotification(t('analysis.configComplete'), 'success');
             }
         } catch(e) {
-            alert('分析启动失败: ' + e.message);
+            alert(t('analysis.startFailed') + ': ' + e.message);
         } finally {
             runBtn.disabled = false;
-            runBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> 开始分析并查询';
+            const span = runBtn.querySelector('span[data-i18n]');
+            if (span) span.textContent = t('analysis.startAnalysis');
+            else runBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> ${t('analysis.startAnalysis')}`;
         }
     }
 }
