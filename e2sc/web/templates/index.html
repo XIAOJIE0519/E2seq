@@ -12,7 +12,7 @@
 </head>
 <body>
     <!-- ========== 抽屉遮罩 ========== -->
-    <div id="drawerOverlay" class="drawer-overlay" onclick="window.chatApp?.closeUploadDrawer()"></div>
+    <div id="drawerOverlay" class="drawer-overlay" onclick="window.e2seqApp?.closeUploadDrawer()"></div>
     <div class="app-container">
         <!-- ========== 侧边========== -->
         <aside class="sidebar">
@@ -22,7 +22,7 @@
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
-                    <span data-i18n="nav.newChat">发起新对</span>
+                    <span data-i18n="nav.newChat">发起新对话</span>
                 </button>
                 <button id="clearHistoryBtn" class="nav-item">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -43,7 +43,7 @@
                         <circle cx="12" cy="12" r="3"></circle>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                     </svg>
-                    <span data-i18n="nav.settings">设置和帮</span>
+                    <span data-i18n="nav.settings">设置和帮助</span>
                 </button>
             </nav>
 
@@ -75,15 +75,15 @@
 
                     <!-- 欢迎模块 -->
                     <div id="greetingModule" class="greeting-module">
-                        <h2 class="greeting-headline" data-i18n="chat.greeting">你好，研究</h2>
-                        <p class="greeting-subheadline" data-i18n="chat.subGreeting">需要我为你分析单细胞数据吗</p>
+                        <h2 class="greeting-headline" data-i18n="chat.greeting">你好，科学研究助手</h2>
+                        <p class="greeting-subheadline" data-i18n="chat.subGreeting">需要我为你分析单细胞数据吗？</p>
                         <div class="suggestion-chips">
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                                     <polyline points="14 2 14 8 20 8"></polyline>
                                 </svg>
-                                <span data-i18n="suggestion.deg">分析所选细胞类型的高表达基因疾病关</span>
+                                <span data-i18n="suggestion.deg">分析所选细胞类型的高表达基因及其疾病关联</span>
                             </div>
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -91,7 +91,7 @@
                                     <line x1="12" y1="16" x2="12" y2="12"></line>
                                     <line x1="12" y1="8" x2="12.01" y2="8"></line>
                                 </svg>
-                                <span data-i18n="suggestion.enrichment">解读基因通路与生物过</span>
+                                <span data-i18n="suggestion.enrichment">解读基因通路与生物过程富集分析</span>
                             </div>
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -101,13 +101,13 @@
                                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
                                     <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
                                 </svg>
-                                <span data-i18n="suggestion.network">分析基因互作网络与转录调</span>
+                                <span data-i18n="suggestion.network">分析基因互作网络与转录调控关系</span>
                             </div>
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                                 </svg>
-                                <span data-i18n="suggestion.hub">解读药物靶点潜力</span>
+                                <span data-i18n="suggestion.hub">解读药物靶点潜力与基因功能</span>
                             </div>
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -115,7 +115,7 @@
                                     <line x1="3" y1="9" x2="21" y2="9"></line>
                                     <line x1="9" y1="21" x2="9" y2="9"></line>
                                 </svg>
-                                <span data-i18n="suggestion.umap">分析代谢物与肠道菌群关联</span>
+                                <span data-i18n="suggestion.umap">分析代谢物与肠道菌群的UMAP关联</span>
                             </div>
                             <div class="chip">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -123,7 +123,7 @@
                                     <polyline points="17 8 12 3 7 8"></polyline>
                                     <line x1="12" y1="3" x2="12" y2="15"></line>
                                 </svg>
-                                <span data-i18n="suggestion.upload">加载我的h5ad数据文件</span>
+                                <span data-i18n="suggestion.upload">加载我的 h5ad 数据文件</span>
                             </div>
                         </div>
                     </div>
@@ -147,7 +147,7 @@
                             </button>
                         </div>
                     </div>
-                    <p class="hint-text" data-i18n="chat.hint">E2seq 可能会出错，请核实重要信</p>
+                    <p class="hint-text" data-i18n="chat.hint">E2seq 可能会出错，请核实重要信息</p>
                 </div>
             </div>
 
@@ -498,10 +498,10 @@
         </div>
         <div class="panel-body">
             <div class="chart-types">
-                <button class="chart-type-btn" data-type="umap">UMAP</tSNE 散点</button>
-                <button class="chart-type-btn" data-type="violin">小提琴图</箱线</button>
+                <button class="chart-type-btn" data-type="umap">UMAP/tSNE 散点图</button>
+                <button class="chart-type-btn" data-type="violin">小提琴图</button>
                 <button class="chart-type-btn" data-type="heatmap">热图</button>
-                <button class="chart-type-btn" data-type="volcano">火山</button>
+                <button class="chart-type-btn" data-type="volcano">火山图</button>
                 <button class="chart-type-btn" data-type="bubble">气泡</button>
                 <button class="chart-type-btn" data-type="network">网络</button>
                 <button class="chart-type-btn" data-type="chord">和弦</button>
@@ -546,29 +546,29 @@
     <div id="datasetConfigModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>配置数据</h2>
+                <h2 id="datasetConfigModalTitle" data-i18n="dataset.configTitle">配置数据</h2>
             </div>
             <div class="modal-body">
                 <div style="display:flex;gap:16px;margin-bottom:20px">
                     <div class="config-stat">
                         <span id="cfgCells">-</span>
-                        <small>细胞</small>
+                        <small id="cfgCellsLabel" data-i18n="dataset.cells">细胞</small>
                     </div>
                     <div class="config-stat">
                         <span id="cfgGenes">-</span>
-                        <small>基因</small>
+                        <small id="cfgGenesLabel" data-i18n="dataset.genes">基因</small>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>细胞类型列</label>
+                    <label id="cfgCelltypeColLabel" data-i18n="dataset.celltypeCol">细胞类型列</label>
                     <select id="cfgCelltypeCol" class="form-control"></select>
                 </div>
                 <div class="form-group">
-                    <label>分组列（可选）</label>
+                    <label id="cfgGroupColLabel" data-i18n="dataset.groupCol">分组列（可选）</label>
                     <select id="cfgGroupCol" class="form-control"></select>
                 </div>
                 <div class="form-group">
-                    <label>API 数据</label>
+                    <label id="cfgApiLabel" data-i18n="dataset.apiData">API 数据</label>
                     <div class="cfg-check-grid">
                         <label class="ap-check"><input type="checkbox" class="cfg-api" value="uniprot" checked> UniProt</label>
                         <label class="ap-check"><input type="checkbox" class="cfg-api" value="mygene" checked> MyGene</label>
@@ -581,7 +581,7 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>本地数据</label>
+                    <label id="cfgLocalLabel" data-i18n="dataset.localData">本地数据</label>
                     <div class="cfg-check-grid">
                         <label class="ap-check"><input type="checkbox" class="cfg-db" value="string" checked> STRING</label>
                         <label class="ap-check"><input type="checkbox" class="cfg-db" value="hmdb" checked> HMDB</label>
@@ -592,8 +592,8 @@
                 <div id="cfgError" class="form-group" style="color:#ef4444;display:none"></div>
             </div>
             <div class="modal-footer">
-                <button id="cfgCancelBtn" class="btn-secondary">取消</button>
-                <button id="cfgConfirmBtn" class="btn-primary">确认并开始分析</button>
+                <button id="cfgCancelBtn" class="btn-secondary" data-i18n="dataset.cancel">取消</button>
+                <button id="cfgConfirmBtn" class="btn-primary" data-i18n="dataset.confirmAndAnalyze">确认并开始分析</button>
             </div>
         </div>
     </div>
@@ -602,7 +602,7 @@
     <div id="uploadDrawer" class="drawer">
         <div class="drawer-content">
             <div class="drawer-header">
-                <h2>上传数据</h2>
+                <h2 id="uploadDrawerTitle" data-i18n="upload.title">上传数据</h2>
                 <button id="closeUploadDrawer" class="drawer-close">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -626,9 +626,9 @@
                                 <line x1="9.5" y1="14" x2="6.5" y2="17.5"></line>
                             </svg>
                         </div>
-                        <h3>单细胞数</h3>
-                        <p>支持 .h5ad / .csv / .rds 格式</p>
-                        <small>用于细胞类型注释、基因表达分析、UMAP可视化等</small>
+                        <h3 id="scTitle" data-i18n="upload.singlecellTitle">单细胞数据</h3>
+                        <p id="scFormats" data-i18n="upload.singlecellFormats">支持 .h5ad / .csv / .rds 格式</p>
+                        <small id="scDesc" data-i18n="upload.singlecellDesc">用于细胞类型注释、基因表达分析、UMAP可视化等</small>
                     </div>
                     <div class="upload-type-card" id="uploadTable">
                         <div class="upload-type-icon" style="background:linear-gradient(135deg,#11998e,#38ef7d)">
@@ -640,9 +640,9 @@
                                 <line x1="15" y1="3" x2="15" y2="21"></line>
                             </svg>
                         </div>
-                        <h3>表格数据</h3>
-                        <p>支持 .csv </ .tsv </ .xlsx 格式</p>
-                        <small>用于差异基因列表、表达矩阵、通路分析</small>
+                        <h3 id="tblTitle" data-i18n="upload.tableTitle">表格数据</h3>
+                        <p id="tblFormats" data-i18n="upload.tableFormats">支持 .csv / .tsv / .xlsx 格式</p>
+                        <small id="tblDesc" data-i18n="upload.tableDesc">用于差异基因列表、表达矩阵、通路分析</small>
                     </div>
                 </div>
             </div>
@@ -653,7 +653,7 @@
     <div id="tableUploadDrawer" class="drawer">
         <div class="drawer-content">
             <div class="drawer-header">
-                <h2>配置表格数据</h2>
+                <h2 id="tableUploadDrawerTitle" data-i18n="upload.tableConfig">配置表格数据</h2>
                 <button id="closeTableUploadDrawer" class="drawer-close">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -663,24 +663,24 @@
             </div>
             <div class="drawer-body">
                 <div class="table-upload-info">
-                    <span id="tableFileName">已选择文件</span>
+                    <span id="tableFileName" data-i18n="upload.fileSelected">已选择文件</span>
                     <span id="tableFileInfo"></span>
                 </div>
                 <div class="form-group">
-                    <label>基因</label>
+                    <label id="tableGeneColLabel" data-i18n="upload.geneCol">基因</label>
                     <select id="tableGeneCol" class="form-control">
                         <option value="">选择</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>分组列（可选）</label>
+                    <label id="tableGroupColLabel" data-i18n="upload.groupCol">分组列（可选）</label>
                     <select id="tableGroupCol" class="form-control">
                         <option value="">— 不使用 —</option>
                     </select>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>表达类型</label>
+                        <label id="tableExprTypeLabel" data-i18n="upload.exprType">表达类型</label>
                         <select id="tableExprType" class="form-control">
                             <option value="log2FC">log2FC</option>
                             <option value="logFC">logFC</option>
@@ -689,7 +689,7 @@
                         </select>
                     </div>
                     <div class="form-group" id="tableExprColGroup" style="flex:1">
-                        <label>表达值列</label>
+                        <label id="tableExprColLabel" data-i18n="upload.exprCol">表达值列</label>
                         <select id="tableExprCol" class="form-control">
                             <option value="">选择</option>
                         </select>
@@ -697,28 +697,28 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>表达值筛选（|值| ≥）</label>
+                        <label id="tableExprThreshLabel" data-i18n="upload.exprThresh">表达值筛选（|值| ≥）</label>
                         <input type="number" id="tableExprThresh" class="form-control" placeholder="0.5" step="0.1">
                     </div>
                     <div class="form-group">
-                        <label>FDR</P值列</label>
+                        <label id="tableSigColLabel" data-i18n="upload.sigCol">显著性列（可选）</label>
                         <select id="tableSigCol" class="form-control">
                             <option value="">— 不使用 —</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>FDR</P值筛选（≤）</label>
+                        <label id="tableSigThreshLabel" data-i18n="upload.sigThresh">显著性阈值（≤）</label>
                         <input type="number" id="tableSigThresh" class="form-control" placeholder="0.05" step="0.01" value="0.05">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>基因数量上限</label>
+                        <label id="tableTopGenesLabel" data-i18n="upload.maxGenes">基因数量上限</label>
                         <input type="number" id="tableTopGenes" class="form-control" value="0" min="0">
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>启用的数据库查询</label>
+                    <label id="tableEnabledApisLabel" data-i18n="upload.enabledApis">启用的数据库查询</label>
                     <div class="checkbox-grid">
                         <label class="checkbox-label">
                             <input type="checkbox" id="apiUniprot" checked> UniProt
@@ -762,7 +762,7 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>启用的本地数据库</label>
+                    <label id="tableEnabledLocalLabel" data-i18n="upload.enabledLocal">启用的本地数据库</label>
                     <div class="checkbox-grid">
                         <label class="checkbox-label">
                             <input type="checkbox" id="dbString" checked> STRING
@@ -790,8 +790,8 @@
     <div id="analysisPanel" class="analysis-panel">
         <div class="ap-header">
             <div class="ap-title-row">
-                <h3>数据设置</h3>
-                <span id="apDataInfo" class="ap-data-info">未加载数据</span>
+                <h3 id="apPanelTitle" data-i18n="analysis.dataSettings">数据设置</h3>
+                <span id="apDataInfo" class="ap-data-info" data-i18n="analysis.noDataLoaded">未加载数据</span>
             </div>
             <div class="ap-actions-row">
                 <button id="apClearDataBtn" class="ap-btn-clear" style="display:none">
@@ -799,7 +799,7 @@
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
-                    清除数据
+                    <span data-i18n="analysis.clearData">清除数据</span>
                 </button>
                 <button id="closeAnalysisPanel" class="ap-close">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -812,8 +812,8 @@
 
         <!-- H5ad 拖拽上传 -->
         <div class="ap-mode-tabs" style="display:flex;gap:8px;margin:10px 0 12px;">
-            <button id="apModeTable" class="ap-mode-tab" type="button">表格数据</button>
-            <button id="apModeSinglecell" class="ap-mode-tab active" type="button">单细胞数据</button>
+            <button id="apModeTable" class="ap-mode-tab" type="button" data-i18n="analysis.tableMode">表格数据</button>
+            <button id="apModeSinglecell" class="ap-mode-tab active" type="button" data-i18n="analysis.singlecellMode">单细胞数据</button>
         </div>
 
 
@@ -826,13 +826,13 @@
                 <polyline points="17 8 12 3 7 8"></polyline>
                 <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
-            <span>当前是单细胞模式：上传 .h5ad / .csv / .rds 文件 <button id="apDropUploadBtn" style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;text-decoration:underline">点击选择文件</button></span>
+            <span id="apDropZoneText">当前是单细胞模式：上传 .h5ad / .csv / .rds 文件，<button id="apDropUploadBtn" style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;text-decoration:underline">点击选择文件</button></span>
         </div>
 
         <!-- 列选择 -->
         <div class="ap-col-section">
             <div class="ap-col-row">
-                <label>细胞类型列</label>
+                <label id="apCelltypeColLabel" data-i18n="analysis.celltypeCol">细胞类型列</label>
                 <select id="apCelltypeColSelect" class="form-control ap-select">
                     <option value="">— 不使用 —</option>
                 </select>
@@ -840,7 +840,7 @@
             <div id="apCelltypeLabelRows" class="ap-label-rows"></div>
 
             <div class="ap-col-row" style="margin-top:12px">
-                <label>分组列</label>
+                <label id="apGroupColLabel" data-i18n="analysis.groupCol">分组列</label>
                 <select id="apGroupColSelect" class="form-control ap-select">
                     <option value="">— 不使用 —</option>
                 </select>
@@ -848,20 +848,20 @@
             <div id="apGroupLabelRows" class="ap-label-rows"></div>
 
             <div class="ap-col-row" style="margin-top:12px">
-                <label>每类高表达基因数量（5-100，默认50）</label>
+                <label id="apTopGenesLabel" data-i18n="analysis.topGenes">每类高表达基因数量（5-100，默认50）</label>
                 <input id="apTopGenesInput" class="form-control ap-select" type="number" min="5" max="100" step="1" value="50" />
             </div>
         </div>
 
         <!-- 矩阵预览 -->
         <div id="apMatrixSection" class="ap-matrix-section" style="display:none">
-            <div class="ap-section-title">高表达基因预览</div>
+            <div id="apMatrixTitle" class="ap-section-title" data-i18n="analysis.topGenesPreview">高表达基因预览</div>
             <div id="apMatrixPreview" class="ap-matrix-preview"></div>
         </div>
 
         <!-- 描述 -->
         <div class="ap-desc-section">
-            <label>数据集描述（可选）</label>
+            <label id="apDescLabel" data-i18n="analysis.descPlaceholder">数据集描述（可选）</label>
             <textarea id="apDatasetDesc" class="form-control" rows="2" placeholder="描述这个数据集的来源或特点..."></textarea>
         </div>
 
@@ -871,7 +871,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
-                开始分析并查询
+                <span data-i18n="analysis.startAnalysis">开始分析并查询</span>
             </button>
         </div>
     </div>

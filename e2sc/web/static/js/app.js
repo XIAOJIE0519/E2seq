@@ -94,21 +94,21 @@ class E2seqApp {
         document.getElementById('backFromKBBtn')?.addEventListener('click', () => this.navigateToChat());
         document.getElementById('backFromSettingsBtn')?.addEventListener('click', () => this.navigateToChat());
 
-        // 必填
+        // Charts panel toggle
         document.getElementById('chartsBtn')?.addEventListener('click', () => this.openChartsPanel());
         document.getElementById('closeChartsPanel')?.addEventListener('click', () => this.closeChartsPanel());
 
-        // 必填?
+        // Chart type selection
         document.querySelectorAll('.chart-type-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.loadChart(e.target.dataset.type));
         });
 
-        // 必填
+        // Chart actions
         document.getElementById('downloadChartBtn')?.addEventListener('click', () => this.downloadChart());
         document.getElementById('fullscreenChartBtn')?.addEventListener('click', () => this.fullscreenChart());
         document.getElementById('refreshChartBtn')?.addEventListener('click', () => this.refreshChart());
 
-        // 必填
+        // Message input and send
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
 
@@ -132,11 +132,11 @@ class E2seqApp {
             this.handleAttachment();
         });
 
-        // 必填?
+        // Database management
         document.getElementById('uploadDBBtn')?.addEventListener('click', () => this.uploadDatabase());
         document.getElementById('closeDBDetail')?.addEventListener('click', () => this.closeDBDetail());
 
-        // 必填
+        // Settings save
         document.getElementById('saveSettingsBtn')?.addEventListener('click', () => this.saveSettings());
 
         // Embedding 模型测试按钮
@@ -238,7 +238,7 @@ class E2seqApp {
             }
         });
 
-        // 必填
+        // Language switching
         document.querySelectorAll('input[name="language"]').forEach(radio => {
             radio.addEventListener('change', (e) => this.changeLanguage(e.target.value));
         });
@@ -262,7 +262,7 @@ class E2seqApp {
         footer.appendChild(settingsBtn);
     }
 
-    // ========== 必填 ==========
+    // Navigation
     navigateToChat() {
         this.switchPage('chat');
         // KB build polling removed — agentic RAG builds on demand per question
@@ -301,7 +301,7 @@ class E2seqApp {
         this.currentPage = pageName;
     }
 
-    // ========== 必填? ==========
+    // Database listing
     loadBuiltinDatabases() {
         const grid = document.getElementById('builtinDBGrid');
         if (!grid) return;
@@ -379,19 +379,18 @@ class E2seqApp {
     }
 
     async uploadDatabase() {
-        // 必填必填?
+        // Show upload instructions modal
         this.showUploadInstructions();
     }
 
     showUploadInstructions() {
         const modal = document.getElementById('uploadInstructionsModal');
         if (!modal) {
-            // 必填?
             const modalHTML = `
                 <div class="modal" id="uploadInstructionsModal">
                     <div class="modal-content" style="max-width: 700px;">
                         <div class="modal-header">
-                            <h2>上传自定义数据库</h2>
+                            <h2 data-i18n="kb.uploadInstructions">上传自定义数据库</h2>
                             <button class="modal-close" onclick="window.e2seqApp.closeUploadInstructions()">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -402,32 +401,32 @@ class E2seqApp {
                         <div class="modal-body">
                             <div class="upload-instructions">
                                 <div class="instruction-section">
-                                    <h3 data-i18n="kb.requiredFields">必填</h3>
-                                    <p data-i18n="kb.csvFormatDesc">选填?CSV第一行为表头选填?</p>
+                                    <h3 data-i18n="kb.requiredFields">必需字段</h3>
+                                    <p data-i18n="kb.csvFormatDesc">请上传 CSV 格式文件，文件第一行为表头</p>
                                     <ul class="field-requirements">
                                         <li>
-                                            <code>source</code> 
-                                            <span class="field-desc">第一行为表头选填?</span>
-                                            <span class="required-badge">选填</span>
+                                            <code>source</code>
+                                            <span class="field-desc">来源基因/节点</span>
+                                            <span class="required-badge">必需</span>
                                         </li>
                                         <li>
-                                            <code>target</code> 
-                                            <span class="field-desc">必填</span>
-                                            <span class="required-badge">选填</span>
+                                            <code>target</code>
+                                            <span class="field-desc">目标基因/节点</span>
+                                            <span class="required-badge">必需</span>
                                         </li>
                                         <li>
-                                            <code>relationship</code> 
-                                            <span class="field-desc">必填选填?interaction, regulation, binding?</span>
-                                            <span class="optional-badge">选填</span>
+                                            <code>relationship</code>
+                                            <span class="field-desc">关系类型，如 interaction, regulation, binding</span>
+                                            <span class="optional-badge">可选</span>
                                         </li>
                                         <li>
-                                            <code>weight</code> 
-                                            <span class="field-desc">必填?0-1必填选填</span>
-                                            <span class="optional-badge">选填</span>
+                                            <code>weight</code>
+                                            <span class="field-desc">权重值（0-1之间）</span>
+                                            <span class="optional-badge">可选</span>
                                         </li>
                                     </ul>
                                 </div>
-                                
+
                                 <div class="instruction-section">
                                     <h3>文件格式</h3>
                                     <ul class="format-list">
@@ -451,9 +450,9 @@ class E2seqApp {
                                         </li>
                                     </ul>
                                 </div>
-                                
+
                                 <div class="instruction-section">
-                                    <h3 data-i18n="kb.formatExample">必填</h3>
+                                    <h3 data-i18n="kb.formatExample">格式示例</h3>
                                     <pre class="code-block">source,target,relationship,weight
 TP53,MDM2,regulation,0.95
 BRCA1,BRCA2,interaction,0.87
@@ -464,27 +463,27 @@ EGFR,KRAS,binding,0.78</pre>
                                             <polyline points="7 10 12 15 17 10"></polyline>
                                             <line x1="12" y1="15" x2="12" y2="3"></line>
                                         </svg>
-                                        <span>下载模板</span>
+                                        <span data-i18n="kb.downloadTemplate">下载模板文件</span>
                                     </button>
                                 </div>
-                                
+
                                 <div class="instruction-section">
-                                    <h3>注意事项</h3>
+                                    <h3 data-i18n="kb.notes">注意事项</h3>
                                     <ul class="notes-list">
                                         <li>请使用 UTF-8 编码保存文件</li>
-                                        <li>第一行为表头?</li>
-                                        <li>第一行为表头必填</li>
-                                        <li>第一行为表头?</li>
+                                        <li>第一行必须为表头</li>
+                                        <li>source 和 target 为必需列</li>
+                                        <li>权重值建议在 0-1 之间</li>
                                     </ul>
                                 </div>
                             </div>
-                            
+
                             <div class="upload-actions">
                                 <button class="btn-secondary" onclick="window.e2seqApp.closeUploadInstructions()">
-                                    <span data-i18n="kb.cancel">选填</span>
+                                    <span data-i18n="kb.cancel">取消</span>
                                 </button>
                                 <button class="btn-primary" onclick="window.e2seqApp.selectFileToUpload()">
-                                    <span data-i18n="kb.selectFile">必填</span>
+                                    <span data-i18n="kb.selectFile">选择文件</span>
                                 </button>
                             </div>
                         </div>
@@ -493,9 +492,9 @@ EGFR,KRAS,binding,0.78</pre>
             `;
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
-        
+
         document.getElementById('uploadInstructionsModal').classList.add('active');
-        this.applyLanguage(); // 必填选填
+        this.applyLanguage();
     }
 
     closeUploadInstructions() {
@@ -506,7 +505,7 @@ EGFR,KRAS,binding,0.78</pre>
     }
 
     downloadTemplate() {
-        // 必填CSV选填
+        // Generate CSV template content
         const templateContent = `source,target,relationship,weight
 TP53,MDM2,regulation,0.95
 BRCA1,BRCA2,interaction,0.87
@@ -514,7 +513,7 @@ EGFR,KRAS,binding,0.78
 MYC,MAX,binding,0.92
 STAT3,IL6,regulation,0.88`;
 
-        // 选填Blob选填?
+        // Create download link via Blob
         const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
@@ -538,7 +537,7 @@ STAT3,IL6,regulation,0.88`;
         input.onchange = async (e) => {
             const file = e.target.files[0];
             if (file) {
-                // 必填
+                // Validate file before upload
                 const validation = await this.validateDBFile(file);
                 if (validation.valid) {
                     await this.uploadDBFile(file);
@@ -551,7 +550,7 @@ STAT3,IL6,regulation,0.88`;
     }
 
     async validateDBFile(file) {
-        // 必填选填
+        // Check file size limit
         const maxSize = 50 * 1024 * 1024; // 50MB
         if (file.size > maxSize) {
             return {
@@ -560,11 +559,11 @@ STAT3,IL6,regulation,0.88`;
             };
         }
 
-        // 必填选填?
+        // Check file extension
         const validExtensions = ['.csv', '.tsv', '.txt'];
         const fileName = file.name.toLowerCase();
         const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
-        
+
         if (!hasValidExtension) {
             return {
                 valid: false,
@@ -572,11 +571,11 @@ STAT3,IL6,regulation,0.88`;
             };
         }
 
-        // 必填必填?
+        // Validate CSV content
         try {
             const text = await file.text();
             const lines = text.split('\n').filter(line => line.trim());
-            
+
             if (lines.length < 2) {
                 return {
                     valid: false,
@@ -584,7 +583,7 @@ STAT3,IL6,regulation,0.88`;
                 };
             }
 
-            // 必填
+            // Check for required columns in header
             const header = lines[0].toLowerCase();
             const requiredFields = ['source', 'target'];
             const missingFields = requiredFields.filter(field => !header.includes(field));
@@ -622,7 +621,7 @@ STAT3,IL6,regulation,0.88`;
             this.showNotification(t('notify.dbUploaded') + `: ${file.name}`, 'success');
             this.loadCustomDatabases();
         } catch (error) {
-            console.error('必填?:', error);
+            console.error('DB upload error:', error);
             this.showNotification(t('notify.dbUploadFailed'), 'error');
         }
     }
@@ -634,7 +633,7 @@ STAT3,IL6,regulation,0.88`;
 
             const databases = await response.json();
             const grid = document.getElementById('customDBGrid');
-            
+
             if (!databases || databases.length === 0) {
                 grid.innerHTML = `
                     <div class="empty-state">
@@ -678,7 +677,7 @@ STAT3,IL6,regulation,0.88`;
                 `).join('');
             }
         } catch (error) {
-            console.error('必填选填:', error);
+            console.error('Load databases error:', error);
         }
     }
 
@@ -697,12 +696,12 @@ STAT3,IL6,regulation,0.88`;
             this.showNotification(t('notify.dbDeleted'), 'success');
             this.loadCustomDatabases();
         } catch (error) {
-            console.error('必填?:', error);
+            console.error('Delete database error:', error);
             this.showNotification(t('notify.dbDeleteFailed'), 'error');
         }
     }
 
-    // ========== 选填 ==========
+    // Charts panel
     openChartsPanel() {
         document.getElementById('chartsPanel')?.classList.add('active');
     }
@@ -712,7 +711,7 @@ STAT3,IL6,regulation,0.88`;
     }
 
     async loadChart(type) {
-        // 必填必填
+        // Highlight selected chart type button
         document.querySelectorAll('.chart-type-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.type === type);
         });
@@ -727,10 +726,10 @@ STAT3,IL6,regulation,0.88`;
             }
 
             const plotData = await response.json();
-            
-            // 必填选填?
+
+            // Handle empty data case
             if (plotData.data && plotData.data.length === 0 && plotData.layout.annotations) {
-                // 必填必填?
+                // Show no data message
                 container.innerHTML = `
                     <div class="chart-error">
                         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
@@ -744,11 +743,11 @@ STAT3,IL6,regulation,0.88`;
                     </div>
                 `;
             } else {
-                // 必填
+                // Render chart with Plotly
                 Plotly.newPlot('chartContainer', plotData.data, plotData.layout, {responsive: true});
             }
         } catch (error) {
-            console.error('必填选填:', error);
+            console.error('Load chart error:', error);
             container.innerHTML = `
                 <div class="chart-error">
                     <p>${t('error.loadFailed')}</p>
@@ -781,7 +780,7 @@ STAT3,IL6,regulation,0.88`;
         }
     }
 
-    // ========== 选填 ==========
+    // Embedding model helper
     _getEmbeddingMetaById(modelId) {
         return (this._embeddingModels || []).find(m => m.id === modelId) || null;
     }
@@ -993,28 +992,28 @@ STAT3,IL6,regulation,0.88`;
         const pathEl = document.getElementById('embedModelPath');
 
         if (nameEl) nameEl.textContent = model.name || model.id;
-        if (dimEl) dimEl.textContent = (model.dimension || '-') + '维';
+        if (dimEl) dimEl.textContent = (model.dimension || '-') + ' ' + t('settings.dim');
         if (descEl) descEl.textContent = model.description || '';
-        if (sizeEl) sizeEl.textContent = '模型大小: ' + (model.size || '-');
+        if (sizeEl) sizeEl.textContent = t('settings.modelSize') + ': ' + (model.size || '-');
         if (pathEl) {
             if (model.path) {
-                pathEl.textContent = '本地路径: ' + model.path;
+                pathEl.textContent = t('settings.modelPath') + ': ' + model.path;
             } else if (model.path_required) {
-                pathEl.textContent = '需要配置本地路径';
+                pathEl.textContent = t('settings.modelPathNeeded');
             } else if (model.builtin) {
-                pathEl.textContent = '内置模型，无需路径';
+                pathEl.textContent = t('settings.builtinNoPath');
             } else {
-                pathEl.textContent = '可从 HuggingFace 下载';
+                pathEl.textContent = t('settings.downloadHF');
             }
         }
 
         const hasLocal = !!(model.builtin || model.path);
         if (model.path_required && !model.path) {
-            if (statusEl) { statusEl.textContent = '需填写路径'; statusEl.className = 'embed-status error'; }
+            if (statusEl) { statusEl.textContent = t('settings.pathNeeded'); statusEl.className = 'embed-status error'; }
         } else if (hasLocal) {
-            if (statusEl) { statusEl.textContent = '本地可用 ✓'; statusEl.className = 'embed-status ok'; }
+            if (statusEl) { statusEl.textContent = t('settings.localAvailable') + ' ✓'; statusEl.className = 'embed-status ok'; }
         } else {
-            if (statusEl) { statusEl.textContent = '需下载'; statusEl.className = 'embed-status'; }
+            if (statusEl) { statusEl.textContent = t('settings.needDownload'); statusEl.className = 'embed-status'; }
         }
 
         const pathInput = document.getElementById('embedModelPathInput');
@@ -1164,7 +1163,7 @@ STAT3,IL6,regulation,0.88`;
         const siliconflowModel = document.getElementById('siliconflowModel')?.value || '';
 
         // 如果没有输入任何 API Key，只保存 Embedding 设置
-        const hasAnyKey = openaiKey || anthropicKey || geminiKey || deepseekKey || siliconflowKey;
+        const hasAnyKey = openaiKey || anthropicKey || geminiKey || deepseekKey || siliconflowKey || glmKey;
         if (!hasAnyKey) {
             // 只保存 Embedding 配置
             await this.saveEmbeddingSettings();
@@ -1302,7 +1301,7 @@ STAT3,IL6,regulation,0.88`;
         }
     }
 
-    // ========== 选填 ==========
+    // Language change handler
     changeLanguage(lang) {
         this.currentLanguage = lang;
         localStorage.setItem('e2seq_language', lang);
@@ -1326,6 +1325,7 @@ STAT3,IL6,regulation,0.88`;
                 } else {
                     const textNode = Array.from(element.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
                     if (textNode) textNode.textContent = translation;
+                    else element.textContent = translation;
                 }
             }
         });
@@ -1342,10 +1342,59 @@ STAT3,IL6,regulation,0.88`;
             element.placeholder = t(key, this.currentLanguage);
         });
 
-        // 更新 Embedding 信息的动态后缀（依赖 i18n key 的部分）
-        this.updateEmbeddingInfo();
+        // 翻译 chart type buttons（动态注入文本）
+        const chartTypes = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
+        document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
+            if (index < chartTypes.length) {
+                btn.textContent = t('charts.' + chartTypes[index], this.currentLanguage);
+            }
+        });
 
-        // 必填?
+        // 翻译 chart action button titles
+        const downloadBtn = document.getElementById('downloadChartBtn');
+        if (downloadBtn) downloadBtn.title = t('charts.download', this.currentLanguage);
+        const fullscreenBtn = document.getElementById('fullscreenChartBtn');
+        if (fullscreenBtn) fullscreenBtn.title = t('charts.fullscreen', this.currentLanguage);
+        const refreshBtn = document.getElementById('refreshChartBtn');
+        if (refreshBtn) refreshBtn.title = t('charts.refresh', this.currentLanguage);
+
+        // 翻译上传抽屉内容
+        const uploadTitle = document.querySelector('#uploadDrawer h2');
+        if (uploadTitle) uploadTitle.textContent = t('upload.title', this.currentLanguage);
+        const scTitle = document.querySelector('#uploadSingleCell h3');
+        if (scTitle) scTitle.textContent = t('upload.singlecellTitle', this.currentLanguage);
+        const scFormats = document.querySelector('#uploadSingleCell p');
+        if (scFormats) scFormats.textContent = t('upload.singlecellFormats', this.currentLanguage);
+        const scDesc = document.querySelector('#uploadSingleCell small');
+        if (scDesc) scDesc.textContent = t('upload.singlecellDesc', this.currentLanguage);
+        const tblTitle = document.querySelector('#uploadTable h3');
+        if (tblTitle) tblTitle.textContent = t('upload.tableTitle', this.currentLanguage);
+        const tblFormats = document.querySelector('#uploadTable p');
+        if (tblFormats) tblFormats.textContent = t('upload.tableFormats', this.currentLanguage);
+
+        // 翻译数据集配置弹窗
+        const datasetModalTitle = document.querySelector('#datasetConfigModal h2');
+        if (datasetModalTitle) datasetModalTitle.textContent = t('dataset.configTitle', this.currentLanguage);
+        const datasetModalCancel = document.getElementById('cfgCancelBtn');
+        if (datasetModalCancel) datasetModalCancel.textContent = t('dataset.cancel', this.currentLanguage);
+        const datasetModalConfirm = document.getElementById('cfgConfirmBtn');
+        if (datasetModalConfirm) datasetModalConfirm.textContent = t('dataset.confirmAndAnalyze', this.currentLanguage);
+
+        // 动态填充数据集配置弹窗标签
+        this._applyDatasetModalLabels();
+
+        // 翻译分析面板
+        if (this.analysisPanel && this.analysisPanel.applyI18n) {
+            this.analysisPanel.applyI18n(this.currentLanguage);
+        }
+
+        // 更新 Embedding 信息面板
+        const selEl = document.getElementById('embeddingModelSelect');
+        if (selEl && this._embeddingModels) {
+            this.updateEmbeddingInfo(this._embeddingModels, selEl.value);
+        }
+
+        // Translate suggestion chips
         const suggestions = [
             'suggestion.deg',
             'suggestion.enrichment',
@@ -1354,20 +1403,20 @@ STAT3,IL6,regulation,0.88`;
             'suggestion.umap',
             'suggestion.upload'
         ];
-        
+
         document.querySelectorAll('.chip span').forEach((span, index) => {
             if (index < suggestions.length) {
                 span.textContent = t(suggestions[index], this.currentLanguage);
             }
         });
 
-        // 必填?
+        // Refresh current page content
         if (this.currentPage === 'knowledgeBase') {
             this.loadBuiltinDatabases();
             this.loadCustomDatabases();
         }
 
-        // 必填
+        // Translate chart type buttons
         const chartTypes = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
         document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
             if (index < chartTypes.length) {
@@ -1375,16 +1424,16 @@ STAT3,IL6,regulation,0.88`;
             }
         });
 
-        // 必填必填选填?
+        // Update language radio selection
         document.querySelectorAll('input[name="language"]').forEach(radio => {
             radio.checked = (radio.value === this.currentLanguage);
         });
 
-        // 必填?
+        // Update page title
         document.title = t('chat.title', this.currentLanguage) + ' - Easy to Chat with Sequencing';
     }
 
-    // ========== 选填 ==========
+    // Input change handler
     handleInputChange(value) {
         const sendBtn = document.getElementById('sendBtn');
         if (sendBtn) {
@@ -2500,7 +2549,7 @@ STAT3,IL6,regulation,0.88`;
     }
 }
 
-// 必填必填选填
+// Inject dynamic styles for analysis panel
 // ========== Analysis Panel Tab + CSV Logic ==========
 (function() {
     let _csvColumns = [];
@@ -2763,10 +2812,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// 必填
+// Dynamic style injection for analysis panel
 const style = document.createElement('style');
-style.textContent = `
-    .chat-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background 0.15s; }
+style.textContent = `    .chat-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background 0.15s; }
     .chat-item:hover { background:var(--bg-hover, rgba(255,255,255,0.06)); }
     .chat-item.active { background:var(--accent-primary, #3b82f6)22; }
     .chat-item-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; overflow:hidden; }

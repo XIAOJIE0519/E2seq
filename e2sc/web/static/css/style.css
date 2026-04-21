@@ -1670,6 +1670,7 @@ body {
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
+.ap-upload-btn {
     display: flex;
     align-items: center;
     gap: 6px;
