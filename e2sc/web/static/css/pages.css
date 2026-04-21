@@ -115,6 +115,11 @@
     font-weight: 500;
 }
 
+.db-status-inactive {
+    background: rgba(107, 114, 128, 0.2);
+    color: #9ca3af;
+}
+
 .db-card-body {
     margin-bottom: var(--spacing-md);
 }

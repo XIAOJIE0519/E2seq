@@ -302,15 +302,31 @@ class E2seqApp {
     }
 
     // Database listing
-    loadBuiltinDatabases() {
+    async loadBuiltinDatabases() {
         const grid = document.getElementById('builtinDBGrid');
         if (!grid) return;
 
-        grid.innerHTML = this.builtinDatabases.map(db => `
+        // Fetch actual database status from backend
+        let dbStatus = {};
+        try {
+            const resp = await fetch('/api/db/status');
+            if (resp.ok) {
+                dbStatus = await resp.json();
+            }
+        } catch (e) {
+            console.warn('Failed to fetch db status:', e);
+        }
+
+        grid.innerHTML = this.builtinDatabases.map(db => {
+            const status = dbStatus[db.name.toLowerCase()];
+            const isLoaded = status && status.status === 'ok';
+            const statusClass = isLoaded ? 'db-status' : 'db-status db-status-inactive';
+            const statusText = isLoaded ? t('kb.status') : t('kb.statusNotLoaded');
+            return `
             <div class="db-card" data-db="${db.name}">
                 <div class="db-card-header">
                     <h3>${db.name}</h3>
-                    <span class="db-status">${t('kb.status')}</span>
+                    <span class="${statusClass}">${statusText}</span>
                 </div>
                 <div class="db-card-body">
                     <p class="db-description">${t(db.descriptionKey)}</p>
@@ -335,7 +351,7 @@ class E2seqApp {
                     <button class="btn-text" onclick="window.e2seqApp.showDBDetail('${db.name}')">${t('kb.viewDetail')}</button>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     }
 
     showDBDetail(dbName) {
