@@ -1417,10 +1417,10 @@ STAT3,IL6,regulation,0.88`;
         }
 
         // Translate chart type buttons
-        const chartTypes = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
+        const chartTypeKeys = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
         document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
-            if (index < chartTypes.length) {
-                btn.textContent = t(`charts.${chartTypes[index]}`, this.currentLanguage);
+            if (index < chartTypeKeys.length) {
+                btn.textContent = t('charts.' + chartTypeKeys[index], this.currentLanguage);
             }
         });
 
