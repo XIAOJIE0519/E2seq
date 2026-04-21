@@ -281,6 +281,7 @@ class E2seqApp {
 
     navigateToKnowledgeBase() {
         this.switchPage('knowledgeBase');
+        this.loadBuiltinDatabases();
         this.loadCustomDatabases();
     }
 
