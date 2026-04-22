@@ -11,10 +11,25 @@ import socket
 from pathlib import Path
 
 # 强制使用 UTF-8 输出，避免 Windows GBK 编码错误
+import sys
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8')
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
-    sys.stderr.reconfigure(encoding='utf-8')
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+# Windows PowerShell: 设置控制台代码页为 UTF-8 (65001)
+try:
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetConsoleCP(65001)
+    kernel32.SetConsoleOutputCP(65001)
+except Exception:
+    pass
 
 # HuggingFace 镜像配置（加速模型下载）
 if not os.environ.get("HF_ENDPOINT"):

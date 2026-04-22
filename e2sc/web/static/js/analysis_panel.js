@@ -128,7 +128,7 @@ class AnalysisPanel {
         document.getElementById('apDropUploadBtn')?.addEventListener('click', () => {
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
+                this.app.showNotification(window.t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             if (this.currentMode === 'table') this.app.openFilePicker('table');
@@ -137,7 +137,7 @@ class AnalysisPanel {
         document.getElementById('apTableUploadBtn')?.addEventListener('click', () => {
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
+                this.app.showNotification(window.t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             this.app.openFilePicker('table');
@@ -154,7 +154,7 @@ class AnalysisPanel {
 
         // 清除数据按钮
         document.getElementById('apClearDataBtn')?.addEventListener('click', async () => {
-            if (!confirm(t('analysis.confirmClear'))) return;
+            if (!confirm(window.t('analysis.confirmClear'))) return;
             try {
                 await fetch('/api/clear-data', {
                     method: 'POST',
@@ -167,9 +167,9 @@ class AnalysisPanel {
                 this._clearLabelsStorage();
                 await this.checkDataStatus();
                 this._resetSelectorsToUnused();
-                this.app.showNotification(t('analysis.dataCleared'), 'success');
+                this.app.showNotification(window.t('analysis.dataCleared'), 'success');
             } catch(e) {
-                this.app.showNotification(t('analysis.clearFailed'), 'error');
+                this.app.showNotification(window.t('analysis.clearFailed'), 'error');
             }
         });
 
@@ -180,7 +180,7 @@ class AnalysisPanel {
             if (dropZone) dropZone.style.borderColor = 'var(--border-color,#3d4460)';
             const status = this._dataStatus || {};
             if (status.data_loaded) {
-                this.app.showNotification(t('analysis.currentlyLoaded'), 'error');
+                this.app.showNotification(window.t('analysis.currentlyLoaded'), 'error');
                 return;
             }
             if (this.currentMode === 'table') this.app.openFilePicker('table');
@@ -295,8 +295,8 @@ class AnalysisPanel {
             tabs = document.createElement('div');
             tabs.className = 'ap-mode-tabs';
             tabs.style.cssText = 'display:flex;gap:8px;margin:10px 0 12px;';
-            tabs.innerHTML = `<button id="apModeTable" class="ap-mode-tab" type="button">${t('analysis.tableMode')}</button>` +
-                             `<button id="apModeSinglecell" class="ap-mode-tab active" type="button">${t('analysis.singlecellMode')}</button>`;
+            tabs.innerHTML = `<button id="apModeTable" class="ap-mode-tab" type="button">${window.t('analysis.tableMode')}</button>` +
+                             `<button id="apModeSinglecell" class="ap-mode-tab active" type="button">${window.t('analysis.singlecellMode')}</button>`;
             const drop = document.getElementById('apH5adDropZone');
             if (drop) panel.insertBefore(tabs, drop);
         }
@@ -384,11 +384,11 @@ class AnalysisPanel {
 
         if (runBtn) {
             runBtn.disabled = !singleReady;
-            runBtn.title = singleReady ? '' : t('analysis.needUploadSinglecell');
+            runBtn.title = singleReady ? '' : window.t('analysis.needUploadSinglecell');
         }
         if (tableBtn) {
             tableBtn.disabled = !tableReady;
-            tableBtn.title = tableReady ? '' : t('analysis.needUploadTable');
+            tableBtn.title = tableReady ? '' : window.t('analysis.needUploadTable');
         }
     }
 
@@ -400,9 +400,9 @@ class AnalysisPanel {
         ['apCelltypeColSelect', 'apGroupColSelect', 'apTableGeneCol', 'apTableGroupCol', 'apTableExprCol', 'apTableSigCol'].forEach(setNone);
 
         const infoEl = document.getElementById('apTableInfo');
-        if (infoEl) infoEl.textContent = t('analysis.noDataLoaded');
+        if (infoEl) infoEl.textContent = window.t('analysis.noDataLoaded');
         const geneInfoEl = document.getElementById('apTableGeneCountInfo');
-        if (geneInfoEl) geneInfoEl.textContent = t('analysis.filteredGenes') + ': -';
+        if (geneInfoEl) geneInfoEl.textContent = window.t('analysis.filteredGenes') + ': -';
 
         const ctRows = document.getElementById('apCelltypeLabelRows');
         const gpRows = document.getElementById('apGroupLabelRows');
@@ -416,7 +416,7 @@ class AnalysisPanel {
         const target = mode === 'table' ? 'table' : 'singlecell';
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== target) {
-            this.app.showNotification(t('analysis.modeSwitchBlocked'), 'error');
+            this.app.showNotification(window.t('analysis.modeSwitchBlocked'), 'error');
             return;
         }
 
@@ -466,9 +466,9 @@ class AnalysisPanel {
             if (data.data_loaded) {
                 this._dataStatus = { data_loaded: true, data_mode: data.data_mode || 'singlecell' };
                 const isTable = this._dataStatus.data_mode === 'table';
-                const modeText = isTable ? t('analysis.tableMode') : t('analysis.singlecellMode');
-                const cellUnit = t('dataset.cells');
-                const geneUnit = t('dataset.genes');
+                const modeText = isTable ? window.t('analysis.tableMode') : window.t('analysis.singlecellMode');
+                const cellUnit = window.t('dataset.cells');
+                const geneUnit = window.t('dataset.genes');
                 infoEl.innerHTML = `<span style="color:var(--accent-secondary)">&#x2713;</span> [${modeText}] ${(data.cells||0).toLocaleString()} ${cellUnit} &middot; ${(data.genes||0).toLocaleString()} ${geneUnit}`;
                 // Show clear button when data is loaded
                 const clearBtn = document.getElementById('apClearDataBtn');
@@ -483,7 +483,7 @@ class AnalysisPanel {
                 if (!this.matrixData) this.loadMatrix();
             } else {
                 this._dataStatus = { data_loaded: false, data_mode: null };
-                infoEl.textContent = t('analysis.noDataLoaded');
+                infoEl.textContent = window.t('analysis.noDataLoaded');
                 const clearBtn = document.getElementById('apClearDataBtn');
                 if (clearBtn) clearBtn.style.display = 'none';
                 this._colsLoaded = false;
@@ -605,7 +605,7 @@ class AnalysisPanel {
         const sigThreshRaw = document.getElementById('apTableSigThresh')?.value || '';
 
         if (!geneCol) {
-                infoEl.textContent = t('analysis.filteredGenes') + ': -';
+                infoEl.textContent = window.t('analysis.filteredGenes') + ': -';
             return;
         }
 
@@ -621,9 +621,9 @@ class AnalysisPanel {
             const response = await fetch('/api/csv-gene-count', { method: 'POST', body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '统计失败');
-            infoEl.textContent = `${t('analysis.filteredGenes')}: ${(data.n_genes || 0).toLocaleString()} (${(data.n_rows_filtered || 0).toLocaleString()} rows)`;
+            infoEl.textContent = `${window.t('analysis.filteredGenes')}: ${(data.n_genes || 0).toLocaleString()} (${(data.n_rows_filtered || 0).toLocaleString()} rows)`;
         } catch (_) {
-            infoEl.textContent = `${t('analysis.filteredGenes')}: ${t('analysis.statFailed')}`;
+            infoEl.textContent = `${window.t('analysis.filteredGenes')}: ${window.t('analysis.statFailed')}`;
         }
     }
 
@@ -696,7 +696,7 @@ class AnalysisPanel {
     async confirmTableUpload() {
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== 'table') {
-            this.app.showNotification(t('analysis.tableModeLoaded'), 'error');
+            this.app.showNotification(window.t('analysis.tableModeLoaded'), 'error');
             return;
         }
 
@@ -733,7 +733,7 @@ class AnalysisPanel {
             const response = await fetch('/api/configure-csv', { method: 'POST', body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '配置失败');
-            this.app.showNotification(t('analysis.uploadSuccess', null, {count: data.n_genes}), 'success');
+            this.app.showNotification(window.t('analysis.uploadSuccess', null, {count: data.n_genes}), 'success');
             const clearBtn = document.getElementById('apClearDataBtn');
             if (clearBtn) clearBtn.style.display = 'block';
             this._colsLoaded = false;
@@ -824,7 +824,7 @@ class AnalysisPanel {
     async runAnalysis() {
         const status = this._dataStatus || {};
         if (status.data_loaded && status.data_mode && status.data_mode !== 'singlecell') {
-            this.app.showNotification(t('analysis.singlecellModeLoaded'), 'error');
+            this.app.showNotification(window.t('analysis.singlecellModeLoaded'), 'error');
             return;
         }
 
@@ -836,13 +836,13 @@ class AnalysisPanel {
         const groupLabels    = this.getLabelMap('group');
 
         if (!ctCol && !grpCol) {
-            alert(t('analysis.selectColumn'));
+            alert(window.t('analysis.selectColumn'));
             return;
         }
 
         runBtn.disabled = true;
         const spinnerSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="10"/></svg>';
-        runBtn.innerHTML = `${spinnerSvg} ${t('analysis.analyzing')}`;
+        runBtn.innerHTML = `${spinnerSvg} ${window.t('analysis.analyzing')}`;
 
         try {
             const cfgResp = await fetch('/api/configure-dataset', {
@@ -868,15 +868,15 @@ class AnalysisPanel {
                 this.app.navigateToChat();
                 // Agentic RAG: no offline KB build needed — queries are answered on demand
                 this.app._setInputLocked(false, '');
-                this.app.showNotification(t('analysis.configComplete'), 'success');
+                this.app.showNotification(window.t('analysis.configComplete'), 'success');
             }
         } catch(e) {
-            alert(t('analysis.startFailed') + ': ' + e.message);
+            alert(window.t('analysis.startFailed') + ': ' + e.message);
         } finally {
             runBtn.disabled = false;
             const span = runBtn.querySelector('span[data-i18n]');
-            if (span) span.textContent = t('analysis.startAnalysis');
-            else runBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> ${t('analysis.startAnalysis')}`;
+            if (span) span.textContent = window.t('analysis.startAnalysis');
+            else runBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> ${window.t('analysis.startAnalysis')}`;
         }
     }
 }
