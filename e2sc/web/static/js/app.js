@@ -1440,8 +1440,17 @@ STAT3,IL6,regulation,0.88`;
         const datasetModalConfirm = document.getElementById('cfgConfirmBtn');
         if (datasetModalConfirm) datasetModalConfirm.textContent = this.t('dataset.confirmAndAnalyze', this.currentLanguage);
 
-        // 动态填充数据集配置弹窗标签
-        this._applyDatasetModalLabels();
+        // Translate dataset config modal labels
+        const cfgCelltypeLabel = document.getElementById('cfgCelltypeColLabel');
+        if (cfgCelltypeLabel) cfgCelltypeLabel.textContent = this.t('dataset.celltypeCol', this.currentLanguage);
+        const cfgGroupColLabel = document.getElementById('cfgGroupColLabel');
+        if (cfgGroupColLabel) cfgGroupColLabel.textContent = this.t('dataset.groupCol', this.currentLanguage);
+        const cfgApiLabel = document.getElementById('cfgApiLabel');
+        if (cfgApiLabel) cfgApiLabel.textContent = this.t('dataset.apiData', this.currentLanguage);
+        const cfgCelltypePlaceholder = document.getElementById('cfgCelltypeCol');
+        if (cfgCelltypePlaceholder) cfgCelltypePlaceholder.placeholder = this.t('dataset.selectColumn', this.currentLanguage);
+        const cfgGroupColPlaceholder = document.getElementById('cfgGroupCol');
+        if (cfgGroupColPlaceholder) cfgGroupColPlaceholder.placeholder = this.t('dataset.optional', this.currentLanguage);
 
         // 翻译分析面板
         if (this.analysisPanel && this.analysisPanel.applyI18n) {
