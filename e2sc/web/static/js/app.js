@@ -145,7 +145,7 @@ class E2seqApp {
         document.getElementById('embedAddCustomBtn')?.addEventListener('click', () => this.addCustomEmbeddingModel());
 
         // key 输入框失焦时自动拉取模型
-        ['openai','anthropic','gemini','deepseek','siliconflow','glm'].forEach(provider => {
+        ['openai','anthropic','gemini','deepseek','siliconflow','glm','kimi'].forEach(provider => {
             const keyEl = document.getElementById(provider + 'Key');
             const btnEl = document.querySelector(`.btn-fetch-models[data-provider='${provider}']`);
             const clearBtnEl = document.querySelector(`.btn-clear-key[data-provider='${provider}']`);
@@ -153,11 +153,13 @@ class E2seqApp {
             const statusEl = document.getElementById('status-' + provider);
             const PROVIDER_FIELDS = {
                 openai: 'openai_key', anthropic: 'anthropic_key', gemini: 'gemini_key',
-                deepseek: 'deepseek_key', siliconflow: 'siliconflow_key', glm: 'glm_key'
+                deepseek: 'deepseek_key', siliconflow: 'siliconflow_key', glm: 'glm_key',
+                kimi: 'kimi_key'
             };
             const PROVIDER_LABELS = {
                 openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini',
-                deepseek: 'DeepSeek', siliconflow: '硅基流动', glm: 'GLM'
+                deepseek: 'DeepSeek', siliconflow: '硅基流动', glm: 'GLM',
+                kimi: 'Moonshot Kimi'
             };
 
             if (keyEl) {
@@ -899,6 +901,7 @@ STAT3,IL6,regulation,0.88`;
                 ['deepseekKey', 'deepseek_key'],
                 ['siliconflowKey', 'siliconflow_key'],
                 ['glmKey', 'glm_key'],
+                ['kimiKey', 'kimi_key'],
             ];
             // 回填已保存的模型名称
             const modelFields = [
@@ -908,6 +911,7 @@ STAT3,IL6,regulation,0.88`;
                 ['deepseekModel', 'deepseek_model'],
                 ['siliconflowModel', 'siliconflow_model'],
                 ['glmModel', 'glm_model'],
+                ['kimiModel', 'kimi_model'],
             ];
             modelFields.forEach(([elemId, dataKey]) => {
                 const el = document.getElementById(elemId);
@@ -929,9 +933,10 @@ STAT3,IL6,regulation,0.88`;
                     deepseek: ['deepseek-reasoner','deepseek-chat'],
                     siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
                     glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
+                    kimi: ['moonshot-v2.6-250415','moonshot-v2.5-250415','moonshot-v1.5-32k','moonshot-v1.5-8k','moonshot-v1-8k'],
                 };
                 // Show curated lists for ALL providers so user can switch immediately
-                ['openai','anthropic','gemini','deepseek','siliconflow','glm'].forEach(p => {
+                ['openai','anthropic','gemini','deepseek','siliconflow','glm','kimi'].forEach(p => {
                     const curated = CURATED[p] || [];
                     if (!curated.length) return;
                     const pModel = data[p + '_model'];
@@ -1117,6 +1122,7 @@ STAT3,IL6,regulation,0.88`;
             deepseek: ['deepseek-reasoner','deepseek-chat'],
             siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
             glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
+            kimi: ['moonshot-v2.6-250415','moonshot-v2.5-250415','moonshot-v1.5-32k','moonshot-v1.5-8k','moonshot-v1-8k'],
         };
         const curated = CURATED[provider] || [];
         // Populate with curated list first
@@ -1172,15 +1178,19 @@ STAT3,IL6,regulation,0.88`;
         const geminiKey = document.getElementById('geminiKey')?.value.trim();
         const deepseekKey = document.getElementById('deepseekKey')?.value.trim();
         const siliconflowKey = document.getElementById('siliconflowKey')?.value.trim();
+        const glmKey = document.getElementById('glmKey')?.value.trim();
+        const kimiKey = document.getElementById('kimiKey')?.value.trim();
         // 从下拉菜单读取用户选择的模型（拉取列表后由用户选定）
         const openaiModel = document.getElementById('openaiModel')?.value || '';
         const anthropicModel = document.getElementById('anthropicModel')?.value || '';
         const geminiModel = document.getElementById('geminiModel')?.value || '';
         const deepseekModel = document.getElementById('deepseekModel')?.value || '';
         const siliconflowModel = document.getElementById('siliconflowModel')?.value || '';
+        const glmModel = document.getElementById('glmModel')?.value || '';
+        const kimiModel = document.getElementById('kimiModel')?.value || '';
 
         // 如果没有输入任何 API Key，只保存 Embedding 设置
-        const hasAnyKey = openaiKey || anthropicKey || geminiKey || deepseekKey || siliconflowKey || glmKey;
+        const hasAnyKey = openaiKey || anthropicKey || geminiKey || deepseekKey || siliconflowKey || glmKey || kimiKey;
         if (!hasAnyKey) {
             // 只保存 Embedding 配置
             await this.saveEmbeddingSettings();
@@ -1193,11 +1203,15 @@ STAT3,IL6,regulation,0.88`;
             gemini_key: geminiKey,
             deepseek_key: deepseekKey,
             siliconflow_key: siliconflowKey,
+            glm_key: glmKey,
+            kimi_key: kimiKey,
             openai_model: openaiModel,
             anthropic_model: anthropicModel,
             gemini_model: geminiModel,
             deepseek_model: deepseekModel,
             siliconflow_model: siliconflowModel,
+            glm_model: glmModel,
+            kimi_model: kimiModel,
         };
 
         try {

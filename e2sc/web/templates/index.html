@@ -275,6 +275,27 @@
                                     <select id="glmModel" class="model-select" style="display:none;"></select>
                                     <div id="status-glm" class="model-status"></div>
                                 </div>
+                                <!-- Kimi -->
+                                <div class="provider-group">
+                                    <label>Moonshot Kimi</label>
+                                    <div class="key-input-row">
+                                        <input type="password" id="kimiKey" class="form-control" placeholder="从 platform.kimi.com 获取">
+                                        <button class="btn-fetch-models" data-provider="kimi" title="获取模型">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+                                        <button class="btn-clear-key" data-provider="kimi" title="清除并断开">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <select id="kimiModel" class="model-select" style="display:none;"></select>
+                                    <div id="status-kimi" class="model-status"></div>
+                                </div>
                             </div>
                             <div class="settings-column">
                                 <!-- Gemini -->
@@ -877,7 +898,7 @@
     </div>
 
     <script src="/static/js/i18n.js"></script>
-    <script src="/static/js/app.js?v=20260421a"></script>
+    <script src="/static/js/app.js?v=20260421b"></script>
     <script src="/static/js/analysis_panel.js"></script>
 </body>
 </html>

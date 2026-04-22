@@ -321,6 +321,26 @@ class GLMProvider(LLMProvider):
         )
 
 
+class KimiProvider(LLMProvider):
+    """Moonshot AI (Kimi) API provider.
+
+    官方文档: https://platform.kimi.com/docs/api/overview
+    API endpoint: https://api.moonshot.cn/v1/chat/completions
+    支持模型: moonshot-v2.6-250415, moonshot-v2.5-250415, moonshot-v1.5-32k 等
+    API Key: https://platform.kimi.com/console/api-keys
+    """
+
+    def _initialize_llm(self):
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            api_key=self.api_key,
+            model=self.model,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            base_url="https://api.moonshot.cn/v1",
+        )
+
+
 # 所有支持的 provider 映射
 _PROVIDERS: Dict[str, type] = {
     "openai": OpenAIProvider,
@@ -329,6 +349,7 @@ _PROVIDERS: Dict[str, type] = {
     "gemini": GeminiProvider,
     "siliconflow": SiliconFlowProvider,
     "glm": GLMProvider,
+    "kimi": KimiProvider,
     "ollama": OllamaProvider,
 }
 
@@ -340,6 +361,7 @@ _DEFAULT_MODELS: Dict[str, str] = {
     "gemini":      "gemini-2.5-pro-preview-06-05",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
     "glm":         "glm-5.1",
+    "kimi":        "moonshot-v2.6-250415",
     "ollama":      "llama3.2",
 }
 

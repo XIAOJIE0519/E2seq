@@ -1453,6 +1453,7 @@ PROVIDER_KEY_MAP = {
     "deepseek": ("deepseek_key", "deepseek-reasoner"),
     "siliconflow": ("siliconflow_key", "deepseek-ai/DeepSeek-V3"),
     "glm": ("glm_key", "glm-5.1"),
+    "kimi": ("kimi_key", "moonshot-v2.6-250415"),
 }
 
 
@@ -1491,12 +1492,14 @@ async def get_settings():
         "deepseek_key": mask(config.llm.api_key) if current_provider == "deepseek" else "",
         "siliconflow_key": mask(config.llm.api_key) if current_provider == "siliconflow" else "",
         "glm_key": mask(config.llm.api_key) if current_provider == "glm" else "",
+        "kimi_key": mask(config.llm.api_key) if current_provider == "kimi" else "",
         "openai_model": current_model if current_provider == "openai" else "",
         "anthropic_model": current_model if current_provider == "anthropic" else "",
         "gemini_model": current_model if current_provider == "gemini" else "",
         "deepseek_model": current_model if current_provider == "deepseek" else "",
         "siliconflow_model": current_model if current_provider == "siliconflow" else "",
         "glm_model": current_model if current_provider == "glm" else "",
+        "kimi_model": current_model if current_provider == "kimi" else "",
         # Embedding 配置
         "embedding_model": config.embedding.model_name,
         "embedding_models": embed_models,
@@ -1969,6 +1972,7 @@ async def fetch_models(body: Dict[str, Any]):
     - Anthropic: GET https://api.anthropic.com/v1/models
     - Gemini:    GET https://generativelanguage.googleapis.com/v1beta/models
     - GLM:       GET https://open.bigmodel.cn/api/paas/v4/models
+    - Kimi:      GET https://api.moonshot.cn/v1/models
     - Ollama:    GET http://localhost:11434/api/tags
     """
     import httpx
@@ -2088,6 +2092,26 @@ async def fetch_models(body: Dict[str, Any]):
                             return (i, m)
                     return (len(priority), m)
                 models = sorted(all_models, key=_glm_sort)
+
+            elif provider == "kimi":
+                # https://platform.kimi.com/docs/api/overview — moonshot-v2.6 / moonshot-v2.5
+                resp = await client.get(
+                    "https://api.moonshot.cn/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Kimi API error ({resp.status_code}): {resp.text[:300]}")
+                data = resp.json()
+                all_models = [m["id"] for m in data.get("data", []) if m.get("id")]
+                # Prioritize moonshot-v2.6 > moonshot-v2.5 > moonshot-v1.5
+                priority = ["moonshot-v2.6", "moonshot-v2.5", "moonshot-v1.5", "moonshot-v1"]
+                def _kimi_sort(m):
+                    ml = m.lower()
+                    for i, p in enumerate(priority):
+                        if ml.startswith(p):
+                            return (i, m)
+                    return (len(priority), m)
+                models = sorted(all_models, key=_kimi_sort)
 
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
