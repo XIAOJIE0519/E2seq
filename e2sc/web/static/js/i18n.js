@@ -98,6 +98,10 @@ const i18n = {
         // API Keys 面板
         'settings.apiKeysDesc': '配置 LLM 服务提供商的 API Key',
         'settings.fetchModels': '获取模型',
+        'settings.fetchingModels': '获取模型列表...',
+        'settings.enterKeyFirst': '请先输入 API Key',
+        'settings.modelsReady': '{n} 个模型已就绪',
+        'settings.loadedDefault': '已加载默认列表',
         'settings.clearDisconnect': '清除并断开',
 
         // Embedding 模型
@@ -383,6 +387,10 @@ const i18n = {
         // API Keys panel
         'settings.apiKeysDesc': 'Configure API Keys for LLM service providers',
         'settings.fetchModels': 'Fetch Models',
+        'settings.fetchingModels': 'Fetching models...',
+        'settings.enterKeyFirst': 'Please enter API Key first',
+        'settings.modelsReady': '{n} models ready',
+        'settings.loadedDefault': 'Loaded default list',
         'settings.clearDisconnect': 'Clear & Disconnect',
 
         // Embedding model

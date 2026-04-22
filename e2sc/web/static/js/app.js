@@ -1139,11 +1139,16 @@ STAT3,IL6,regulation,0.88`;
         const keyEl = document.getElementById(provider + 'Key');
         const sel   = document.getElementById(provider + 'Model');
         const statusEl = document.getElementById('status-' + provider);
+        const btn = document.querySelector(`.btn-fetch-models[data-provider="${provider}"]`);
         if (!keyEl || !sel) return;
         const apiKey = keyEl.value.trim();
-        if (!apiKey) return;
-        if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">获取模型列表...</span>';
-        // Show curated list immediately for siliconflow and deepseek
+        if (!apiKey) {
+            if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.enterKeyFirst')}</span>`;
+            return;
+        }
+        // Loading state
+        if (btn) btn.classList.add('spinning');
+        if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.fetchingModels')}</span>`;
         const CURATED = {
             openai: ['gpt-5.4','gpt-5.4-mini','gpt-5.2','gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini'],
             anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
@@ -1154,7 +1159,6 @@ STAT3,IL6,regulation,0.88`;
             kimi: ['moonshot-v2.6-250415','moonshot-v2.5-250415','moonshot-v1.5-32k','moonshot-v1.5-8k','moonshot-v1-8k'],
         };
         const curated = CURATED[provider] || [];
-        // Populate with curated list first
         if (curated.length) {
             sel.innerHTML = curated.map((m,i) => `<option value="${m}"${i===0?' selected':''}>${m}</option>`).join('');
             sel.style.display = 'block';
@@ -1168,19 +1172,20 @@ STAT3,IL6,regulation,0.88`;
             const d = await r.json();
             if (!r.ok) {
                 if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-size:.8rem">${d.detail||'获取失败'}</span>`;
+                if (btn) btn.classList.remove('spinning');
                 return;
             }
             const models = d.models || curated;
             if (models.length) {
-                // For siliconflow/deepseek always show curated first, then merge
                 let final = curated.length ? [...new Set([...curated, ...models])] : models;
                 sel.innerHTML = final.map((m,i) => `<option value="${m}"${i===0?' selected':''}>${m}</option>`).join('');
                 sel.style.display = 'block';
             }
-            if (statusEl) statusEl.innerHTML = `<span style="color:#34d399;font-size:.8rem">✓ ${models.length} 个模型</span>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color:#34d399;font-size:.8rem">✓ ${window.t('settings.modelsReady', null, {count: models.length})}</span>`;
+            if (btn) btn.classList.remove('spinning');
         } catch(e) {
-            // Live fetch failed but curated list is already shown
-            if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">已加载默认列表</span>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.loadedDefault')}</span>`;
+            if (btn) btn.classList.remove('spinning');
         }
     }
 
