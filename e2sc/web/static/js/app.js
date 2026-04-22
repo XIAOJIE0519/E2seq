@@ -2137,7 +2137,7 @@ STAT3,IL6,regulation,0.88`;
             return;
         }
         // 统一进入右侧分析面板（顶部切换单细胞/表格）
-        if (window.analysisPanel) {
+        if (window.analysisPanel && typeof window.analysisPanel.open === 'function') {
             window.analysisPanel.open();
             if (typeof window.analysisPanel.switchMode === 'function') {
                 window.analysisPanel.switchMode('singlecell');
@@ -2221,7 +2221,7 @@ STAT3,IL6,regulation,0.88`;
                 if (type === 'singlecell') {
                     await this.uploadFile(file);
                 } else {
-                    if (window.analysisPanel) {
+                    if (window.analysisPanel && typeof window.analysisPanel.open === 'function') {
                         window.analysisPanel.switchMode('table');
                         window.analysisPanel.open();
                         await window.analysisPanel.setTableFile(file);
@@ -2411,7 +2411,7 @@ STAT3,IL6,regulation,0.88`;
             this._pendingUploadData = data;
             // Instead of showing a config modal, refresh the analysis panel
             // and open it so the user can confirm settings there.
-            if (window.analysisPanel) {
+            if (window.analysisPanel && typeof window.analysisPanel.open === 'function') {
                 window.analysisPanel._colsLoaded = false;
                 await window.analysisPanel.checkDataStatus();
                 window.analysisPanel.open();
