@@ -1453,8 +1453,8 @@ STAT3,IL6,regulation,0.88`;
         if (cfgGroupColPlaceholder) cfgGroupColPlaceholder.placeholder = this.t('dataset.optional', this.currentLanguage);
 
         // 翻译分析面板
-        if (this.analysisPanel && this.analysisPanel.applyI18n) {
-            this.analysisPanel.applyI18n(this.currentLanguage);
+        if (window.analysisPanel && typeof window.analysisPanel.applyI18n === 'function') {
+            window.analysisPanel.applyI18n(this.currentLanguage);
         }
 
         // 更新 Embedding 信息面板
