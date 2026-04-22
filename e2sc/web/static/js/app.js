@@ -309,26 +309,20 @@ class E2seqApp {
     // Database listing
     async loadBuiltinDatabases() {
         const grid = document.getElementById('builtinDBGrid');
-        console.log('[KB] loadBuiltinDatabases called, grid:', grid);
-        if (!grid) {
-            console.warn('[KB] builtinDBGrid element not found in DOM');
-            return;
-        }
+        if (!grid) return;
 
         // Fetch actual database status from backend
         let dbStatus = {};
         try {
             const resp = await fetch('/api/db/status');
-            console.log('[KB] /api/db/status response:', resp.status, resp.ok);
             if (resp.ok) {
                 dbStatus = await resp.json();
-                console.log('[KB] dbStatus:', dbStatus);
             }
         } catch (e) {
-            console.warn('[KB] Failed to fetch db status:', e);
+            console.warn('Failed to fetch db status:', e);
         }
 
-        const html = this.builtinDatabases.map(db => {
+        grid.innerHTML = this.builtinDatabases.map(db => {
             const status = dbStatus[db.name.toLowerCase()];
             const isLoaded = status && status.status === 'ok';
             const statusClass = isLoaded ? 'db-status' : 'db-status db-status-inactive';
@@ -363,9 +357,6 @@ class E2seqApp {
                 </div>
             </div>
         `}).join('');
-
-        grid.innerHTML = html;
-        console.log('[KB] Builtin DB cards rendered, childCount:', grid.children.length);
     }
 
     showDBDetail(dbName) {
