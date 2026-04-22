@@ -7,6 +7,9 @@ class E2seqApp {
         this.isProcessing = false;
         this.currentPage = 'chat';
         this.currentLanguage = localStorage.getItem('e2seq_language') || 'zh-CN';
+        // Safe local reference to the global translation function.
+        // Falls back to returning the key itself if window.t is not yet available.
+        this.t = window.t || ((key) => key);
         this.builtinDatabases = [
             {
                 name: 'STRING',
@@ -350,7 +353,7 @@ class E2seqApp {
             const status = dbStatus[db.name.toLowerCase()];
             const isLoaded = status && status.status === 'ok';
             const statusClass = isLoaded ? 'db-status' : 'db-status db-status-inactive';
-            const statusText = isLoaded ? t('kb.status') : t('kb.statusNotLoaded');
+            const statusText = isLoaded ? this.t('kb.status') : this.t('kb.statusNotLoaded');
             return `
             <div class="db-card" data-db="${db.name}">
                 <div class="db-card-header">
@@ -358,14 +361,14 @@ class E2seqApp {
                     <span class="${statusClass}">${statusText}</span>
                 </div>
                 <div class="db-card-body">
-                    <p class="db-description">${t(db.descriptionKey)}</p>
+                    <p class="db-description">${this.t(db.descriptionKey)}</p>
                     <div class="db-stats">
                         <span class="stat-item">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                                 <circle cx="12" cy="7" r="4"></circle>
                             </svg>
-                            ${db.records} ${t('kb.records')}
+                            ${db.records} ${this.t('kb.records')}
                         </span>
                         <span class="stat-item">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -377,7 +380,7 @@ class E2seqApp {
                     </div>
                 </div>
                 <div class="db-card-footer">
-                    <button class="btn-text" onclick="window.e2seqApp.showDBDetail('${db.name}')">${t('kb.viewDetail')}</button>
+                    <button class="btn-text" onclick="window.e2seqApp.showDBDetail('${db.name}')">${this.t('kb.viewDetail')}</button>
                 </div>
             </div>
         `}).join('');
@@ -391,26 +394,26 @@ class E2seqApp {
         const title = document.getElementById('dbDetailTitle');
         const body = document.getElementById('dbDetailBody');
 
-        title.textContent = `${db.name} - ${t('dbDetail.title')}`;
+        title.textContent = `${db.name} - ${this.t('dbDetail.title')}`;
         body.innerHTML = `
             <div class="db-detail">
                 <div class="detail-section">
-                    <h4>${t('dbDetail.basicInfo')}</h4>
+                    <h4>${this.t('dbDetail.basicInfo')}</h4>
                     <table class="detail-table">
-                        <tr><td>${t('dbDetail.name')}</td><td>${db.name}</td></tr>
-                        <tr><td>${t('dbDetail.records')}</td><td>${db.records}</td></tr>
-                        <tr><td>${t('dbDetail.format')}</td><td>${db.format}</td></tr>
-                        <tr><td>${t('dbDetail.description')}</td><td>${t(db.descriptionKey)}</td></tr>
+                        <tr><td>${this.t('dbDetail.name')}</td><td>${db.name}</td></tr>
+                        <tr><td>${this.t('dbDetail.records')}</td><td>${db.records}</td></tr>
+                        <tr><td>${this.t('dbDetail.format')}</td><td>${db.format}</td></tr>
+                        <tr><td>${this.t('dbDetail.description')}</td><td>${this.t(db.descriptionKey)}</td></tr>
                     </table>
                 </div>
                 <div class="detail-section">
-                    <h4>${t('dbDetail.fields')}</h4>
+                    <h4>${this.t('dbDetail.fields')}</h4>
                     <ul class="field-list">
                         ${db.fields.map(field => `<li><code>${field}</code></li>`).join('')}
                     </ul>
                 </div>
                 <div class="detail-section">
-                    <h4>${t('dbDetail.example')}</h4>
+                    <h4>${this.t('dbDetail.example')}</h4>
                     <pre class="code-block">${db.example}</pre>
                 </div>
             </div>
@@ -571,7 +574,7 @@ STAT3,IL6,regulation,0.88`;
         link.click();
         document.body.removeChild(link);
         
-        this.showNotification(t('notify.templateDownloaded'), 'success');
+        this.showNotification(this.t('notify.templateDownloaded'), 'success');
     }
 
     selectFileToUpload() {
@@ -600,7 +603,7 @@ STAT3,IL6,regulation,0.88`;
         if (file.size > maxSize) {
             return {
                 valid: false,
-                error: t('error.fileTooLarge')
+                error: this.t('error.fileTooLarge')
             };
         }
 
@@ -612,7 +615,7 @@ STAT3,IL6,regulation,0.88`;
         if (!hasValidExtension) {
             return {
                 valid: false,
-                error: t('error.invalidFileType')
+                error: this.t('error.invalidFileType')
             };
         }
 
@@ -624,7 +627,7 @@ STAT3,IL6,regulation,0.88`;
             if (lines.length < 2) {
                 return {
                     valid: false,
-                    error: t('error.emptyFile')
+                    error: this.t('error.emptyFile')
                 };
             }
 
@@ -636,7 +639,7 @@ STAT3,IL6,regulation,0.88`;
             if (missingFields.length > 0) {
                 return {
                     valid: false,
-                    error: t('error.missingFields') + ': ' + missingFields.join(', ')
+                    error: this.t('error.missingFields') + ': ' + missingFields.join(', ')
                 };
             }
 
@@ -644,7 +647,7 @@ STAT3,IL6,regulation,0.88`;
         } catch (error) {
             return {
                 valid: false,
-                error: t('error.fileReadError')
+                error: this.t('error.fileReadError')
             };
         }
     }
@@ -660,14 +663,14 @@ STAT3,IL6,regulation,0.88`;
             });
 
             if (!response.ok) {
-                throw new Error(t('notify.dbUploadFailed'));
+                throw new Error(this.t('notify.dbUploadFailed'));
             }
 
-            this.showNotification(t('notify.dbUploaded') + `: ${file.name}`, 'success');
+            this.showNotification(this.t('notify.dbUploaded') + `: ${file.name}`, 'success');
             this.loadCustomDatabases();
         } catch (error) {
             console.error('DB upload error:', error);
-            this.showNotification(t('notify.dbUploadFailed'), 'error');
+            this.showNotification(this.t('notify.dbUploadFailed'), 'error');
         }
     }
 
@@ -687,8 +690,8 @@ STAT3,IL6,regulation,0.88`;
                             <line x1="3" y1="9" x2="21" y2="9"></line>
                             <line x1="9" y1="21" x2="9" y2="9"></line>
                         </svg>
-                        <p>${t('kb.empty')}</p>
-                        <small>${t('kb.emptyHint')}</small>
+                        <p>${this.t('kb.empty')}</p>
+                        <small>${this.t('kb.emptyHint')}</small>
                     </div>
                 `;
             } else {
@@ -705,7 +708,7 @@ STAT3,IL6,regulation,0.88`;
                                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                                         <circle cx="12" cy="7" r="4"></circle>
                                     </svg>
-                                    ${db.records} ${t('kb.records')}
+                                    ${db.records} ${this.t('kb.records')}
                                 </span>
                             </div>
                         </div>
@@ -727,7 +730,7 @@ STAT3,IL6,regulation,0.88`;
     }
 
     async deleteDatabase(dbName) {
-        if (!confirm(`${t('kb.delete')} ${dbName}?`)) return;
+        if (!confirm(`${this.t('kb.delete')} ${dbName}?`)) return;
 
         try {
             const response = await fetch(`/api/knowledge-bases/${dbName}`, {
@@ -735,14 +738,14 @@ STAT3,IL6,regulation,0.88`;
             });
 
             if (!response.ok) {
-                throw new Error(t('notify.dbDeleteFailed'));
+                throw new Error(this.t('notify.dbDeleteFailed'));
             }
 
-            this.showNotification(t('notify.dbDeleted'), 'success');
+            this.showNotification(this.t('notify.dbDeleted'), 'success');
             this.loadCustomDatabases();
         } catch (error) {
             console.error('Delete database error:', error);
-            this.showNotification(t('notify.dbDeleteFailed'), 'error');
+            this.showNotification(this.t('notify.dbDeleteFailed'), 'error');
         }
     }
 
@@ -767,7 +770,7 @@ STAT3,IL6,regulation,0.88`;
         try {
             const response = await fetch(`/api/plots/${type}`);
             if (!response.ok) {
-                throw new Error(t('error.loadFailed'));
+                throw new Error(this.t('error.loadFailed'));
             }
 
             const plotData = await response.json();
@@ -783,8 +786,8 @@ STAT3,IL6,regulation,0.88`;
                             <line x1="16" y1="13" x2="8" y2="13"></line>
                             <line x1="16" y1="17" x2="8" y2="17"></line>
                         </svg>
-                        <p>${t('charts.noData')}</p>
-                        <small>${t('charts.noDataHint')}</small>
+                        <p>${this.t('charts.noData')}</p>
+                        <small>${this.t('charts.noDataHint')}</small>
                     </div>
                 `;
             } else {
@@ -795,7 +798,7 @@ STAT3,IL6,regulation,0.88`;
             console.error('Load chart error:', error);
             container.innerHTML = `
                 <div class="chart-error">
-                    <p>${t('error.loadFailed')}</p>
+                    <p>${this.t('error.loadFailed')}</p>
                     <small>${error.message}</small>
                 </div>
             `;
@@ -1040,28 +1043,28 @@ STAT3,IL6,regulation,0.88`;
         const pathEl = document.getElementById('embedModelPath');
 
         if (nameEl) nameEl.textContent = model.name || model.id;
-        if (dimEl) dimEl.textContent = (model.dimension || '-') + ' ' + t('settings.dim');
+        if (dimEl) dimEl.textContent = (model.dimension || '-') + ' ' + this.t('settings.dim');
         if (descEl) descEl.textContent = model.description || '';
-        if (sizeEl) sizeEl.textContent = t('settings.modelSize') + ': ' + (model.size || '-');
+        if (sizeEl) sizeEl.textContent = this.t('settings.modelSize') + ': ' + (model.size || '-');
         if (pathEl) {
             if (model.path) {
-                pathEl.textContent = t('settings.modelPath') + ': ' + model.path;
+                pathEl.textContent = this.t('settings.modelPath') + ': ' + model.path;
             } else if (model.path_required) {
-                pathEl.textContent = t('settings.modelPathNeeded');
+                pathEl.textContent = this.t('settings.modelPathNeeded');
             } else if (model.builtin) {
-                pathEl.textContent = t('settings.builtinNoPath');
+                pathEl.textContent = this.t('settings.builtinNoPath');
             } else {
-                pathEl.textContent = t('settings.downloadHF');
+                pathEl.textContent = this.t('settings.downloadHF');
             }
         }
 
         const hasLocal = !!(model.builtin || model.path);
         if (model.path_required && !model.path) {
-            if (statusEl) { statusEl.textContent = t('settings.pathNeeded'); statusEl.className = 'embed-status error'; }
+            if (statusEl) { statusEl.textContent = this.t('settings.pathNeeded'); statusEl.className = 'embed-status error'; }
         } else if (hasLocal) {
-            if (statusEl) { statusEl.textContent = t('settings.localAvailable') + ' ✓'; statusEl.className = 'embed-status ok'; }
+            if (statusEl) { statusEl.textContent = this.t('settings.localAvailable') + ' ✓'; statusEl.className = 'embed-status ok'; }
         } else {
-            if (statusEl) { statusEl.textContent = t('settings.needDownload'); statusEl.className = 'embed-status'; }
+            if (statusEl) { statusEl.textContent = this.t('settings.needDownload'); statusEl.className = 'embed-status'; }
         }
 
         const pathInput = document.getElementById('embedModelPathInput');
@@ -1286,7 +1289,7 @@ STAT3,IL6,regulation,0.88`;
 
         } catch (error) {
             console.error('Save settings failed:', error);
-            this.showNotification(error.message || t('notify.saveFailed'), 'error');
+            this.showNotification(error.message || this.t('notify.saveFailed'), 'error');
         }
     }
 
@@ -1363,14 +1366,14 @@ STAT3,IL6,regulation,0.88`;
         this.currentLanguage = lang;
         localStorage.setItem('e2seq_language', lang);
         this.applyLanguage();
-        this.showNotification(t('notify.languageChanged'), 'success');
+        this.showNotification(this.t('notify.languageChanged'), 'success');
     }
 
     applyLanguage() {
         // 翻译所有 data-i18n 元素
         document.querySelectorAll('[data-i18n]').forEach(element => {
             const key = element.getAttribute('data-i18n');
-            const translation = t(key, this.currentLanguage);
+            const translation = this.t(key, this.currentLanguage);
 
             if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
                 if (element.placeholder !== undefined) {
@@ -1390,52 +1393,52 @@ STAT3,IL6,regulation,0.88`;
         // 翻译所有 data-i18n-title 元素的 title 属性
         document.querySelectorAll('[data-i18n-title]').forEach(element => {
             const key = element.getAttribute('data-i18n-title');
-            element.title = t(key, this.currentLanguage);
+            element.title = this.t(key, this.currentLanguage);
         });
 
         // 翻译所有 data-i18n-placeholder 元素的 placeholder 属性
         document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
             const key = element.getAttribute('data-i18n-placeholder');
-            element.placeholder = t(key, this.currentLanguage);
+            element.placeholder = this.t(key, this.currentLanguage);
         });
 
         // 翻译 chart type buttons（动态注入文本）
         const chartTypes = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
         document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
             if (index < chartTypes.length) {
-                btn.textContent = t('charts.' + chartTypes[index], this.currentLanguage);
+                btn.textContent = this.t('charts.' + chartTypes[index], this.currentLanguage);
             }
         });
 
         // 翻译 chart action button titles
         const downloadBtn = document.getElementById('downloadChartBtn');
-        if (downloadBtn) downloadBtn.title = t('charts.download', this.currentLanguage);
+        if (downloadBtn) downloadBtn.title = this.t('charts.download', this.currentLanguage);
         const fullscreenBtn = document.getElementById('fullscreenChartBtn');
-        if (fullscreenBtn) fullscreenBtn.title = t('charts.fullscreen', this.currentLanguage);
+        if (fullscreenBtn) fullscreenBtn.title = this.t('charts.fullscreen', this.currentLanguage);
         const refreshBtn = document.getElementById('refreshChartBtn');
-        if (refreshBtn) refreshBtn.title = t('charts.refresh', this.currentLanguage);
+        if (refreshBtn) refreshBtn.title = this.t('charts.refresh', this.currentLanguage);
 
         // 翻译上传抽屉内容
         const uploadTitle = document.querySelector('#uploadDrawer h2');
-        if (uploadTitle) uploadTitle.textContent = t('upload.title', this.currentLanguage);
+        if (uploadTitle) uploadTitle.textContent = this.t('upload.title', this.currentLanguage);
         const scTitle = document.querySelector('#uploadSingleCell h3');
-        if (scTitle) scTitle.textContent = t('upload.singlecellTitle', this.currentLanguage);
+        if (scTitle) scTitle.textContent = this.t('upload.singlecellTitle', this.currentLanguage);
         const scFormats = document.querySelector('#uploadSingleCell p');
-        if (scFormats) scFormats.textContent = t('upload.singlecellFormats', this.currentLanguage);
+        if (scFormats) scFormats.textContent = this.t('upload.singlecellFormats', this.currentLanguage);
         const scDesc = document.querySelector('#uploadSingleCell small');
-        if (scDesc) scDesc.textContent = t('upload.singlecellDesc', this.currentLanguage);
+        if (scDesc) scDesc.textContent = this.t('upload.singlecellDesc', this.currentLanguage);
         const tblTitle = document.querySelector('#uploadTable h3');
-        if (tblTitle) tblTitle.textContent = t('upload.tableTitle', this.currentLanguage);
+        if (tblTitle) tblTitle.textContent = this.t('upload.tableTitle', this.currentLanguage);
         const tblFormats = document.querySelector('#uploadTable p');
-        if (tblFormats) tblFormats.textContent = t('upload.tableFormats', this.currentLanguage);
+        if (tblFormats) tblFormats.textContent = this.t('upload.tableFormats', this.currentLanguage);
 
         // 翻译数据集配置弹窗
         const datasetModalTitle = document.querySelector('#datasetConfigModal h2');
-        if (datasetModalTitle) datasetModalTitle.textContent = t('dataset.configTitle', this.currentLanguage);
+        if (datasetModalTitle) datasetModalTitle.textContent = this.t('dataset.configTitle', this.currentLanguage);
         const datasetModalCancel = document.getElementById('cfgCancelBtn');
-        if (datasetModalCancel) datasetModalCancel.textContent = t('dataset.cancel', this.currentLanguage);
+        if (datasetModalCancel) datasetModalCancel.textContent = this.t('dataset.cancel', this.currentLanguage);
         const datasetModalConfirm = document.getElementById('cfgConfirmBtn');
-        if (datasetModalConfirm) datasetModalConfirm.textContent = t('dataset.confirmAndAnalyze', this.currentLanguage);
+        if (datasetModalConfirm) datasetModalConfirm.textContent = this.t('dataset.confirmAndAnalyze', this.currentLanguage);
 
         // 动态填充数据集配置弹窗标签
         this._applyDatasetModalLabels();
@@ -1463,7 +1466,7 @@ STAT3,IL6,regulation,0.88`;
 
         document.querySelectorAll('.chip span').forEach((span, index) => {
             if (index < suggestions.length) {
-                span.textContent = t(suggestions[index], this.currentLanguage);
+                span.textContent = this.t(suggestions[index], this.currentLanguage);
             }
         });
 
@@ -1477,7 +1480,7 @@ STAT3,IL6,regulation,0.88`;
         const chartTypeKeys = ['umap', 'violin', 'heatmap', 'volcano', 'bubble', 'network', 'chord'];
         document.querySelectorAll('.chart-type-btn').forEach((btn, index) => {
             if (index < chartTypeKeys.length) {
-                btn.textContent = t('charts.' + chartTypeKeys[index], this.currentLanguage);
+                btn.textContent = this.t('charts.' + chartTypeKeys[index], this.currentLanguage);
             }
         });
 
@@ -1487,7 +1490,7 @@ STAT3,IL6,regulation,0.88`;
         });
 
         // Update page title
-        document.title = t('chat.title', this.currentLanguage) + ' - Easy to Chat with Sequencing';
+        document.title = this.t('chat.title', this.currentLanguage) + ' - Easy to Chat with Sequencing';
     }
 
     // Input change handler
@@ -1573,7 +1576,7 @@ STAT3,IL6,regulation,0.88`;
             clearInterval(progressTimer);
 
             if (!response.ok) {
-                throw new Error(t('error.chatFailed'));
+                throw new Error(this.t('error.chatFailed'));
             }
 
             const reader = response.body.getReader();
@@ -1715,7 +1718,7 @@ STAT3,IL6,regulation,0.88`;
             clearInterval(progressTimer);
             console.error('sendMessage error:', error);
             this.removeMessage(loadingId);
-            this.addMessage('assistant', t('error.chatFailed'));
+            this.addMessage('assistant', this.t('error.chatFailed'));
         } finally {
             this.isProcessing = false;
         }
@@ -2389,7 +2392,7 @@ STAT3,IL6,regulation,0.88`;
 
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
-                throw new Error(err.detail || t('notify.uploadFailed'));
+                throw new Error(err.detail || this.t('notify.uploadFailed'));
             }
 
             const data = await response.json();
@@ -2409,7 +2412,7 @@ STAT3,IL6,regulation,0.88`;
             if (greetingModule) greetingModule.style.display = 'none';
         } catch (error) {
             console.error('uploadFile error:', error);
-            this.showNotification(error.message || t('notify.uploadFailed'), 'error');
+            this.showNotification(error.message || this.t('notify.uploadFailed'), 'error');
         }
     }
 
