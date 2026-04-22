@@ -135,16 +135,40 @@ class E2seqApp {
         });
 
         // Database management
-        document.getElementById('uploadDBBtn')?.addEventListener('click', () => this.uploadDatabase());
-        document.getElementById('closeDBDetail')?.addEventListener('click', () => this.closeDBDetail());
+        const _uploadDBBtn = document.getElementById('uploadDBBtn');
+        console.log('[SETUP] uploadDBBtn:', _uploadDBBtn, 'binding:', !!_uploadDBBtn);
+        _uploadDBBtn?.addEventListener('click', () => { console.log('[CLICK] uploadDBBtn'); this.uploadDatabase(); });
+
+        const _closeDBDetail = document.getElementById('closeDBDetail');
+        console.log('[SETUP] closeDBDetail:', _closeDBDetail, 'binding:', !!_closeDBDetail);
+        _closeDBDetail?.addEventListener('click', () => { console.log('[CLICK] closeDBDetail'); this.closeDBDetail(); });
 
         // Settings save
-        document.getElementById('saveSettingsBtn')?.addEventListener('click', () => this.saveSettings());
+        const _saveBtn = document.getElementById('saveSettingsBtn');
+        console.log('[SETUP] saveSettingsBtn:', _saveBtn, 'binding:', !!_saveBtn);
+        _saveBtn?.addEventListener('click', () => { console.log('[CLICK] saveSettingsBtn'); this.saveSettings(); });
 
         // Embedding 模型测试按钮
-        document.getElementById('testEmbedBtn')?.addEventListener('click', () => this.testEmbeddingModel());
-        document.getElementById('embedSavePathBtn')?.addEventListener('click', () => this.saveCurrentEmbedPath());
-        document.getElementById('embedAddCustomBtn')?.addEventListener('click', () => this.addCustomEmbeddingModel());
+        const _testBtn = document.getElementById('testEmbedBtn');
+        console.log('[SETUP] testEmbedBtn:', _testBtn, 'binding:', !!_testBtn);
+        _testBtn?.addEventListener('click', () => { console.log('[CLICK] testEmbedBtn'); this.testEmbeddingModel(); });
+
+        const _savePathBtn = document.getElementById('embedSavePathBtn');
+        console.log('[SETUP] embedSavePathBtn:', _savePathBtn, 'binding:', !!_savePathBtn);
+        _savePathBtn?.addEventListener('click', () => { console.log('[CLICK] embedSavePathBtn'); this.saveCurrentEmbedPath(); });
+
+        const _addCustomBtn = document.getElementById('embedAddCustomBtn');
+        console.log('[SETUP] embedAddCustomBtn:', _addCustomBtn, 'binding:', !!_addCustomBtn);
+        _addCustomBtn?.addEventListener('click', () => { console.log('[CLICK] embedAddCustomBtn'); this.addCustomEmbeddingModel(); });
+
+        // Language & theme
+        const _langRadios = document.querySelectorAll('input[name="language"]');
+        console.log('[SETUP] language radios:', _langRadios.length);
+        _langRadios.forEach(r => r.addEventListener('change', (e) => { console.log('[CLICK] language change:', e.target.value); this.changeLanguage(e.target.value); }));
+
+        const _themeRadios = document.querySelectorAll('input[name="theme"]');
+        console.log('[SETUP] theme radios:', _themeRadios.length);
+        _themeRadios.forEach(r => r.addEventListener('change', (e) => { console.log('[CLICK] theme change:', e.target.value); this.setTheme(e.target.value); }));
 
         // key 输入框失焦时自动拉取模型
         ['openai','anthropic','gemini','deepseek','siliconflow','glm','kimi'].forEach(provider => {
