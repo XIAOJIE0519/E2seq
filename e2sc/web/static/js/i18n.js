@@ -171,6 +171,8 @@ const i18n = {
         'settings.theme': '主题',
         'settings.themeLight': '浅色',
         'settings.themeDark': '深色',
+        'settings.langZh': '简体中文',
+        'settings.langEn': 'English',
 
         // 可视化面板
         'charts.title': '📊 可视化图表',
@@ -495,6 +497,8 @@ const i18n = {
         'settings.theme': 'Theme',
         'settings.themeLight': 'Light',
         'settings.themeDark': 'Dark',
+        'settings.langZh': '简体中文',
+        'settings.langEn': 'English',
 
         // Visualization panel
         'charts.title': '📊 Visualization Charts',
