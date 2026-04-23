@@ -1144,7 +1144,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
             return
 
         security = get_security_manager()
-        decrypted_key = security.decrypt(config.llm.api_key)
+        try:
+            decrypted_key = security.decrypt(config.llm.api_key)
+        except Exception as e:
+            yield f"event: error\ndata: API Key\u89e3\u5bc6\u5931\u8d25: {str(e)}\n\n"
+            return
         adata = datasets.get(chat_id)
         agent = agents.get(chat_id)
         if agent is None:
@@ -1252,6 +1256,8 @@ async def _stream_agent_chat(chat_id: str, message: str):
             return
 
         response = agent_result_holder.get("result", {})
+        if not isinstance(response, dict):
+            response = {"text": str(response) if response else "", "plots": [], "data": {}, "thinking": []}
 
         # Yield thinking steps accumulated during execution
         for step in response.get("thinking", []):

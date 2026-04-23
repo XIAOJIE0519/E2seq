@@ -1,6 +1,7 @@
 """Final optimized Agent orchestrator with full integration of all modules."""
 
 from datetime import datetime
+from io import StringIO
 from typing import Any, Dict, Generator, List, Optional
 
 from anndata import AnnData
@@ -396,7 +397,7 @@ class E2scAgentOptimized:
         # Load filtered CSV records
         import pandas as pd
         records_json = uns.get("e2sc_csv_records", "[]")
-        df = pd.read_json(io.StringIO(records_json), orient="records")
+        df = pd.read_json(StringIO(records_json), orient="records")
 
         # --- Step 1: Build GeneContext from CSV ---
         # Per-group genes by |expr| — no cap, include ALL genes

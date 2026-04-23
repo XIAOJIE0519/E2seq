@@ -355,13 +355,13 @@ _PROVIDERS: Dict[str, type] = {
 
 # 各 provider 的默认模型（已升级为当前最强模型）
 _DEFAULT_MODELS: Dict[str, str] = {
-    "openai":      "gpt-5.4",
-    "anthropic":   "claude-opus-4-5",
-    "deepseek":    "deepseek-reasoner",
-    "gemini":      "gemini-2.5-pro-preview-06-05",
+    "openai":      "gpt-4o",
+    "anthropic":   "claude-3-5-sonnet-20241022",
+    "deepseek":    "deepseek-chat",
+    "gemini":      "gemini-2.0-flash",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
-    "glm":         "glm-5.1",
-    "kimi":        "moonshot-v2.6-250415",
+    "glm":         "glm-4",
+    "kimi":        "moonshot-v1-8k",
     "ollama":      "llama3.2",
 }
 
