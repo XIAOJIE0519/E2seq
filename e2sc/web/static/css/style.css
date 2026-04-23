@@ -199,6 +199,72 @@ body {
 
 .chat-item {
     position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Action buttons hidden by default, show on hover */
+.chat-item-del,
+.chat-item-rename {
+    display: none;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s;
+}
+
+.chat-item:hover .chat-item-del,
+.chat-item:hover .chat-item-rename {
+    display: flex;
+}
+
+.chat-item-del:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.chat-item-rename {
+    color: var(--text-secondary);
+}
+
+.chat-item-rename:hover {
+    background: var(--bg-hover);
+    color: var(--accent-primary, #6366f1);
+}
+
+/* Rename inline input */
+.chat-rename-input-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+}
+
+.chat-rename-input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-primary, #6366f1);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    outline: none;
+}
+
+.chat-rename-input:focus {
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
 
 /* Right-click context menu */
@@ -1030,6 +1096,31 @@ body {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
+}
+
+.btn-danger {
+    background: #ef4444;
+    border: 1px solid #ef4444;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: background 0.15s;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+.btn-danger:active {
+    background: #b91c1c;
 }
 
 .btn-secondary:hover {
@@ -2328,11 +2419,11 @@ body {
 }
 
 [data-theme="dark"] .btn-save-new::before {
-    background: var(--bg-primary);
+    background: #ffffff;
 }
 
 [data-theme="dark"] .btn-save-new:hover {
-    color: var(--text-primary);
+    color: #0d1117;
 }
 
 /* 响应式 */

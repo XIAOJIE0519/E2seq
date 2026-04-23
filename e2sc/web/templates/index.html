@@ -619,6 +619,28 @@
         </div>
     </div>
 
+    <!-- ========== 全局确认弹窗 ========== -->
+    <div class="modal" id="confirmModal" style="display:none;">
+        <div class="modal-content" style="max-width:420px;min-width:300px;">
+            <div class="modal-header">
+                <h2 id="confirmModalTitle">确认</h2>
+                <button class="modal-close" id="confirmModalClose">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" style="padding:20px 24px;">
+                <p id="confirmModalMessage" style="margin:0;color:var(--text-secondary);font-size:0.95rem;line-height:1.6;"></p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmModalCancel" class="btn-secondary">取消</button>
+                <button id="confirmModalConfirm" class="btn-danger">确认删除</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ========== 上传抽屉面板 ========== -->
     <div id="uploadDrawer" class="drawer">
         <div class="drawer-content">

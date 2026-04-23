@@ -325,15 +325,15 @@ class AnalysisPanel {
                 <div class="ap-col-section" style="padding-top:4px;">
                     <div class="ap-col-row">
                         <label>${_t2('upload.geneCol')}</label>
-                        <select id="apTableGeneCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
+                        <select id="apTableGeneCol" class="form-control ap-select"><option value="">— ${_t2('upload.notUse')} —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
                         <label>${_t2('upload.groupCol')}</label>
-                        <select id="apTableGroupCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
+                        <select id="apTableGroupCol" class="form-control ap-select"><option value="">— ${_t2('upload.notUse')} —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
                         <label>${_t2('upload.exprCol')}</label>
-                        <select id="apTableExprCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
+                        <select id="apTableExprCol" class="form-control ap-select"><option value="">— ${_t2('upload.notUse')} —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
                         <label>${_t2('upload.exprType')}</label>
@@ -351,7 +351,7 @@ class AnalysisPanel {
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
                         <label>${_t2('upload.sigCol')}</label>
-                        <select id="apTableSigCol" class="form-control ap-select"><option value="">— 不使用 —</option></select>
+                        <select id="apTableSigCol" class="form-control ap-select"><option value="">— ${_t2('upload.notUse')} —</option></select>
                     </div>
                     <div class="ap-col-row" style="margin-top:10px;">
                         <label>${_t2('upload.sigThresh')}</label>
@@ -508,7 +508,7 @@ class AnalysisPanel {
             const ctSel = document.getElementById('apCelltypeColSelect');
             if (ctSel) {
                 const savedCt = ctSel.value;
-                ctSel.innerHTML = '<option value="">— 不使用 —</option>' +
+                ctSel.innerHTML = '<option value="">— ' + _t2('upload.notUse') + ' —</option>' +
                     cols.map(c => `<option value="${c}"${c === savedCt ? ' selected' : ''}>${c} (${(groups[c]||[]).slice(0,4).join('/')}${(groups[c]||[]).length > 4 ? '…' : ''})</option>`).join('');
                 if (!savedCt && cols.length) {
                     ctSel.value = cols.find(c => /cell|type|cluster/i.test(c)) || cols[0];
@@ -518,7 +518,7 @@ class AnalysisPanel {
             const grpSel = document.getElementById('apGroupColSelect');
             if (grpSel) {
                 const savedGrp = grpSel.value;
-                grpSel.innerHTML = '<option value="">— 不使用 —</option>' +
+                grpSel.innerHTML = '<option value="">— ' + _t2('upload.notUse') + ' —</option>' +
                     cols.map(c => `<option value="${c}"${c === savedGrp ? ' selected' : ''}>${c} (${(groups[c]||[]).slice(0,4).join('/')}${(groups[c]||[]).length > 4 ? '…' : ''})</option>`).join('');
                 if (!savedGrp && cols.length) {
                     grpSel.value = cols.find(c => /group|disease|condition|phenotype/i.test(c)) || cols[1] || '';
@@ -641,7 +641,7 @@ class AnalysisPanel {
         try {
             const response = await fetch('/api/upload-csv', { method: 'POST', body: formData });
             const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || '上传失败');
+            if (!response.ok) throw new Error(data.detail || _t2('notify.uploadFailed'));
 
             const cols = data.columns || [];
             const fill = (id, allowNone = true) => {

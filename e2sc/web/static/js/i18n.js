@@ -104,6 +104,34 @@ const i18n = {
         'settings.loadedDefault': '已加载默认列表',
         'settings.clearDisconnect': '清除并断开',
 
+        // 保存按钮
+        'settings.saveBtn': '保存设置',
+
+        // 上传不使用
+        'upload.notUse': '不使用',
+
+        // 确认弹窗
+        'confirm.title': '确认',
+        'confirm.cancel': '取消',
+        'confirm.delete': '确认删除',
+        'confirm.deleteDb': '确定要删除数据库 "{name}" 吗？此操作不可撤销。',
+        'confirm.deleteDbTitle': '删除数据库',
+        'confirm.clearKey': '确定要清除 {provider} 的 API Key 并断开连接吗？',
+        'confirm.clearKeyTitle': '清除 API Key',
+        'confirm.clear': '确认清除',
+        'confirm.clearAll': '确认清空所有历史对话？仅保留最近一条记录，此操作不可撤销。',
+        'confirm.clearAllTitle': '清空历史记录',
+        'confirm.clearData': '确认清空当前数据？清空后需要重新上传文件才能分析。',
+        'confirm.clearDataTitle': '清空数据',
+
+        // 历史记录
+        'chat.deleteTitle': '删除历史记录',
+        'chat.confirmDelete': '确认删除这条历史记录？此操作不可撤销。',
+        'chat.renameTitle': '重命名',
+        'chat.clearAllTitle': '清空历史记录',
+        'chat.confirmClearAll': '确认清空所有历史对话？仅保留最近一条记录，此操作不可撤销。',
+        'chat.renamePlaceholder': '输入新标题...',
+
         // Embedding 模型
         'settings.embeddingModel': 'Embedding 模型',
         'settings.embeddingModelDesc': '选择用于知识库向量化处理的 Embedding 模型',
@@ -392,6 +420,34 @@ const i18n = {
         'settings.modelsReady': '{n} models ready',
         'settings.loadedDefault': 'Loaded default list',
         'settings.clearDisconnect': 'Clear & Disconnect',
+
+        // Save button
+        'settings.saveBtn': 'Save Settings',
+
+        // Upload not use
+        'upload.notUse': 'Not Use',
+
+        // Confirm modal
+        'confirm.title': 'Confirm',
+        'confirm.cancel': 'Cancel',
+        'confirm.delete': 'Confirm Delete',
+        'confirm.deleteDb': 'Are you sure you want to delete database "{name}"? This action cannot be undone.',
+        'confirm.deleteDbTitle': 'Delete Database',
+        'confirm.clearKey': 'Are you sure you want to clear {provider}\'s API Key and disconnect?',
+        'confirm.clearKeyTitle': 'Clear API Key',
+        'confirm.clear': 'Confirm Clear',
+        'confirm.clearAll': 'Clear all chat history? The most recent one will be kept. This action cannot be undone.',
+        'confirm.clearAllTitle': 'Clear History',
+        'confirm.clearData': 'Clear current data? You will need to re-upload files to analyze again.',
+        'confirm.clearDataTitle': 'Clear Data',
+
+        // Chat history
+        'chat.deleteTitle': 'Delete History',
+        'chat.confirmDelete': 'Are you sure you want to delete this chat history? This action cannot be undone.',
+        'chat.renameTitle': 'Rename',
+        'chat.clearAllTitle': 'Clear History',
+        'chat.confirmClearAll': 'Clear all chat history? The most recent one will be kept. This action cannot be undone.',
+        'chat.renamePlaceholder': 'Enter new title...',
 
         // Embedding model
         'settings.embeddingModel': 'Embedding Model',

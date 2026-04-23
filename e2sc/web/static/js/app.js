@@ -214,26 +214,35 @@ class E2seqApp {
             if (clearBtnEl) {
                 clearBtnEl.addEventListener('click', async (e) => {
                     e.preventDefault();
-                    if (!confirm(`确定要清除 ${PROVIDER_LABELS[provider]} 的 API Key 并断开连接吗？`)) return;
-                    try {
-                        const r = await fetch('/api/settings/clear', {
-                            method: 'POST',
-                            headers: {'Content-Type':'application/json'},
-                            body: JSON.stringify({provider})
-                        });
-                        const d = await r.json();
-                        if (d.success) {
-                            if (keyEl) keyEl.value = '';
-                            if (selEl) { selEl.style.display = 'none'; selEl.innerHTML = ''; }
-                            if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">' + d.message + '</span>';
-                            this._updateModelBadge('ollama', 'llama3.2');
-                            this.showNotification(d.message, 'info');
-                        } else {
-                            this.showNotification(d.detail || '清除失败', 'error');
-                        }
-                    } catch(err) {
-                        this.showNotification('清除失败: ' + err.message, 'error');
-                    }
+                    const providerLabel = PROVIDER_LABELS[provider] || provider;
+                    this.showConfirmModal(
+                        `${window.t('confirm.clearKey', null, {provider: providerLabel}) || `确定要清除 ${providerLabel} 的 API Key 并断开连接吗？`}`,
+                        async () => {
+                            try {
+                                const r = await fetch('/api/settings/clear', {
+                                    method: 'POST',
+                                    headers: {'Content-Type':'application/json'},
+                                    body: JSON.stringify({provider})
+                                });
+                                const d = await r.json();
+                                if (d.success) {
+                                    if (keyEl) keyEl.value = '';
+                                    if (selEl) { selEl.style.display = 'none'; selEl.innerHTML = ''; }
+                                    if (statusEl) statusEl.innerHTML = '<span style="color:#9aa0ac;font-size:.8rem">' + d.message + '</span>';
+                                    this._updateModelBadge('ollama', 'llama3.2');
+                                    this.showNotification(d.message, 'info');
+                                } else {
+                                    this.showNotification(d.detail || '清除失败', 'error');
+                                }
+                            } catch(err) {
+                                this.showNotification('清除失败: ' + err.message, 'error');
+                            }
+                        },
+                        window.t('confirm.clearKeyTitle') || '清除 API Key',
+                        window.t('confirm.clear') || '确认清除',
+                        window.t('confirm.cancel') || '取消',
+                        true
+                    );
                 });
             }
 
@@ -730,23 +739,30 @@ STAT3,IL6,regulation,0.88`;
     }
 
     async deleteDatabase(dbName) {
-        if (!confirm(`${this.t('kb.delete')} ${dbName}?`)) return;
+        this.showConfirmModal(
+            `${window.t('confirm.deleteDb', null, {name: dbName}) || `确定要删除数据库 "${dbName}" 吗？此操作不可撤销。`}`,
+            async () => {
+                try {
+                    const response = await fetch(`/api/knowledge-bases/${dbName}`, {
+                        method: 'DELETE',
+                    });
 
-        try {
-            const response = await fetch(`/api/knowledge-bases/${dbName}`, {
-                method: 'DELETE',
-            });
+                    if (!response.ok) {
+                        throw new Error(this.t('notify.dbDeleteFailed'));
+                    }
 
-            if (!response.ok) {
-                throw new Error(this.t('notify.dbDeleteFailed'));
-            }
-
-            this.showNotification(this.t('notify.dbDeleted'), 'success');
-            this.loadCustomDatabases();
-        } catch (error) {
-            console.error('Delete database error:', error);
-            this.showNotification(this.t('notify.dbDeleteFailed'), 'error');
-        }
+                    this.showNotification(this.t('notify.dbDeleted'), 'success');
+                    this.loadCustomDatabases();
+                } catch (error) {
+                    console.error('Delete database error:', error);
+                    this.showNotification(this.t('notify.dbDeleteFailed'), 'error');
+                }
+            },
+            window.t('confirm.deleteDbTitle') || '删除数据库',
+            window.t('confirm.delete') || '确认删除',
+            window.t('confirm.cancel') || '取消',
+            true
+        );
     }
 
     // Charts panel
@@ -1898,10 +1914,15 @@ STAT3,IL6,regulation,0.88`;
                     '<span class="chat-item-title">' + this._escapeHtml(chat.title || '新对话') + '</span>' +
                     '<span class="chat-item-time">' + timeStr + '</span>' +
                     '</div>' +
+                    '<button class="chat-item-rename" title="重命名" data-chat-rename="' + chat.id + '">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+                    '</button>' +
                     '<button class="chat-item-del" title="删除" data-chat-del="' + chat.id + '">×</button>';
                 chatItem.addEventListener('click', (e) => {
                     const delBtn = e.target.closest('[data-chat-del]');
+                    const renameBtn = e.target.closest('[data-chat-rename]');
                     if (delBtn) { e.stopPropagation(); this.deleteChat(delBtn.dataset.chatDel); return; }
+                    if (renameBtn) { e.stopPropagation(); this._showRenameInput(renameBtn.dataset.chatRename, chat.title); return; }
                     this.navigateToChat();
                     this.loadChat(chat.id);
                 });
@@ -1950,46 +1971,60 @@ STAT3,IL6,regulation,0.88`;
     }
 
     async deleteChat(chatId) {
-        if (!confirm('确认删除这条历史记录？')) return;
-        try {
-            await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
-            if (this.currentChatId === chatId) {
-                this.createNewChat();
-            }
-            this.loadChatHistory();
-        } catch (e) {
-            console.error('deleteChat error:', e);
-        }
+        this.showConfirmModal(
+            window.t('chat.confirmDelete') || '确认删除这条历史记录？此操作不可撤销。',
+            async () => {
+                try {
+                    await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
+                    if (this.currentChatId === chatId) {
+                        this.createNewChat();
+                    }
+                    this.loadChatHistory();
+                } catch (e) {
+                    console.error('deleteChat error:', e);
+                }
+            },
+            window.t('chat.deleteTitle') || '删除历史记录',
+            window.t('confirm.delete') || '确认删除',
+            window.t('confirm.cancel') || '取消',
+            true
+        );
     }
 
     async clearAllHistory() {
-        if (!confirm('确认清空所有历史对话？\n仅保留最近一条记录，此操作不可撤销。')) return;
-        try {
-            const r = await fetch('/api/chats', { method: 'DELETE' });
-            if (!r.ok) throw new Error('清空失败');
-            const data = await r.json();
-            // Clear the sidebar list immediately
-            const chatList = document.getElementById('chatList');
-            if (chatList) chatList.innerHTML = '<div class="empty-state-small">暂无历史记录</div>';
-            // If the kept session is not the current one, switch to it
-            if (data.kept && data.kept !== this.currentChatId) {
-                await this.loadChat(data.kept);
-            } else if (!data.kept) {
-                this.createNewChat();
-            }
-            await this.loadChatHistory();
-            const deleted = data.deleted || 0;
-            const kept = data.kept ? 1 : 0;
-            this.showNotification(
-                deleted > 0
-                    ? `已清空 ${deleted} 条历史记录${kept ? '，保留最近 1 条' : ''}`
-                    : '历史记录已是最新，无需清空',
-                'success'
-            );
-        } catch (e) {
-            console.error('clearAllHistory error:', e);
-            this.showNotification('清空历史失败: ' + e.message, 'error');
-        }
+        this.showConfirmModal(
+            window.t('chat.confirmClearAll') || '确认清空所有历史对话？仅保留最近一条记录，此操作不可撤销。',
+            async () => {
+                try {
+                    const r = await fetch('/api/chats', { method: 'DELETE' });
+                    if (!r.ok) throw new Error('清空失败');
+                    const data = await r.json();
+                    const chatList = document.getElementById('chatList');
+                    if (chatList) chatList.innerHTML = '<div class="empty-state-small">暂无历史记录</div>';
+                    if (data.kept && data.kept !== this.currentChatId) {
+                        await this.loadChat(data.kept);
+                    } else if (!data.kept) {
+                        this.createNewChat();
+                    }
+                    await this.loadChatHistory();
+                    const deleted = data.deleted || 0;
+                    const kept = data.kept ? 1 : 0;
+                    this.showNotification(
+                        deleted > 0
+                            ? `已清空 ${deleted} 条历史记录${kept ? '，保留最近 1 条' : ''}`
+                            : '历史记录已是最新，无需清空',
+                        'success'
+                    );
+                } catch (e) {
+                    console.error('clearAllHistory error:', e);
+                    this.showNotification('清空历史失败: ' + e.message, 'error');
+                }
+            },
+            window.t('chat.clearAllTitle') || '清空历史记录',
+            window.t('confirm.clearAll') || '确认清空',
+            window.t('confirm.cancel') || '取消',
+            true
+        );
     }
 
     _escapeHtml(text) {
@@ -2258,9 +2293,9 @@ STAT3,IL6,regulation,0.88`;
         fileInfoEl.textContent = '正在读取...';
         errorEl.style.display = 'none';
         geneColEl.innerHTML = '<option value="">加载中...</option>';
-        groupColEl.innerHTML = '<option value="">— 不使用 —</option>';
+        groupColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>';
         exprColEl.innerHTML = '<option value="">— 选择列 —</option>';
-        sigColEl.innerHTML = '<option value="">— 不使用 —</option>';
+        sigColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>';
         drawer.classList.add('active');
         document.getElementById('drawerOverlay')?.classList.add('active');
         document.getElementById('mainContent')?.classList.add('drawer-open');
@@ -2285,9 +2320,9 @@ STAT3,IL6,regulation,0.88`;
             const allOptions = cols.map(c => `<option value="${c}">${c}</option>`).join('');
 
             geneColEl.innerHTML = '<option value="">— 选择列 —</option>' + allOptions;
-            groupColEl.innerHTML = '<option value="">— 不使用 —</option>' + allOptions;
+            groupColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>' + allOptions;
             exprColEl.innerHTML = '<option value="">— 选择列 —</option>' + allOptions;
-            sigColEl.innerHTML = '<option value="">— 不使用 —</option>' + allOptions;
+            sigColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>' + allOptions;
 
             // 自动检测列名
             const colLower = cols.map(c => c.toLowerCase());
@@ -2450,7 +2485,7 @@ STAT3,IL6,regulation,0.88`;
             ).join('');
         }
         if (grpSel) {
-            grpSel.innerHTML = '<option value="">— 不使用 —</option>' +
+            grpSel.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>' +
                 cols.map(c =>
                     `<option value="${c}"${c === data.group_col_guess ? ' selected' : ''}>${c}</option>`
                 ).join('');
@@ -2597,6 +2632,46 @@ STAT3,IL6,regulation,0.88`;
         // TODO: 必填
     }
 
+    showConfirmModal(message, onConfirm, title = null, confirmText = null, cancelText = null, isDanger = true) {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const msgEl = document.getElementById('confirmModalMessage');
+        const confirmBtn = document.getElementById('confirmModalConfirm');
+        const cancelBtn = document.getElementById('confirmModalCancel');
+        const closeBtn = document.getElementById('confirmModalClose');
+        if (!modal) return;
+        if (titleEl) titleEl.textContent = title || window.t('confirm.title') || '确认';
+        if (msgEl) msgEl.textContent = message;
+        if (confirmBtn) {
+            confirmBtn.textContent = confirmText || window.t('confirm.delete') || '确认删除';
+            confirmBtn.className = isDanger ? 'btn-danger' : 'btn-primary';
+        }
+        if (cancelBtn) cancelBtn.textContent = cancelText || window.t('confirm.cancel') || '取消';
+
+        // Resolve/reject promise
+        let resolved = false;
+        const resolve = (val) => { if (!resolved) { resolved = true; modal.style.display = 'none'; if (val && onConfirm) onConfirm(); } };
+        const cleanup = () => { modal.style.display = 'none'; };
+
+        // Remove old listeners
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+
+        newConfirmBtn.addEventListener('click', () => resolve(true));
+        newCancelBtn.addEventListener('click', () => resolve(false));
+        newCloseBtn.addEventListener('click', () => resolve(false));
+
+        modal.style.display = 'flex';
+        // Center the modal
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.zIndex = '10000';
+    }
+
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
@@ -2675,7 +2750,7 @@ STAT3,IL6,regulation,0.88`;
                 const sel = document.getElementById(id);
                 if (!sel) return;
                 const keepEmpty = id === 'apCsvSigCol';
-                sel.innerHTML = keepEmpty ? '<option value="">-- 不使用 --</option>' : '';
+                sel.innerHTML = keepEmpty ? '<option value="">-- ' + (window.t('upload.notUse') || '不使用') + ' --</option>' : '';
                 _csvColumns.forEach(c => {
                     const opt = document.createElement('option');
                     opt.value = c; opt.textContent = c;
@@ -2727,7 +2802,7 @@ STAT3,IL6,regulation,0.88`;
         const exprSel = document.getElementById('apCsvExprCol');
         if (exprSel) { exprSel.innerHTML = '<option value="">log2FC / mean_expr</option>'; exprSel.disabled = true; }
         const sigSel = document.getElementById('apCsvSigCol');
-        if (sigSel) { sigSel.innerHTML = '<option value="">-- 不使用 --</option>'; sigSel.disabled = true; }
+        if (sigSel) { sigSel.innerHTML = '<option value="">-- ' + (window.t('upload.notUse') || '不使用') + ' --</option>'; sigSel.disabled = true; }
         const confirmBtn = document.getElementById('apCsvConfirmBtn');
         if (confirmBtn) confirmBtn.disabled = true;
         const errEl = document.getElementById('apCsvError');
@@ -2799,56 +2874,64 @@ STAT3,IL6,regulation,0.88`;
     });
 
     window.apClearData = async function() {
-        if (!confirm('确认清空当前数据？清空后需要重新上传文件才能分析。')) return;
-        const sid = window.e2seqApp?.currentChatId || 'default';
-        try {
-            const r = await fetch('/api/clear-data', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({session_id: sid})
-            });
-            if (r.ok) {
-                const result = await r.json();
-                logger.info('Clear result:', result);
-            }
-        } catch(e) {
-            logger.error('Clear failed:', e);
-        }
-        // Reset CSV panel
-        window.apCsvReset();
-        // Reset h5ad panel status
-        const info = document.getElementById('apDataInfo');
-        if (info) info.textContent = '未加载数据';
-        const clearBtn = document.getElementById('apClearDataBtn');
-        if (clearBtn) clearBtn.style.display = 'none';
-        // Reset h5ad selects to '不使用'
-        const ctSel = document.getElementById('apCelltypeColSelect');
-        if (ctSel) { ctSel.innerHTML = '<option value="">— 不使用 —</option>'; }
-        const grpSel = document.getElementById('apGroupColSelect');
-        if (grpSel) { grpSel.innerHTML = '<option value="">— 不使用 —</option>'; }
-        const ctRows = document.getElementById('apCelltypeLabelRows');
-        if (ctRows) ctRows.innerHTML = '';
-        const grpRows = document.getElementById('apGroupLabelRows');
-        if (grpRows) grpRows.innerHTML = '';
-        // Clear localStorage labels
-        try { localStorage.removeItem('e2seq_user_labels'); } catch(_) {}
-        // Hide matrix preview
-        const matSec = document.getElementById('apMatrixSection');
-        if (matSec) matSec.style.display = 'none';
-        // Disable run button
-        const runBtn = document.getElementById('apRunBtn');
-        if (runBtn) { runBtn.disabled = true; }
-        // Show greeting module (clean slate)
-        const greetingModule = document.getElementById('greetingModule');
-        if (greetingModule) greetingModule.style.display = 'block';
-        // Refresh the analysis panel status to sync with server
-        if (window.analysisPanel) {
-            window.analysisPanel._colsLoaded = false;
-            window.analysisPanel.matrixData = null;
-            window.analysisPanel._userLabels = { celltype: {}, group: {} };
-            window.analysisPanel.checkDataStatus();
-        }
-        window.e2seqApp?.showNotification('数据已清空，请重新上传文件', 'info');
+        window.e2seqApp?.showConfirmModal(
+            window.t('confirm.clearData') || '确认清空当前数据？清空后需要重新上传文件才能分析。',
+            async () => {
+                const sid = window.e2seqApp?.currentChatId || 'default';
+                try {
+                    const r = await fetch('/api/clear-data', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({session_id: sid})
+                    });
+                    if (r.ok) {
+                        const result = await r.json();
+                        logger.info('Clear result:', result);
+                    }
+                } catch(e) {
+                    logger.error('Clear failed:', e);
+                }
+                // Reset CSV panel
+                window.apCsvReset();
+                // Reset h5ad panel status
+                const info = document.getElementById('apDataInfo');
+                if (info) info.textContent = '未加载数据';
+                const clearBtn = document.getElementById('apClearDataBtn');
+                if (clearBtn) clearBtn.style.display = 'none';
+                // Reset h5ad selects to '不使用'
+                const ctSel = document.getElementById('apCelltypeColSelect');
+                if (ctSel) { ctSel.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>'; }
+                const grpSel = document.getElementById('apGroupColSelect');
+                if (grpSel) { grpSel.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>'; }
+                const ctRows = document.getElementById('apCelltypeLabelRows');
+                if (ctRows) ctRows.innerHTML = '';
+                const grpRows = document.getElementById('apGroupLabelRows');
+                if (grpRows) grpRows.innerHTML = '';
+                // Clear localStorage labels
+                try { localStorage.removeItem('e2seq_user_labels'); } catch(_) {}
+                // Hide matrix preview
+                const matSec = document.getElementById('apMatrixSection');
+                if (matSec) matSec.style.display = 'none';
+                // Disable run button
+                const runBtn = document.getElementById('apRunBtn');
+                if (runBtn) { runBtn.disabled = true; }
+                // Show greeting module (clean slate)
+                const greetingModule = document.getElementById('greetingModule');
+                if (greetingModule) greetingModule.style.display = 'block';
+                // Refresh the analysis panel status to sync with server
+                if (window.analysisPanel) {
+                    window.analysisPanel._colsLoaded = false;
+                    window.analysisPanel.matrixData = null;
+                    window.analysisPanel._userLabels = { celltype: {}, group: {} };
+                    window.analysisPanel.checkDataStatus();
+                }
+                window.e2seqApp?.showNotification('数据已清空，请重新上传文件', 'info');
+            },
+            window.t('confirm.clearDataTitle') || '清空数据',
+            window.t('confirm.clearData') || '确认清空',
+            window.t('confirm.cancel') || '取消',
+            true
+        );
     };
 })();
 
