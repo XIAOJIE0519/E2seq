@@ -1208,10 +1208,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Kick off agent in thread pool
         executor_future = loop.run_in_executor(None, run_agent)
 
-        # Interleave progress streaming with agent execution
-        pending_iter = True
-        async_gen = None
-
+        # Interleave progress streaming with agent execution.
+        # Using async for + proper aclose() per Python docs / FastAPI recommendations.
+        progress_gen = None
         try:
             async def stream_progress():
                 while not executor_future.done():
@@ -1221,29 +1220,17 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         payload = json.dumps({"step": "progress", "content": msg})
                         yield f"event: thinking\ndata: {payload}\n\n"
                     except asyncio.TimeoutError:
+                        await asyncio.sleep(0)  # yield control so cancellation propagates
                         continue
 
-            async_gen = stream_progress()
-            async_iter = async_gen.__aiter__()
-            pending_iter = True
-            while pending_iter:
-                try:
-                    ev = await asyncio.wait_for(async_iter.__anext__(), timeout=0.5)
-                    yield ev
-                except StopAsyncIteration:
-                    pending_iter = False
-                except asyncio.TimeoutError:
-                    if executor_future.done():
-                        pending_iter = False
+            progress_gen = stream_progress()
+            async for ev in progress_gen:
+                yield ev
         finally:
-            # Shield the cleanup so it completes even if outer generator is cancelled.
-            # aclose() is a coroutine and must be awaited in an async function.
-            if async_gen is not None:
+            # Properly await aclose() per Python cpython issue #117536
+            if progress_gen is not None:
                 try:
-                    shielded = asyncio.shield(async_gen.aclose())
-                    await asyncio.wait_for(shielded, timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass
+                    await progress_gen.aclose()
                 except Exception:
                     pass
 
