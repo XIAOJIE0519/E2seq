@@ -136,6 +136,8 @@ const i18n = {
         'chat.clearAllTitle': '清空历史记录',
         'chat.confirmClearAll': '确认清空所有历史对话？仅保留最近一条记录，此操作不可撤销。',
         'chat.renamePlaceholder': '输入新标题...',
+        'chat.contextDelete': '删除',
+        'chat.contextRename': '重命名',
 
         // Embedding 模型
         'settings.embeddingModel': 'Embedding 模型',
@@ -458,6 +460,8 @@ const i18n = {
         'chat.clearAllTitle': 'Clear History',
         'chat.confirmClearAll': 'Clear all chat history? The most recent one will be kept. This action cannot be undone.',
         'chat.renamePlaceholder': 'Enter new title...',
+        'chat.contextDelete': 'Delete',
+        'chat.contextRename': 'Rename',
 
         // Embedding model
         'settings.embeddingModel': 'Embedding Model',

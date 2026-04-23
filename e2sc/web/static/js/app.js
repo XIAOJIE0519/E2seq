@@ -2059,7 +2059,7 @@ STAT3,IL6,regulation,0.88`;
         // Rename button
         const renameBtn = document.createElement('div');
         renameBtn.className = 'context-menu-item';
-        renameBtn.textContent = '重命名';
+        renameBtn.textContent = window.t('chat.contextRename') || '重命名';
         renameBtn.addEventListener('click', () => {
             this._showRenameInput(chatId, currentTitle);
             menu.remove();
@@ -2068,7 +2068,7 @@ STAT3,IL6,regulation,0.88`;
         // Delete button
         const deleteBtn = document.createElement('div');
         deleteBtn.className = 'context-menu-item context-menu-item-danger';
-        deleteBtn.textContent = '删除';
+        deleteBtn.textContent = window.t('chat.contextDelete') || '删除';
         deleteBtn.addEventListener('click', () => {
             menu.remove();
             this.deleteChat(chatId);

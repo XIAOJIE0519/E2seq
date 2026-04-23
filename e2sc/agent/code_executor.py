@@ -172,7 +172,7 @@ class CodeExecutor:
 
         return ns
 
-        def _query_db(
+    def _query_db(
         self, db_name: str, sql: str, params: tuple = ()
     ) -> "pd.DataFrame":
         """Execute SQL against a local database and return a DataFrame.
