@@ -103,7 +103,7 @@ class OpenAIProvider(LLMProvider):
     """OpenAI LLM provider.
 
     官方文档: https://platform.openai.com/docs/api-reference
-    支持模型: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo
+    支持模型: gpt-5.4, gpt-5, gpt-4o, gpt-4o-mini, gpt-4-turbo
     API Key:  https://platform.openai.com/api-keys
     """
 
@@ -121,7 +121,7 @@ class AnthropicProvider(LLMProvider):
     """Anthropic (Claude) LLM provider.
 
     官方文档: https://docs.anthropic.com/en/api/getting-started
-    支持模型: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022,
+    支持模型: claude-opus-4-7, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022,
               claude-3-opus-20240229, claude-3-haiku-20240307
     API Key:  https://console.anthropic.com/settings/keys
     """
@@ -308,7 +308,7 @@ class GLMProvider(LLMProvider):
 
     官方文档: https://docs.bigmodel.cn
     API endpoint: https://open.bigmodel.cn/api/paas/v4/chat/completions
-    支持模型: GLM-5.1, GLM-5, GLM-4-Plus, GLM-4, GLM-Z1 (推理) 等
+    支持模型: GLM-5, GLM-5.1, GLM-4-Plus, GLM-4, GLM-Z1 (推理) 等
     """
 
     def _initialize_llm(self):
@@ -326,7 +326,7 @@ class KimiProvider(LLMProvider):
 
     官方文档: https://platform.kimi.com/docs/api/overview
     API endpoint: https://api.moonshot.cn/v1/chat/completions
-    支持模型: moonshot-v2.6-250415, moonshot-v2.5-250415, moonshot-v1.5-32k 等
+    支持模型: kimi-k2.6, moonshot-v2.5-250415, moonshot-v1.5-32k 等
     API Key: https://platform.kimi.com/console/api-keys
     """
 
@@ -355,13 +355,13 @@ _PROVIDERS: Dict[str, type] = {
 
 # 各 provider 的默认模型（已升级为当前最强模型）
 _DEFAULT_MODELS: Dict[str, str] = {
-    "openai":      "gpt-4o",
-    "anthropic":   "claude-3-5-sonnet-20241022",
+    "openai":      "gpt-5.4",
+    "anthropic":   "claude-opus-4-7",
     "deepseek":    "deepseek-chat",
-    "gemini":      "gemini-2.0-flash",
+    "gemini":      "gemini-3.1-pro-preview",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
-    "glm":         "glm-4",
-    "kimi":        "moonshot-v1-8k",
+    "glm":         "glm-5.1",
+    "kimi":        "kimi-k2.6",
     "ollama":      "llama3.2",
 }
 
