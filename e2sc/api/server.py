@@ -1208,16 +1208,22 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Kick off agent in thread pool
         executor_future = loop.run_in_executor(None, run_agent)
 
-        # Concurrently drain progress queue while agent runs
-        async def stream_progress():
-            while not executor_future.done():
-                msg = await asyncio.wait_for(progress_queue.get(), timeout=0.3)
-                _push_progress(chat_id, msg)
-                payload = json.dumps({"step": "progress", "content": msg})
-                yield f"event: thinking\ndata: {payload}\n\n"
-
         # Interleave progress streaming with agent execution
+        pending_iter = True
+        async_gen = None
+        async_iter = None
+
         try:
+            async def stream_progress():
+                while not executor_future.done():
+                    try:
+                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.3)
+                        _push_progress(chat_id, msg)
+                        payload = json.dumps({"step": "progress", "content": msg})
+                        yield f"event: thinking\ndata: {payload}\n\n"
+                    except asyncio.TimeoutError:
+                        continue
+
             async_gen = stream_progress()
             async_iter = async_gen.__aiter__()
             pending_iter = True
@@ -1228,14 +1234,27 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 except StopAsyncIteration:
                     pending_iter = False
                 except asyncio.TimeoutError:
-                    # No new progress in 0.5s, check if agent is done
                     if executor_future.done():
                         pending_iter = False
         finally:
+            # Clean up the async generator - only call aclose() once
+            if async_gen is not None:
+                try:
+                    async_gen.aclose()
+                except Exception:
+                    pass
+
+        # Drain any remaining progress messages from queue
+        while not progress_queue.empty():
             try:
-                loop.run_until_complete(async_gen.aclose())
+                msg = progress_queue.get_nowait()
+                _push_progress(chat_id, msg)
+                payload = json.dumps({"step": "progress", "content": msg})
+                yield f"event: thinking\ndata: {payload}\n\n"
+            except asyncio.QueueEmpty:
+                break
             except Exception:
-                pass
+                break
 
         # Wait for agent to complete
         try:
@@ -1412,7 +1431,8 @@ async def chat(request: Request):
             _orch_logger.removeHandler(_prog_handler)
             _push_progress(chat_id, "[进度] 分析完成")
 
-        # 将 Plotly Figure 转为 JSON 格式供前端渲染
+        if not isinstance(response, dict):
+            response = {"text": str(response) if response else "", "plots": [], "data": {}, "thinking": []}
         plots_data = []
         if response.get("plots"):
             for item in response["plots"]:
