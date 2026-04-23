@@ -1229,7 +1229,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         pending_iter = False
         finally:
             try:
-                async_gen.aclose()
+                loop.run_until_complete(async_gen.aclose())
             except Exception:
                 pass
 

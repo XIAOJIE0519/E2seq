@@ -396,7 +396,7 @@ class E2scAgentOptimized:
         # Load filtered CSV records
         import pandas as pd
         records_json = uns.get("e2sc_csv_records", "[]")
-        df = pd.read_json(records_json, orient="records")
+        df = pd.read_json(io.StringIO(records_json), orient="records")
 
         # --- Step 1: Build GeneContext from CSV ---
         # Per-group genes by |expr| — no cap, include ALL genes
