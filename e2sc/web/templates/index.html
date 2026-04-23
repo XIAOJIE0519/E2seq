@@ -29,7 +29,7 @@
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
-                    <span>清空历史</span>
+                    <span data-i18n="nav.clearHistory">清空历史</span>
                 </button>
                 <button id="knowledgeBaseBtn" class="nav-item">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -132,12 +132,12 @@
                 <!-- 输入区域 -->
                 <div class="input-container">
                     <div class="input-wrapper">
-                        <button id="attachBtn" class="input-action" title="上传文件">
+                        <button id="attachBtn" class="input-action" data-i18n-title="chat.uploadFile" title="上传文件">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                             </svg>
                         </button>
-                        <textarea id="messageInput" class="message-input" placeholder="输入你的问题，例如：分析Enterocytes细胞的差异基.." rows="1"></textarea>
+                        <textarea id="messageInput" class="message-input" data-i18n-placeholder="chat.placeholder" placeholder="输入你的问题，例如：分析Enterocytes细胞的差异基.." rows="1"></textarea>
                         <div class="input-right-actions">
                             <button id="sendBtn" class="send-btn" disabled>
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -208,7 +208,7 @@
                     <section class="settings-section-block">
                         <div class="section-label-row">
                             <h2 class="section-title" data-i18n="settings.apiKeys">API Keys</h2>
-                            <p class="section-desc">配置 LLM 服务提供商的 API Key</p>
+                            <p class="section-desc" data-i18n="settings.apiKeysDesc">配置 LLM 服务提供商的 API Key</p>
                         </div>
                         <div class="settings-columns">
                             <div class="settings-column">
@@ -223,7 +223,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="openai" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="openai" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -244,7 +244,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="anthropic" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="anthropic" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -265,7 +265,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="glm" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="glm" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -286,7 +286,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="kimi" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="kimi" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -309,7 +309,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="gemini" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="gemini" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -330,7 +330,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="deepseek" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="deepseek" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -342,7 +342,7 @@
                                 </div>
                                 <!-- SiliconFlow -->
                                 <div class="provider-group">
-                                    <label>硅基流动 SiliconFlow</label>
+                                    <label data-i18n="settings.siliconflow">硅基流动 SiliconFlow</label>
                                     <div class="key-input-row">
                                         <input type="password" id="siliconflowKey" class="form-control" placeholder="sk-...">
                                         <button class="btn-fetch-models" data-provider="siliconflow" data-i18n-title="settings.fetchModels" title="获取模型">
@@ -351,7 +351,7 @@
                                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                             </svg>
                                         </button>
-                                        <button class="btn-clear-key" data-provider="siliconflow" title="清除并断开">
+                                        <button class="btn-clear-key" data-provider="siliconflow" data-i18n-title="settings.clearDisconnect" title="清除并断开">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
                                                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -369,7 +369,7 @@
                     <section class="settings-section-block">
                         <div class="section-label-row">
                             <h2 class="section-title">Embedding 模型</h2>
-                            <p class="section-desc">选择用于知识库向量化处理Embedding 模型</p>
+                            <p class="section-desc" data-i18n="settings.embeddingModelDesc">选择用于知识库向量化处理的 Embedding 模型</p>
                         </div>
                         <div class="embed-config-row">
                             <div class="embed-select-wrapper">
@@ -377,7 +377,7 @@
                                     <!-- 动态加-->
                                 </select>
                                 <input id="embedModelPathInput" class="form-control" style="margin-top:8px" placeholder="模型本地路径（该模型需要路径时填写）" />
-                                <button id="embedSavePathBtn" class="btn-test-new" style="margin-top:8px;justify-content:center">保存当前模型路径</button>
+                                <button id="embedSavePathBtn" class="btn-test-new" style="margin-top:8px;justify-content:center" data-i18n="settings.saveModelPath">保存当前模型路径</button>
                             </div>
                             <div class="embed-info-panel">
                                 <div class="embed-model-display">
@@ -404,29 +404,29 @@
                             <label class="local-mode-toggle">
                                 <input type="checkbox" id="embedLocalOnly">
                                 <span class="toggle-track"></span>
-                                <span class="toggle-label-text">仅使用本地模型</span>
+                                <span class="toggle-label-text" data-i18n="settings.localOnly">仅使用本地模型</span>
                             </label>
-                            <button id="testEmbedBtn" class="btn-test-new">
+                            <button id="testEmbedBtn" class="btn-test-new" data-i18n="settings.testModel">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <polyline points="23 4 23 10 17 10"></polyline>
                                     <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                 </svg>
-                                测试模型
+                                <span data-i18n="settings.testModel">测试模型</span>
                             </button>
                         </div>
                     </section>
 
                         <div class="ap-col-section" style="padding:12px 0 0;">
                             <div class="ap-col-row">
-                                <label>新增自定义 Embedding 模型</label>
-                                <input id="embedCustomId" class="form-control" placeholder="模型ID（例如 my-embed-model）" />
-                                <input id="embedCustomName" class="form-control" style="margin-top:8px" placeholder="显示名称（可选）" />
-                                <input id="embedCustomPath" class="form-control" style="margin-top:8px" placeholder="本地路径（必填）" />
+                                <label data-i18n="settings.addCustomModel">新增自定义 Embedding 模型</label>
+                                <input id="embedCustomId" class="form-control" data-i18n-placeholder="settings.customIdPlaceholder" placeholder="模型ID（例如 my-embed-model）" />
+                                <input id="embedCustomName" class="form-control" style="margin-top:8px" data-i18n-placeholder="settings.customNamePlaceholder" placeholder="显示名称（可选）" />
+                                <input id="embedCustomPath" class="form-control" style="margin-top:8px" data-i18n-placeholder="settings.customPathPlaceholder" placeholder="本地路径（必填）" />
                                 <div style="display:flex;gap:8px;margin-top:8px;">
-                                    <input id="embedCustomDim" class="form-control" type="number" placeholder="维度（可选）" />
-                                    <input id="embedCustomSize" class="form-control" placeholder="大小（可选）" />
+                                    <input id="embedCustomDim" class="form-control" type="number" data-i18n-placeholder="settings.customDimPlaceholder" placeholder="维度（可选）" />
+                                    <input id="embedCustomSize" class="form-control" data-i18n-placeholder="settings.customSizePlaceholder" placeholder="大小（可选）" />
                                 </div>
-                                <button id="embedAddCustomBtn" class="btn-test-new" style="margin-top:10px;justify-content:center">添加自定义模型</button>
+                                <button id="embedAddCustomBtn" class="btn-test-new" style="margin-top:10px;justify-content:center" data-i18n="settings.addCustomModelBtn">添加自定义模型</button>
                             </div>
                         </div>
                     </section>
@@ -434,38 +434,38 @@
                     <!-- 偏好设置 -->
                     <section class="settings-section-block">
                         <div class="section-label-row">
-                            <h2 class="section-title">偏好设置</h2>
-                            <p class="section-desc">自定义界面语言和主题</p>
+                            <h2 class="section-title" data-i18n="settings.preferences">偏好设置</h2>
+                            <p class="section-desc" data-i18n="settings.preferencesDesc">自定义界面语言和主题</p>
                         </div>
                         <div class="pref-grid">
                             <div class="pref-item">
-                                <label class="pref-label">界面语言</label>
+                                <label class="pref-label" data-i18n="settings.interfaceLang">界面语言</label>
                                 <div class="pref-options">
                                     <label class="pref-option">
                                         <input type="radio" name="language" value="zh-CN">
-                                        <span class="pref-option-content">简体中文</span>
+                                        <span class="pref-option-content" data-i18n="settings.langZh">简体中文</span>
                                     </label>
                                     <label class="pref-option">
                                         <input type="radio" name="language" value="en-US">
-                                        <span class="pref-option-content">English</span>
+                                        <span class="pref-option-content" data-i18n="settings.langEn">English</span>
                                     </label>
                                 </div>
                             </div>
                             <div class="pref-item">
-                                <label class="pref-label">主题</label>
+                                <label class="pref-label" data-i18n="settings.theme">主题</label>
                                 <div class="pref-options theme-options-new">
                                     <label class="theme-pick">
                                         <input type="radio" name="theme" value="light">
                                         <span class="theme-pick-content">
                                             <span class="theme-thumb light"></span>
-                                            <span>浅色</span>
+                                            <span data-i18n="settings.themeLight">浅色</span>
                                         </span>
                                     </label>
                                     <label class="theme-pick">
                                         <input type="radio" name="theme" value="dark">
                                         <span class="theme-pick-content">
                                             <span class="theme-thumb dark"></span>
-                                            <span>深色</span>
+                                            <span data-i18n="settings.themeDark">深色</span>
                                         </span>
                                     </label>
                                 </div>
@@ -480,7 +480,7 @@
                                 <polyline points="17 21 17 13 7 13 7 21"></polyline>
                                 <polyline points="7 3 7 8 15 8"></polyline>
                             </svg>
-                            保存设置
+                            <span data-i18n="settings.saveBtn">保存设置</span>
                         </button>
                     </div>
                 </div>
@@ -492,7 +492,7 @@
     <div class="modal" id="dbDetailModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="dbDetailTitle">数据库详</h2>
+                <h2 id="dbDetailTitle" data-i18n="kb.detailTitle">数据库详情</h2>
                 <button id="closeDBDetail" class="modal-close">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -519,12 +519,12 @@
         </div>
         <div class="panel-body">
             <div class="chart-types">
-                <button class="chart-type-btn" data-type="umap">UMAP/tSNE 散点图</button>
-                <button class="chart-type-btn" data-type="violin">小提琴图</button>
-                <button class="chart-type-btn" data-type="heatmap">热图</button>
-                <button class="chart-type-btn" data-type="volcano">火山图</button>
-                <button class="chart-type-btn" data-type="bubble">气泡</button>
-                <button class="chart-type-btn" data-type="network">网络</button>
+                <button class="chart-type-btn" data-type="umap" data-i18n="charts.umap">UMAP/tSNE 散点图</button>
+                <button class="chart-type-btn" data-type="violin" data-i18n="charts.violin">小提琴图</button>
+                <button class="chart-type-btn" data-type="heatmap" data-i18n="charts.heatmap">热图</button>
+                <button class="chart-type-btn" data-type="volcano" data-i18n="charts.volcano">火山图</button>
+                <button class="chart-type-btn" data-type="bubble" data-i18n="charts.bubble">气泡</button>
+                <button class="chart-type-btn" data-type="network" data-i18n="charts.network">网络</button>
                 <button class="chart-type-btn" data-type="chord">和弦</button>
             </div>
             <div id="chartContainer" class="chart-container">
@@ -635,8 +635,8 @@
                 <p id="confirmModalMessage" style="margin:0;color:var(--text-secondary);font-size:0.95rem;line-height:1.6;"></p>
             </div>
             <div class="modal-footer">
-                <button id="confirmModalCancel" class="btn-secondary">取消</button>
-                <button id="confirmModalConfirm" class="btn-danger">确认删除</button>
+                <button id="confirmModalCancel" class="btn-secondary" data-i18n="confirm.cancel">取消</button>
+                <button id="confirmModalConfirm" class="btn-danger" data-i18n="confirm.delete">确认删除</button>
             </div>
         </div>
     </div>
@@ -718,7 +718,7 @@
                 <div class="form-group">
                     <label id="tableGroupColLabel" data-i18n="upload.groupCol">分组列（可选）</label>
                     <select id="tableGroupCol" class="form-control">
-                        <option value="">— 不使用 —</option>
+                        <option value="" data-i18n="upload.notUse">— 不使用 —</option>
                     </select>
                 </div>
                 <div class="form-row">
@@ -728,13 +728,13 @@
                             <option value="log2FC">log2FC</option>
                             <option value="logFC">logFC</option>
                             <option value="mean_expr">Mean Expression</option>
-                            <option value="custom">自定义列</option>
+                            <option value="custom" data-i18n="upload.customCol">自定义列</option>
                         </select>
                     </div>
                     <div class="form-group" id="tableExprColGroup" style="flex:1">
                         <label id="tableExprColLabel" data-i18n="upload.exprCol">表达值列</label>
                         <select id="tableExprCol" class="form-control">
-                            <option value="">选择</option>
+                            <option value="" data-i18n="upload.selectCol">选择</option>
                         </select>
                     </div>
                 </div>
@@ -746,7 +746,7 @@
                     <div class="form-group">
                         <label id="tableSigColLabel" data-i18n="upload.sigCol">显著性列（可选）</label>
                         <select id="tableSigCol" class="form-control">
-                            <option value="">— 不使用 —</option>
+                            <option value="" data-i18n="upload.notUse">— 不使用 —</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -823,7 +823,7 @@
                 </div>
                 <div id="tableUploadError" class="form-group" style="color:#ef4444;display:none"></div>
                 <div class="drawer-footer">
-                    <button id="confirmTableUpload" class="btn btn-primary">确认上传</button>
+                    <button id="confirmTableUpload" class="btn btn-primary" data-i18n="upload.confirmUpload">确认上传</button>
                 </div>
             </div>
         </div>
@@ -875,17 +875,17 @@
         <!-- 列选择 -->
         <div class="ap-col-section">
             <div class="ap-col-row">
-                <label id="apCelltypeColLabel" data-i18n="analysis.celltypeCol">细胞类型列</label>
+                <label id="apCelltypeColLabel" data-i18n="dataset.celltypeCol">细胞类型列</label>
                 <select id="apCelltypeColSelect" class="form-control ap-select">
-                    <option value="">— 不使用 —</option>
+                    <option value="">— </option>
                 </select>
             </div>
             <div id="apCelltypeLabelRows" class="ap-label-rows"></div>
 
             <div class="ap-col-row" style="margin-top:12px">
-                <label id="apGroupColLabel" data-i18n="analysis.groupCol">分组列</label>
+                <label id="apGroupColLabel" data-i18n="dataset.groupCol">分组列</label>
                 <select id="apGroupColSelect" class="form-control ap-select">
-                    <option value="">— 不使用 —</option>
+                    <option value="">— </option>
                 </select>
             </div>
             <div id="apGroupLabelRows" class="ap-label-rows"></div>
@@ -905,7 +905,7 @@
         <!-- 描述 -->
         <div class="ap-desc-section">
             <label id="apDescLabel" data-i18n="analysis.descPlaceholder">数据集描述（可选）</label>
-            <textarea id="apDatasetDesc" class="form-control" rows="2" placeholder="描述这个数据集的来源或特点..."></textarea>
+            <textarea id="apDatasetDesc" class="form-control" rows="2" data-i18n-placeholder="analysis.descPlaceholder" placeholder="描述这个数据集的来源或特点..."></textarea>
         </div>
 
         <!-- 执行按钮 -->
@@ -920,7 +920,7 @@
     </div>
 
     <script src="/static/js/i18n.js"></script>
-    <script src="/static/js/analysis_panel.js?v=20260422b"></script>
-    <script src="/static/js/app.js?v=20260422d"></script>
+    <script src="/static/js/analysis_panel.js?v=20260422c"></script>
+    <script src="/static/js/app.js?v=20260422e"></script>
 </body>
 </html>

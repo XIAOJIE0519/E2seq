@@ -314,7 +314,7 @@ class E2seqApp {
         if (messageInput) {
             messageInput.disabled = locked;
             if (placeholder) messageInput.placeholder = placeholder;
-            else messageInput.placeholder = '输入您的问题...';
+            else messageInput.placeholder = this.t('chat.placeholder', this.currentLanguage);
         }
         if (sendBtn) sendBtn.disabled = locked;
     }
@@ -1400,6 +1400,8 @@ STAT3,IL6,regulation,0.88`;
                 if (element.placeholder !== undefined) {
                     element.placeholder = translation;
                 }
+            } else if (element.tagName === 'OPTION') {
+                element.textContent = translation;
             } else {
                 if (element.children.length === 0) {
                     element.textContent = translation;
@@ -1409,6 +1411,18 @@ STAT3,IL6,regulation,0.88`;
                     else element.textContent = translation;
                 }
             }
+        });
+        // 翻译 data-i18n-placeholder
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (el.placeholder !== undefined) {
+                el.placeholder = this.t(key, this.currentLanguage);
+            }
+        });
+        // 翻译 data-i18n-title
+        document.querySelectorAll('[data-i18n-title]').forEach(el => {
+            const key = el.getAttribute('data-i18n-title');
+            el.title = this.t(key, this.currentLanguage);
         });
 
         // 翻译所有 data-i18n-title 元素的 title 属性
@@ -2290,11 +2304,11 @@ STAT3,IL6,regulation,0.88`;
 
         // 显示抽屉
         fileNameEl.textContent = file.name;
-        fileInfoEl.textContent = '正在读取...';
+        fileInfoEl.textContent = window.t('analysis.readingFile') || '正在读取...';
         errorEl.style.display = 'none';
-        geneColEl.innerHTML = '<option value="">加载中...</option>';
+        geneColEl.innerHTML = '<option value="">' + (window.t('analysis.readingFile') || '加载中...') + '</option>';
         groupColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>';
-        exprColEl.innerHTML = '<option value="">— 选择列 —</option>';
+        exprColEl.innerHTML = '<option value="">— ' + (window.t('upload.selectCol') || '选择列') + ' —</option>';
         sigColEl.innerHTML = '<option value="">— ' + (window.t('upload.notUse') || '不使用') + ' —</option>';
         drawer.classList.add('active');
         document.getElementById('drawerOverlay')?.classList.add('active');

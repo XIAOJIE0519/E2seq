@@ -64,9 +64,9 @@ class AnalysisPanel {
 
         // Column labels
         const ctLabel = document.getElementById('apCelltypeColLabel');
-        if (ctLabel) ctLabel.textContent = _t('analysis.celltypeCol');
+        if (ctLabel) ctLabel.textContent = _t('dataset.celltypeCol');
         const grpLabel = document.getElementById('apGroupColLabel');
-        if (grpLabel) grpLabel.textContent = _t('analysis.groupCol');
+        if (grpLabel) grpLabel.textContent = _t('dataset.groupCol');
 
         // Top genes label
         const tgLabel = document.getElementById('apTopGenesLabel');
@@ -641,7 +641,7 @@ class AnalysisPanel {
         try {
             const response = await fetch('/api/upload-csv', { method: 'POST', body: formData });
             const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || _t2('notify.uploadFailed'));
+            if (!response.ok) throw new Error(data.detail || '上传失败');
 
             const cols = data.columns || [];
             const fill = (id, allowNone = true) => {

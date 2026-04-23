@@ -19,6 +19,8 @@ const i18n = {
         'chat.tools': '工具',
         'chat.charts': '可视化图表',
         'chat.hint': 'E2seq 可能会出错，请核实重要信息',
+        'chat.placeholder': '输入你的问题...',
+        'chat.uploadFile': '上传文件',
         'chat.pleaseSelectFile': '点击选择文件',
 
         // 建议提示词
@@ -78,6 +80,7 @@ const i18n = {
         'settings.apiKeys': 'API Keys',
         'settings.openaiKey': 'OpenAI API Key',
         'settings.openaiPlaceholder': '输入你的 OpenAI API Key 以使用 OpenAI 模型',
+        'settings.siliconflow': '硅基流动 SiliconFlow',
         'settings.anthropicKey': 'Anthropic API Key',
         'settings.anthropicPlaceholder': '输入你的 Anthropic API Key 以使用 Claude 模型',
         'settings.geminiKey': 'Google AI Studio API Key',
@@ -109,6 +112,8 @@ const i18n = {
 
         // 上传不使用
         'upload.notUse': '不使用',
+        'upload.customCol': '自定义列',
+        'upload.selectCol': '选择列',
 
         // 确认弹窗
         'confirm.title': '确认',
@@ -336,6 +341,8 @@ const i18n = {
         'chat.tools': 'Tools',
         'chat.charts': 'Charts',
         'chat.hint': 'E2seq may make mistakes. Please verify important information.',
+        'chat.placeholder': 'Ask a question...',
+        'chat.uploadFile': 'Upload File',
         'chat.pleaseSelectFile': 'Click to Select File',
 
         // Suggestion chips
@@ -395,6 +402,7 @@ const i18n = {
         'settings.apiKeys': 'API Keys',
         'settings.openaiKey': 'OpenAI API Key',
         'settings.openaiPlaceholder': 'You can put in your OpenAI key to use OpenAI models at cost.',
+        'settings.siliconflow': 'SiliconFlow (硅基流动)',
         'settings.anthropicKey': 'Anthropic API Key',
         'settings.anthropicPlaceholder': 'You can put in your Anthropic key to use Claude at cost. When enabled, this key will be used for all models beginning with \'claude-\'.',
         'settings.geminiKey': 'Google AI Studio API Key',
@@ -426,6 +434,8 @@ const i18n = {
 
         // Upload not use
         'upload.notUse': 'Not Use',
+        'upload.customCol': 'Custom Column',
+        'upload.selectCol': 'Select Column',
 
         // Confirm modal
         'confirm.title': 'Confirm',
