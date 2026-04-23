@@ -1211,7 +1211,6 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Interleave progress streaming with agent execution
         pending_iter = True
         async_gen = None
-        async_iter = None
 
         try:
             async def stream_progress():
@@ -1237,10 +1236,14 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     if executor_future.done():
                         pending_iter = False
         finally:
-            # Clean up the async generator - only call aclose() once
+            # Shield the cleanup so it completes even if outer generator is cancelled.
+            # aclose() is a coroutine and must be awaited in an async function.
             if async_gen is not None:
                 try:
-                    async_gen.aclose()
+                    shielded = asyncio.shield(async_gen.aclose())
+                    await asyncio.wait_for(shielded, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
                 except Exception:
                     pass
 
@@ -1257,11 +1260,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 break
 
         # Wait for agent to complete
-        try:
-            await loop.run_in_executor(None, lambda: executor_future.result())
-        finally:
-            _orch_logger.removeHandler(_prog_handler)
-            _push_progress(chat_id, "[进度] 分析完成")
+        await loop.run_in_executor(None, lambda: executor_future.result())
+        _orch_logger.removeHandler(_prog_handler)
+        _push_progress(chat_id, "[进度] 分析完成")
 
         if "error" in agent_result_holder:
             _stream_err = agent_result_holder["error"]
