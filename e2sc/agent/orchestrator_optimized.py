@@ -1559,15 +1559,15 @@ class E2scAgentOptimized:
 
         knowledge = {"genes": {}, "pubmed": [], "europepmc": [], "_source_stats": {}}
         seen_pmids = set()
+        # 已确认可用的API列表（含reactome/opentargets/clinvar）
+        _ALL_APIS = {"uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","gtex","humanbase","gwas","biogrid","civic","alliance","reactome","opentargets","clinvar"}
+        _ALL_DBS  = {"string","hmdb","trrust","gutmgene"}
         # Per-source hit tracking: {source_name: {"hit": set of genes with data, "total": int}}
         _src_stats: dict = {
             "apis": {s: {"hit_genes": set(), "total_genes": len(genes)} for s in _ALL_APIS},
             "dbs":  {s: {"hit_genes": set(), "total_genes": len(genes)} for s in _ALL_DBS},
             "total_genes": len(genes),
         }
-        # 已确认可用的API列表（含reactome/opentargets/clinvar）
-        _ALL_APIS = {"uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","gtex","humanbase","gwas","biogrid","civic","alliance","reactome","opentargets","clinvar"}
-        _ALL_DBS  = {"string","hmdb","trrust","gutmgene"}
         if enabled_apis is None: enabled_apis = _ALL_APIS
         if enabled_dbs  is None: enabled_dbs  = _ALL_DBS
 
