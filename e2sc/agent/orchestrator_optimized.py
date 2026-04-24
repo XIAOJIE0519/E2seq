@@ -694,6 +694,46 @@ class E2scAgentOptimized:
         if self.adata.uns.get("e2sc_data_mode") == "csv":
             return self._chat_csv_rag(message, thinking_steps)
 
+        # ── Meta-questions about the AI model: answer directly without any RAG ──
+        _quick_keywords = [
+            "什么模型", "是哪家", "哪个模型", "who are you", "what are you",
+            "what model", "which model", "who built", "你的名字", "叫什么",
+            "怎么用", "how to use", "how do i", "如何使用", "有什么功能",
+            "支持什么", "can you", "could you", "你基于", "你的能力",
+        ]
+        if any(kw in message for kw in _quick_keywords) or len(message) < 15:
+            thinking_steps.append({"step": "MetaMode", "content": "Direct meta-answer without RAG"})
+            _provider_info = {
+                "openai": ("OpenAI", "gpt-5.4"),
+                "anthropic": ("Anthropic", "claude-opus-4-7"),
+                "deepseek": ("DeepSeek", "deepseek-chat / deepseek-reasoner"),
+                "gemini": ("Google Gemini", "gemini-3.1-pro-preview"),
+                "siliconflow": ("SiliconFlow", "deepseek-ai/DeepSeek-V3"),
+                "glm": ("Zhipu AI (GLM)", "glm-5.1"),
+                "kimi": ("Moonshot AI (Kimi)", "kimi-k2.6"),
+                "ollama": ("Ollama (本地)", "llama3.2"),
+            }
+            _p = self.config.llm.provider.lower()
+            _m = self.config.llm.model or "default"
+            _company, _default_model = _provider_info.get(_p, ("Unknown", _p))
+            _response_text = (
+                "我是 E2sc（Easy to Chat with Sequencing），一个专为单细胞转录组数据分析打造的 AI 助手。\n\n"
+                f"**当前配置**:\n"
+                f"- 底层模型: {_m}\n"
+                f"- 模型提供商: {_company}\n\n"
+                f"**我的能力**:\n"
+                f"- 上传 h5ad/CSV 数据后，自动识别细胞类型和疾病分组\n"
+                f"- 综合分析: 自动规划 + 16个在线API查询 + 4个本地数据库检索\n"
+                f"- 支持: 基因功能(PUniProt/MyGene) / GO注释(QuickGO) / 通路(Reactome) / PPI网络(STRING) / 转录调控(TRRUST) / 文献检索(PubMed/EuropePMC) 等\n"
+                f"- 生成高质量分析报告和可视化图表\n"
+                f"- 支持后续追问，系统会从缓存中快速回答\n\n"
+                f"请上传您的单细胞数据开始分析！"
+            )
+            self.memory.working_memory.add_message("assistant", _response_text)
+            self.memory.save_current_session(success=True)
+            self.state_manager.set_state(AgentState.COMPLETED)
+            return {"text": _response_text, "plots": [], "data": {}, "thinking": thinking_steps}
+
         ct_col  = self.adata.uns.get("e2sc_celltype_col") or ""
         grp_col = self.adata.uns.get("e2sc_group_col") or ""
         celltype_labels = dict(self.adata.uns.get("e2sc_celltype_labels", {}))
@@ -3024,30 +3064,39 @@ class E2scAgentOptimized:
                         break
 
         # ------------------------------------------------------------------ #
-        # Online RAG phase: if vector store is ready, skip API queries entirely
-        # and retrieve context via embedding similarity.
+        # Online RAG / cache phase: prioritize cache over live API calls.
+        # Comprehensive KB cache provides 15+ API sources for all dataset genes.
+        # Only query live APIs if NO cache exists (first-time analysis).
         # ------------------------------------------------------------------ #
         import pandas as pd
+        _comp_cache2 = self.memory.working_memory.current_context.get("comprehensive_knowledge")
         _vs_ready = (self._vector_store is not None and self._vector_store.count() > 0)
-        if _vs_ready:
+
+        if _comp_cache2:
+            # Always prefer comprehensive cache over live API calls (fast, no network)
+            _all_gene_info = {}
+            _all_pubmed = []
+            _all_epmc = []
+            for _kb in list(_comp_cache2.get("ct_knowledge",{}).values()) + list(_comp_cache2.get("grp_knowledge",{}).values()):
+                _all_gene_info.update(_kb.get("genes", {}))
+                _all_pubmed.extend(_kb.get("pubmed", []))
+                _all_epmc.extend(_kb.get("europepmc", []))
+            knowledge = {"genes": _all_gene_info, "pubmed": _all_pubmed, "europepmc": _all_epmc}
+            if _vs_ready:
+                try:
+                    knowledge["rag_context"] = self._vector_store.retrieve_context(message, n_results=10)
+                except Exception:
+                    pass
+            thinking_steps.append({"step": "CacheReuse", "content": f"Using cached knowledge ({len(_all_gene_info)} genes) — no live API calls"})
+            logger.info(f"[进度] [快速模式] 使用缓存知识回答 ({len(_all_gene_info)} genes, {len(_all_pubmed)} PM articles)")
+        elif _vs_ready:
+            # Vector store ready but no comprehensive cache: use vector search
             rag_context = self._vector_store.retrieve_context(message, n_results=10)
-            knowledge = {
-                "genes":     {},
-                "pubmed":    [],
-                "europepmc":[],
-                "rag_context": rag_context,
-            }
-            # Also inject cached comprehensive knowledge if available
-            _comp_cache2 = self.memory.working_memory.current_context.get("comprehensive_knowledge")
-            if _comp_cache2:
-                for _kb in list(_comp_cache2.get("ct_knowledge",{}).values()) + list(_comp_cache2.get("grp_knowledge",{}).values()):
-                    knowledge["genes"].update(_kb.get("genes", {}))
-                    for _a in _kb.get("pubmed", []):
-                        knowledge["pubmed"].append(_a)
+            knowledge = {"genes": {}, "pubmed": [], "europepmc": [], "rag_context": rag_context}
             thinking_steps.append({"step": "RAG", "content": f"Vector store ready ({self._vector_store.count()} docs); top-10 chunks retrieved"})
             logger.info(f"[进度] [在线 RAG] 向量库检索完成: {self._vector_store.count()} 文档")
         else:
-            # Vector store not yet built — fall back to live API query
+            # Vector store not ready AND no comprehensive cache: last resort is live API query
             _e_apis = set(self.adata.uns.get("e2sc_enabled_apis",["uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","reactome","gtex","humanbase","gwas","biogrid","civic","alliance","opentargets","clinvar"])) if self.adata is not None else None
             _e_dbs  = set(self.adata.uns.get("e2sc_enabled_dbs", ["string","hmdb","trrust","gutmgene"])) if self.adata is not None else None
             knowledge = self._build_group_knowledge(
@@ -3067,7 +3116,8 @@ class E2scAgentOptimized:
         thinking_steps.append({"step": "Knowledge", "content": f"{len(knowledge.get('genes', {}))} genes annotated, {len(pubmed_results)} articles"})
 
         # RAG retrieval: embed user question and retrieve top-k chunks from session vector store
-        if self._vector_store is not None:
+        # Only if rag_context not already injected from cache branch above
+        if self._vector_store is not None and not knowledge.get("rag_context"):
             try:
                 rag_context = self._vector_store.retrieve_context(message, n_results=8)
                 if rag_context:
@@ -3078,7 +3128,6 @@ class E2scAgentOptimized:
                 logger.debug(f"RAG retrieval skipped: {_rag_e}")
 
         # Format knowledge for synthesizer
-        import pandas as pd
         fake_results = {
             "deg": {"results": pd.DataFrame({"names": genes_to_query}), "params": {}},
             "plots": [],
