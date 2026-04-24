@@ -436,25 +436,41 @@ body {
     padding: var(--spacing-xl);
     display: flex;
     flex-direction: column;
+    max-width: 100%;
+    width: 100%;
+    transition: padding-right 0.3s ease;
+}
+
+/* Chat content area — actual readable content should zoom/expand */
+.messages-area {
     max-width: 1200px;
     margin: 0 auto;
     width: 100%;
-    transition: max-width 0.3s ease, padding-right 0.3s ease;
+    transition: max-width 0.3s ease;
 }
 
 .drawer-open .chat-container {
-    max-width: calc(1200px - 420px);
     padding-right: calc(var(--spacing-xl) + 420px);
 }
 
+.drawer-open .messages-area {
+    max-width: calc(1200px - 420px);
+}
+
 .panel-open .chat-container {
-    max-width: calc(1200px - 320px);
     padding-right: calc(var(--spacing-xl) + 320px);
 }
 
+.panel-open .messages-area {
+    max-width: calc(1200px - 320px);
+}
+
 .panel-open.drawer-open .chat-container {
-    max-width: calc(1200px - 420px - 320px);
     padding-right: calc(var(--spacing-xl) + 420px + 320px);
+}
+
+.panel-open.drawer-open .messages-area {
+    max-width: calc(1200px - 420px - 320px);
 }
 
 .greeting-module {
