@@ -70,8 +70,16 @@ class SynthesizerAgent:
         history: List[Dict[str, str]] = None,
         output_mode: str = "detailed",
         is_comprehensive: bool = False,
+        text_queue=None,
     ) -> Dict[str, Any]:
-        """Synthesize Graph-RAG knowledge into a Nature/Cell-level response."""
+        """Synthesize Graph-RAG knowledge into a Nature/Cell-level response.
+
+        Args:
+            text_queue: a thread-safe queue (e.g. queue.Queue or asyncio.Queue)
+                        that receives streamed text chunks in real-time.
+                        Uses put_nowait() so works from any thread.
+                        If None, no streaming occurs.
+        """
         logger.info("Synthesizing final report")
 
         # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
@@ -115,7 +123,23 @@ class SynthesizerAgent:
                     messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": prompt})
 
-        response_text = self.llm.chat(messages)
+        # Stream text chunks in real-time if a callback queue is provided
+        if text_queue is not None:
+            full_text_parts = []
+            try:
+                for chunk in self.llm.stream_chat(messages):
+                    full_text_parts.append(chunk)
+                    # Send chunk to SSE stream
+                    try:
+                        text_queue.put_nowait(chunk)
+                    except Exception:
+                        pass
+                response_text = "".join(full_text_parts)
+            except Exception as stream_err:
+                logger.warning(f"Streaming failed, falling back to non-streaming: {stream_err}")
+                response_text = self.llm.chat(messages)
+        else:
+            response_text = self.llm.chat(messages)
 
         # Strip forbidden "No data" / outlook phrases the LLM may have emitted
         for pat in _NO_DATA_PATTERNS:

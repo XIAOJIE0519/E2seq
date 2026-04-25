@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+import asyncio
 import json
 import tempfile
 import base64
@@ -49,6 +49,8 @@ if static_path.exists():
 # Global state (in production, use Redis or database)
 agents = {}
 datasets = {}
+# Per-chat-id abort events — set by /api/chat/abort, checked by _stream_agent_chat
+_abort_events: dict[str, asyncio.Event] = {}
 
 # Persistent dataset storage directory
 _DATASET_DIR = Path(__file__).parent.parent.parent / "_datasets"
@@ -1125,13 +1127,25 @@ async def _stream_agent_chat(chat_id: str, message: str):
     Runs the agent in a thread executor and streams progress events via an async
     queue as they are produced, so the frontend sees real-time updates instead of
     waiting for the full response.
+
+    Supports cancellation via _abort_events[chat_id].set().
     """
     import asyncio
     import plotly
     from e2sc.utils import get_config, get_security_manager
     from e2sc import E2scAgent
 
+    # Register abort event for this chat session
+    abort_event = asyncio.Event()
+    _abort_events[chat_id] = abort_event
+
     try:
+        # Yield abort check at start
+        if abort_event.is_set():
+            yield "event: aborted\ndata: {}\n\n"
+            return
+
+
         # Persist user message immediately so it's never lost even if agent crashes
         _save_chat_message(chat_id, "user", message)
 
@@ -1169,8 +1183,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
 
-        # Progress queue for real-time streaming
+        # Progress queue for real-time streaming (async-safe via call_soon_threadsafe)
         progress_queue = asyncio.Queue()
+        # Text chunk queue for streaming LLM response in real-time (thread-safe)
+        import queue
+        text_queue = queue.Queue()
 
         # Capture the running loop for thread-safe access from the executor thread
         _running_loop = asyncio.get_running_loop()
@@ -1201,7 +1218,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
 
         def run_agent():
             try:
-                agent_result_holder["result"] = agent.chat(message, progress_callback=progress_callback)
+                agent_result_holder["result"] = agent.chat(
+                    message,
+                    progress_callback=progress_callback,
+                    text_queue=text_queue,
+                )
             except Exception as e:
                 agent_result_holder["error"] = e
 
@@ -1209,19 +1230,40 @@ async def _stream_agent_chat(chat_id: str, message: str):
         executor_future = loop.run_in_executor(None, run_agent)
 
         # Interleave progress streaming with agent execution.
-        # Using async for + proper aclose() per Python docs / FastAPI recommendations.
+        # Also check abort_event periodically to support cancellation.
         progress_gen = None
         try:
             async def stream_progress():
                 while not executor_future.done():
-                    try:
-                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.3)
-                        _push_progress(chat_id, msg)
-                        payload = json.dumps({"step": "progress", "content": msg})
-                        yield f"event: thinking\ndata: {payload}\n\n"
-                    except asyncio.TimeoutError:
-                        await asyncio.sleep(0)  # yield control so cancellation propagates
-                        continue
+                    # Build task list: progress queue + abort event
+                    tasks = [asyncio.create_task(progress_queue.get())]
+                    done, _ = await asyncio.wait(
+                        tasks + [asyncio.create_task(abort_event.wait())],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if abort_event.is_set():
+                        return
+
+                    # Check which task completed
+                    for d in done:
+                        if d == tasks[0]:
+                            # Progress message
+                            try:
+                                msg = d.result()
+                                _push_progress(chat_id, msg)
+                                payload = json.dumps({"step": "progress", "content": msg})
+                                yield f"event: thinking\ndata: {payload}\n\n"
+                            except Exception:
+                                pass
+
+                    # Also drain any LLM text chunks from the queue.Queue (thread-safe)
+                    while True:
+                        try:
+                            chunk = text_queue.get_nowait()
+                            text_payload = json.dumps({"content": chunk})
+                            yield f"event: text\ndata: {text_payload}\n\n"
+                        except Exception:
+                            break
 
             progress_gen = stream_progress()
             async for ev in progress_gen:
@@ -1249,6 +1291,13 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Wait for agent to complete
         await loop.run_in_executor(None, lambda: executor_future.result())
         _orch_logger.removeHandler(_prog_handler)
+
+        # Check if abort was requested before yielding results
+        if abort_event.is_set():
+            _orch_logger.removeHandler(_prog_handler)
+            yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
+            return
+
         _push_progress(chat_id, "[进度] 分析完成")
 
         if "error" in agent_result_holder:
@@ -1310,6 +1359,27 @@ async def _stream_agent_chat(chat_id: str, message: str):
     except Exception as e:
         logger.error(f"SSE stream error: {e}")
         yield f"event: error\ndata: {str(e)}\n\n"
+    finally:
+        # Clean up abort event registration
+        _abort_events.pop(chat_id, None)
+
+
+@app.post("/api/chat/abort")
+async def chat_abort(request: Request):
+    """Abort an ongoing chat streaming session by chat_id."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    chat_id = body.get("chat_id")
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id is required")
+    abort_event = _abort_events.get(chat_id)
+    if abort_event is None:
+        return {"ok": False, "reason": "No active stream for this chat_id"}
+    abort_event.set()
+    logger.info(f"Abort signal sent for chat_id={chat_id}")
+    return {"ok": True, "chat_id": chat_id}
 
 
 @app.post("/api/chat/stream")

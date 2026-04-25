@@ -354,8 +354,13 @@ class E2scAgentOptimized:
             return {"success": False, "n_docs": 0, "n_genes": 0, "error": str(e)}
 
     def chat(self, message: str, stream: bool = False, use_agent_mode: bool = False,
-             progress_callback=None):
-        """Agentic RAG chat: Agent thinks -> RAG retrieves -> Agent evaluates -> re-retrieves -> LLM answers."""
+             progress_callback=None, text_queue=None):
+        """Agentic RAG chat: Agent thinks -> RAG retrieves -> Agent evaluates -> re-retrieves -> LLM answers.
+
+        Args:
+            text_queue: if provided, synthesizer streams LLM text chunks through this queue
+                        which is consumed by the SSE handler for real-time text display.
+        """
         import re
         logger.info(f"User message: {message}")
         self.state_manager.set_state(AgentState.PLANNING)
@@ -367,7 +372,9 @@ class E2scAgentOptimized:
             return self._chat_no_data(message, thinking_steps)
 
         # ── Agentic RAG loop (LLM auto-detects intent and data structure) ──
-        return self._chat_agentic_rag(message, thinking_steps, progress_callback=progress_callback)
+        return self._chat_agentic_rag(message, thinking_steps,
+                                      progress_callback=progress_callback,
+                                      text_queue=text_queue)
 
 
 
@@ -679,7 +686,8 @@ class E2scAgentOptimized:
         self.memory.working_memory.add_message("assistant", response_text)
         self.memory.save_current_session(success=True)
         return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
-    def _chat_agentic_rag(self, message: str, thinking_steps: list, progress_callback=None) -> dict:
+    def _chat_agentic_rag(self, message: str, thinking_steps: list,
+                          progress_callback=None, text_queue=None) -> dict:
         """Agentic RAG: plan -> retrieve -> evaluate -> re-retrieve -> synthesize.
         Agent drives the entire flow; no pre-built KB cache is consulted.
         Gene selection is from the FULL dataset gene list, not just top-N.

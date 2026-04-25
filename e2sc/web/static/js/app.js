@@ -5,6 +5,7 @@ class E2seqApp {
         this.currentChatId = this._genChatId();
         this.messages = [];
         this.isProcessing = false;
+        this.isAborting = false;
         this.currentPage = 'chat';
         this.currentLanguage = localStorage.getItem('e2seq_language') || 'zh-CN';
         // Safe local reference to the global translation function.
@@ -128,7 +129,13 @@ class E2seqApp {
             }
         });
 
-        sendBtn?.addEventListener('click', () => this.sendMessage());
+        sendBtn?.addEventListener('click', () => {
+            if (this.isProcessing) {
+                this.abortChat();
+            } else {
+                this.sendMessage();
+            }
+        });
 
         // 首页示例卡片仅做展示动画，不绑定点击行为
 
@@ -1572,6 +1579,8 @@ STAT3,IL6,regulation,0.88`;
         messageInput.style.height = 'auto';
 
         this.isProcessing = true;
+        this.isAborting = false;
+        this._setSendButtonAbort();
 
         // Add loading bubble with progress display
         const loadingId = this.addMessage('assistant', '', true);
@@ -1785,6 +1794,17 @@ STAT3,IL6,regulation,0.88`;
                             }
                         } else if (partialLine === 'error') {
                             currentText = '[Error] ' + data;
+                        } else if (partialLine === 'aborted') {
+                            // User cancelled — replace loading bubble with abort notice
+                            this.removeMessage(loadingId);
+                            let abortReason = '';
+                            try { abortReason = JSON.parse(data).reason || ''; } catch (_) {}
+                            this.addMessage('assistant', '【已中止】' + abortReason + '回复已被中断。');
+                            // Restore button immediately and return
+                            this.isProcessing = false;
+                            this.isAborting = false;
+                            this._setSendButtonNormal();
+                            return;
                         }
                         partialLine = '';
                     }
@@ -1848,6 +1868,50 @@ STAT3,IL6,regulation,0.88`;
             this.addMessage('assistant', this.t('error.chatFailed'));
         } finally {
             this.isProcessing = false;
+            this.isAborting = false;
+            this._setSendButtonNormal();
+        }
+    }
+
+    _setSendButtonAbort() {
+        const sendBtn = document.getElementById('sendBtn');
+        const sendIcon = document.getElementById('sendIcon');
+        const abortIcon = document.getElementById('abortIcon');
+        if (sendBtn) {
+            sendBtn.classList.add('aborting');
+            sendBtn.disabled = false;
+            sendBtn.title = '中止回复';
+        }
+        if (sendIcon) sendIcon.style.display = 'none';
+        if (abortIcon) abortIcon.style.display = 'block';
+    }
+
+    _setSendButtonNormal() {
+        const sendBtn = document.getElementById('sendBtn');
+        const sendIcon = document.getElementById('sendIcon');
+        const abortIcon = document.getElementById('abortIcon');
+        if (sendBtn) {
+            sendBtn.classList.remove('aborting');
+            sendBtn.title = '';
+        }
+        if (sendIcon) sendIcon.style.display = 'block';
+        if (abortIcon) abortIcon.style.display = 'none';
+    }
+
+    async abortChat() {
+        if (!this.isProcessing || this.isAborting) return;
+        this.isAborting = true;
+        this._setSendButtonAbort();
+        try {
+            const resp = await fetch('/api/chat/abort', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({chat_id: this.currentChatId}),
+            });
+            const result = await resp.json();
+            console.log('[Abort] Server response:', result);
+        } catch (e) {
+            console.error('[Abort] Failed to send abort request:', e);
         }
     }
 

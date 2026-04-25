@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E2seq - Easy to Chat with Sequencing</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260425">
-    <link rel="stylesheet" href="/static/css/pages.css?v=20260425">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260425b">
+    <link rel="stylesheet" href="/static/css/pages.css?v=20260425b">
     <script src="/static/js/lib/plotly.min.js"></script>
     <script src="/static/js/lib/marked.min.js"></script>
     <script src="/static/js/lib/highlight.min.js"></script>
@@ -140,9 +140,14 @@
                         <textarea id="messageInput" class="message-input" data-i18n-placeholder="chat.placeholder" placeholder="输入你的问题，例如：分析Enterocytes细胞的差异基.." rows="1"></textarea>
                         <div class="input-right-actions">
                             <button id="sendBtn" class="send-btn" disabled>
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <!-- Send icon -->
+                                <svg id="sendIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <line x1="22" y1="2" x2="11" y2="13"></line>
                                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                                <!-- Abort icon (hidden until processing) -->
+                                <svg id="abortIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+                                    <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
                                 </svg>
                             </button>
                         </div>
@@ -921,6 +926,6 @@
 
     <script src="/static/js/i18n.js"></script>
     <script src="/static/js/analysis_panel.js?v=20260422c"></script>
-    <script src="/static/js/app.js?v=20260425a"></script>
+    <script src="/static/js/app.js?v=20260425b"></script>
 </body>
 </html>

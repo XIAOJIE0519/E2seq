@@ -699,6 +699,11 @@ body {
     cursor: not-allowed;
 }
 
+/* Abort state: red background */
+.send-btn.aborting {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
 .input-footer {
     max-width: 900px;
     margin: var(--spacing-md) auto 0;
