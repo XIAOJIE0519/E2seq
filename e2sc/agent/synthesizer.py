@@ -177,80 +177,82 @@ class SynthesizerAgent:
         self, question: str, is_comprehensive: bool, output_mode: str,
         knowledge: Dict[str, Any] = None
     ) -> str:
-        # Check whether cross-gene module data is available
-        cross_gene = {}
-        if knowledge:
-            cross_gene = knowledge.get("cross_gene_analysis") or {}
-        has_modules = bool(
-            cross_gene.get("modules") or
-            cross_gene.get("all_edges") or
-            (knowledge or {}).get("genes", {})
+        """Build system message driven by question type, NOT by is_comprehensive flag.
+
+        Key principle: knowledge retrieval = multi-database breadth,
+        but answer writing = question-specific depth.
+        """
+        import re
+        q_lower = question.lower()
+
+        # Detect question type from the user's actual question
+        is_targeted = bool(re.search(
+            r'\b(找|哪个|哪些|什么|有无|是否|列出|说出|给我看|identify|which|what|find|list|show|any|给我|找一找)\b',
+            q_lower
+        ))
+        is_module_net = bool(re.search(
+            r'\b(模块|模块化|网络|互作|相互作用|ppi|通路|调控|module|network|interaction|pathway|regulat|共调控|协同)\b',
+            q_lower
+        ))
+        has_cross_gene = bool(
+            knowledge and (
+                (knowledge.get("cross_gene_analysis") or {}).get("modules") or
+                (knowledge.get("cross_gene_analysis") or {}).get("all_edges")
+            )
         )
 
+        # Always: answer the user's specific question. Never default to comprehensive.
         base_rules = (
-            "You are an expert computational biologist and translational medicine scientist. "
-            "You have been given a rich multi-database knowledge base built by querying every gene "
-            "against ALL of the following sources: "
-            "UniProt, MyGene, QuickGO, Ensembl, ChEMBL, Open Targets, ClinVar, CIViC, GWAS Catalog, "
-            "Reactome, GTEx/HPA, HumanBase/TISSUES, BioGRID, Alliance, PubMed, EuropePMC (online); "
-            "STRING, HMDB, TRRUST, GUTMGENE (local).\n\n"
-            "Your task is to answer the user's question by synthesizing ALL available evidence from this "
-            "knowledge base into flowing, rigorous academic Chinese prose.\n\n"
-            "STRICT RULES (violations will be flagged):\n"
-            "1. ONLY use information explicitly present in the provided knowledge base context."
-            " Do NOT fabricate data.\n"
-            " Do NOT cite papers not listed in the PubMed/EuropePMC sections.\n"
-            "2. Cite the source inline after every biological claim: "
-            "[UniProt], [MyGene], [QuickGO], [Ensembl], [ChEMBL], [Open Targets], [ClinVar], [CIViC], "
-            "[GWAS], [Reactome], [GTEx], [HumanBase], [BioGRID], [Alliance], [STRING], [HMDB], "
-            "[TRRUST], [GUTMGENE], [PubMed:PMID], [EuropePMC:PMID].\n"
-            "3. If a data source returned no results for a gene, do NOT mention that gene in the output. "
-            "If you cannot find evidence for a claim in the provided context, write: "
-            "'[No evidence in retrieved data - omitted]' instead of speculating.\n"
-            "4. Use the EXACT disease group names, cell type names, and expression values from the "
-            "input context — never substitute generic terms.\n"
-            "5. Let the user's question and the actual evidence freely determine the narrative "
-            "structure, depth, and emphasis. Do NOT impose any fixed template, section order, "
-            "or topic list on the output.\n"
-            "6. Never truncate mid-sentence. Complete every thought.\n"
-            "7. Write at the level of a Nature / Cell / Nature Medicine research article discussion "
-            "or review section — precise, mechanistic, deeply integrated across evidence layers.\n"
-            "8. Do NOT use generic phrases like 'high expression', 'significantly enriched', "
-            "'strongly associated' without citing specific values from the data.\n"
-            "9. Do NOT force a network or interaction analysis template if the question is about "
-            "something else (e.g., drug targets, biomarkers, pathway mechanisms). "
-            "Focus on answering the user's specific question directly.\n"
+            "You are an expert computational biologist and translational medicine scientist.\n"
+            "You have been given a knowledge base built by querying genes against: "
+            "UniProt, MyGene, QuickGO, Ensembl, ChEMBL, Open Targets, ClinVar, CIViC, "
+            "GWAS Catalog, Reactome, GTEx/HPA, HumanBase, BioGRID, Alliance, "
+            "PubMed, EuropePMC (online); STRING, HMDB, TRRUST, GUTMGENE (local).\n\n"
+            "RULES:\n"
+            "1. ONLY use information explicitly present in the provided knowledge base.\n"
+            "   Do NOT fabricate data or cite papers not in PubMed/EuropePMC sections.\n"
+            "2. Cite every biological claim inline: "
+            "[UniProt], [MyGene], [STRING], [PubMed:PMID], etc.\n"
+            "3. If no evidence for a claim: write '[No evidence in retrieved data - omitted]'.\n"
+            "4. Use EXACT disease group names, cell type names, and expression values "
+            "from the input context.\n"
+            "5. Focus on answering the USER'S QUESTION directly. "
+            "Do NOT default to a template or fixed section order.\n"
+            "6. Never truncate mid-sentence.\n"
+            "7. Write at Nature/Cell journal level — precise, mechanistic, evidence-driven.\n"
+            "8. Do NOT use generic phrases without citing specific values from the data.\n"
+            "9. If the question asks about specific targets, biomarkers, drugs, or pathways — "
+            "discuss ONLY those. Do NOT force a network/interaction analysis.\n"
         )
 
-        if has_modules:
+        # Focused/direct question (找/哪些/列出): answer specifically
+        if is_targeted and not is_module_net:
             return base_rules + (
-                "10. CROSS-GENE SYNTHESIS (apply when module/network data is present):\n"
-                "    a. LEAD with the gene interaction modules — identify which genes form dense PPI clusters, "
-                "share TF regulators, or are co-enriched for the same pathways.\n"
-                "    b. Characterize each module by its collective theme (e.g., 'inflammatory signaling module', "
-                "'DNA repair hub', 'metabolic co-regulation axis').\n"
-                "    c. Discuss coordinated regulation — which genes are likely co-regulated by the same TF, "
-                "respond to the same upstream signal, or participate in the same pathway cascade.\n"
-                "    d. Cross-validate: how do the expression patterns (mean expr, log-fold-change) align with "
-                "the retrieved interaction/regulation knowledge? Genes that are highly expressed AND well-connected "
-                "in the network are likely key drivers.\n"
-                "    e. If modules have shared pathway enrichment, explain what biological process the module "
-                "collectively represents.\n"
-                "    f. Weave individual gene descriptions INTO the module narrative — do not describe genes "
-                "one after another in isolation. Each gene description should support or refine the module-level story.\n"
-                "11. When NO modules are detected (genes are largely isolated in knowledge), still discuss "
-                "potential indirect connections via shared diseases, pathways, or tissue expression patterns.\n"
-                "12. Cross-gene synthesis is NOT a separate section at the end — it is the organizational "
-                "principle of the entire response."
+                "\nThis is a DIRECT/FOCUSED question. Answer specifically:\n"
+                "- Identify the specific gene(s), drug(s), pathway(s), or biomarker(s) asked about.\n"
+                "- Provide the key evidence for each.\n"
+                "- Keep it focused — do NOT expand to unrelated genes or modules.\n"
             )
-        else:
+
+        # Module/network question AND actual cross-gene data exists: module synthesis
+        if (is_module_net or has_cross_gene) and has_cross_gene:
             return base_rules + (
-                "10. FOCUS on answering the user's specific question directly. "
-                "If the question asks about drug targets, discuss drug-target relationships. "
-                "If it asks about pathways, discuss pathway mechanisms. "
-                "If it asks about biomarkers, discuss biomarker evidence. "
-                "Do NOT default to interaction/network analysis unless the question explicitly requests it."
+                "\nCROSS-GENE MODULE SYNTHESIS (apply when module/network data is present):\n"
+                "a. LEAD with gene interaction modules — identify dense PPI clusters, shared TF regulators, "
+                "or co-enriched pathways.\n"
+                "b. Characterize each module's collective theme "
+                "(e.g., 'inflammatory signaling module', 'DNA repair hub').\n"
+                "c. Discuss coordinated regulation — shared TF regulators, "
+                "same upstream signal, or pathway cascade.\n"
+                "d. Cross-validate: how do expression patterns align with network knowledge? "
+                "Genes highly expressed AND well-connected are likely key drivers.\n"
+                "e. Weave gene descriptions INTO the module narrative — "
+                "do not describe genes one-by-one in isolation.\n"
+                "f. If modules share pathway enrichment, explain the collective biological process.\n"
             )
+
+        # Default: straightforward knowledge synthesis, question-driven
+        return base_rules
 
     # ------------------------------------------------------------------
     # Formatting helpers

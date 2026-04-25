@@ -2981,10 +2981,8 @@ class E2scAgentOptimized:
             }
             logger.info(f"[进度] 使用缓存知识回答后续问题，跳过API查询 ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles)")
             thinking_steps.append({"step": "CacheReuse", "content": f"Answering from cached knowledge ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles) + RAG vector store"})
-            # Inject cross-gene network analysis for coherent module-level synthesis
-            _cross_gene = self._build_cross_gene_analysis(_cached_knowledge)
-            if _cross_gene and _cross_gene.get("modules"):
-                _cached_knowledge["cross_gene_analysis"] = _cross_gene
+            # NOTE: cross_gene_analysis is NOT injected here — let question type drive synthesis style
+            # The synthesizer's _build_system_message detects question type and adds module rules only when appropriate
             _output_mode = str(self.adata.uns.get("e2sc_output_mode", "detailed")) if self.adata is not None else "detailed"
             _history = self.memory.get_conversation_history()
             _success, _response, _error = self.error_recovery.execute_with_retry(
