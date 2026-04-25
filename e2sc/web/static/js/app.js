@@ -1681,15 +1681,18 @@ STAT3,IL6,regulation,0.88`;
                         if (partialLine === 'thinking') {
                             try {
                                 const step = JSON.parse(data);
-                                // Real-time progress step from backend
-                                ensureBubble();
-                                const pl = messageDiv && document.getElementById(messageDiv)
-                                    ? document.getElementById(messageDiv).querySelector('.progress-log')
+                                // Append progress step to loading bubble's .progress-log
+                                const loadingBubble = document.getElementById(loadingId);
+                                const pl = loadingBubble
+                                    ? loadingBubble.querySelector('.progress-log')
                                     : null;
                                 if (pl) {
                                     const stepDiv = document.createElement('div');
                                     stepDiv.className = 'progress-step';
-                                    stepDiv.textContent = step.content || `[${step.step}]`;
+                                    // Show step name prominently + content
+                                    const stepName = step.step ? `[${step.step}] ` : '';
+                                    const stepText = step.content || '';
+                                    stepDiv.innerHTML = `<span class="step-name">${stepName}</span>${stepText}`;
                                     pl.appendChild(stepDiv);
                                     pl.scrollTop = pl.scrollHeight;
                                 }
@@ -1701,9 +1704,9 @@ STAT3,IL6,regulation,0.88`;
                                 }
                             } catch (e) {
                                 // Non-JSON thinking data — treat as raw progress message
-                                const bubble = document.getElementById(loadingId);
-                                if (bubble) {
-                                    const pl = bubble.querySelector('.progress-log');
+                                const loadingBubble = document.getElementById(loadingId);
+                                if (loadingBubble) {
+                                    const pl = loadingBubble.querySelector('.progress-log');
                                     if (pl) {
                                         const stepDiv = document.createElement('div');
                                         stepDiv.className = 'progress-step';
@@ -1745,11 +1748,44 @@ STAT3,IL6,regulation,0.88`;
                 }
             }
 
-            this.removeMessage(loadingId);
-            if (currentText) {
-                this.addMessage('assistant', currentText);
-            } else if (streamingText) {
-                this.addMessage('assistant', streamingText);
+            // Replace loading bubble with final assistant message (keep progress steps visible)
+            const loadingBubble = document.getElementById(loadingId);
+            if (loadingBubble) {
+                loadingBubble.classList.remove('loading');
+                loadingBubble.classList.add('assistant');
+                const msgContent = loadingBubble.querySelector('.message-content');
+                if (msgContent) {
+                    // Remove thinking indicator, keep progress log
+                    const indicator = msgContent.querySelector('.thinking-indicator');
+                    if (indicator) indicator.remove();
+                    const progressLog = msgContent.querySelector('.progress-log');
+                    // Render final markdown content
+                    let finalHtml;
+                    if (typeof marked !== 'undefined') {
+                        finalHtml = marked.parse(currentText || streamingText || '');
+                        msgContent.querySelectorAll('pre code').forEach(function(b) {
+                            if (typeof hljs !== 'undefined') hljs.highlightElement(b);
+                        });
+                    } else {
+                        finalHtml = currentText || streamingText || '';
+                    }
+                    if (progressLog) {
+                        // Keep progress steps, append final text below
+                        const finalDiv = document.createElement('div');
+                        finalDiv.className = 'final-response';
+                        finalDiv.innerHTML = finalHtml;
+                        msgContent.appendChild(finalDiv);
+                    } else {
+                        msgContent.innerHTML = finalHtml;
+                    }
+                }
+            } else {
+                // No loading bubble (shouldn't happen) — just add message normally
+                if (currentText) {
+                    this.addMessage('assistant', currentText);
+                } else if (streamingText) {
+                    this.addMessage('assistant', streamingText);
+                }
             }
             if (plotsData.length > 0) {
                 this.displayPlots(plotsData);
@@ -1785,11 +1821,7 @@ STAT3,IL6,regulation,0.88`;
 
         if (isLoading) {
             messageContent.innerHTML = `
-                <div class="loading-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
+                <div class="thinking-indicator">思考中...</div>
                 <div class="progress-log"></div>
             `;
         } else if (role === 'assistant' && typeof marked !== 'undefined') {
