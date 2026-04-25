@@ -353,16 +353,67 @@ _PROVIDERS: Dict[str, type] = {
     "ollama": OllamaProvider,
 }
 
-# 各 provider 的默认模型（已升级为当前最强模型）
+# 各 provider 的默认模型 + 推荐模型列表（2026-04 最新）
 _DEFAULT_MODELS: Dict[str, str] = {
-    "openai":      "gpt-5.4",
-    "anthropic":   "claude-opus-4-7",
-    "deepseek":    "deepseek-chat",
-    "gemini":      "gemini-3.1-pro-preview",
+    "openai":      "gpt-5.5",
+    "anthropic":   "claude-sonnet-4-7",
+    "deepseek":    "deepseek-v4-flash",
+    "gemini":      "gemini-2.5-pro-preview",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
     "glm":         "glm-5.1",
     "kimi":        "kimi-k2.6",
     "ollama":      "llama3.2",
+}
+
+# 推荐模型列表（供前端展示，用户可从API动态获取完整列表）
+_RECOMMENDED_MODELS: Dict[str, list] = {
+    "openai": [
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-4o",
+        "gpt-4o-mini",
+    ],
+    "anthropic": [
+        "claude-sonnet-4-7",
+        "claude-opus-4-7",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-opus-20240229",
+    ],
+    "deepseek": [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-chat",
+        "deepseek-reasoner",
+    ],
+    "gemini": [
+        "gemini-2.5-pro-preview",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+    ],
+    "siliconflow": [
+        "deepseek-ai/DeepSeek-V3",
+        "deepseek-ai/DeepSeek-R1",
+        "Qwen/Qwen2.5-72B-Instruct",
+        "Pro/Qwen/Qwen2.5-72B-Instruct",
+    ],
+    "glm": [
+        "glm-5.1",
+        "glm-4-Plus",
+        "glm-4",
+        "glm-z1",
+    ],
+    "kimi": [
+        "kimi-k2.6",
+        "moonshot-v2.5-250415",
+        "moonshot-v1.5-32k",
+    ],
+    "ollama": [
+        "llama3.2",
+        "qwen2.5",
+        "deepseek-r1",
+        "mistral",
+    ],
 }
 
 
@@ -402,8 +453,11 @@ def create_llm_provider(
 
 
 def get_supported_providers() -> Dict[str, Dict[str, Any]]:
-    """返回所有支持的 provider 及其默认模型信息。"""
+    """返回所有支持的 provider 及其默认模型和推荐模型列表。"""
     return {
-        name: {"default_model": _DEFAULT_MODELS[name]}
+        name: {
+            "default_model": _DEFAULT_MODELS[name],
+            "recommended_models": _RECOMMENDED_MODELS.get(name, []),
+        }
         for name in _PROVIDERS
     }

@@ -979,13 +979,13 @@ STAT3,IL6,regulation,0.88`;
             if (data.provider && data.provider !== 'ollama') {
                 const currentModel = data[data.provider + '_model'];
                 const CURATED = {
-                    openai: ['gpt-5.4','gpt-5.4-mini','gpt-5.2','gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini'],
-                    anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
-                    gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-                    deepseek: ['deepseek-reasoner','deepseek-chat'],
-                    siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
-                    glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
-                    kimi: ['moonshot-v2.6-250415','moonshot-v2.5-250415','moonshot-v1.5-32k','moonshot-v1.5-8k','moonshot-v1-8k'],
+                    openai: ['gpt-5.5','gpt-5.5-pro','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini','gpt-5.4','gpt-5.4-mini'],
+                    anthropic: ['claude-sonnet-4-7','claude-opus-4-7','claude-3-5-sonnet-20241022','claude-3-opus-20240229','claude-3-5-haiku-20241022'],
+                    gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+                    deepseek: ['deepseek-v4-flash','deepseek-v4-pro','deepseek-chat','deepseek-reasoner'],
+                    siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct','Pro/Qwen/Qwen2.5-72B-Instruct'],
+                    glm: ['glm-5.1','glm-4-Plus','glm-4','glm-z1','glm-4v-plus'],
+                    kimi: ['kimi-k2.6','moonshot-v2.5-250415','moonshot-v1.5-32k'],
                 };
                 // Show curated lists for ALL providers so user can switch immediately
                 ['openai','anthropic','gemini','deepseek','siliconflow','glm','kimi'].forEach(p => {
@@ -1173,13 +1173,13 @@ STAT3,IL6,regulation,0.88`;
         if (btn) btn.classList.add('spinning');
         if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.fetchingModels')}</span>`;
         const CURATED = {
-            openai: ['gpt-5.4','gpt-5.4-mini','gpt-5.2','gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini'],
-            anthropic: ['claude-opus-4-5','claude-sonnet-4-5','claude-opus-4-0','claude-sonnet-4-0','claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],
-            gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-            deepseek: ['deepseek-reasoner','deepseek-chat'],
-            siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Pro/zai-org/GLM-5','zai-org/GLM-4.6V','Pro/MiniMaxAI/MiniMax-M2.5','Qwen/Qwen3.5-397B-A17B'],
-            glm: ['glm-5.1','glm-5','glm-4-plus','glm-4-0520','glm-4','glm-z1-air','glm-z1-flashx','glm-z1','glm-4v-plus','glm-4v'],
-            kimi: ['moonshot-v2.6-250415','moonshot-v2.5-250415','moonshot-v1.5-32k','moonshot-v1.5-8k','moonshot-v1-8k'],
+            openai: ['gpt-5.5','gpt-5.5-pro','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini','gpt-5.4','gpt-5.4-mini'],
+            anthropic: ['claude-sonnet-4-7','claude-opus-4-7','claude-3-5-sonnet-20241022','claude-3-opus-20240229','claude-3-5-haiku-20241022'],
+            gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
+            deepseek: ['deepseek-v4-flash','deepseek-v4-pro','deepseek-chat','deepseek-reasoner'],
+            siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct','Pro/Qwen/Qwen2.5-72B-Instruct'],
+            glm: ['glm-5.1','glm-4-Plus','glm-4','glm-z1','glm-4v-plus'],
+            kimi: ['kimi-k2.6','moonshot-v2.5-250415','moonshot-v1.5-32k'],
         };
         const curated = CURATED[provider] || [];
         if (curated.length) {
