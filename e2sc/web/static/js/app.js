@@ -979,13 +979,13 @@ STAT3,IL6,regulation,0.88`;
             if (data.provider && data.provider !== 'ollama') {
                 const currentModel = data[data.provider + '_model'];
                 const CURATED = {
-                    openai: ['gpt-5.5','gpt-5.5-pro','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini','gpt-5.4','gpt-5.4-mini'],
-                    anthropic: ['claude-sonnet-4-7','claude-opus-4-7','claude-3-5-sonnet-20241022','claude-3-opus-20240229','claude-3-5-haiku-20241022'],
-                    gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-                    deepseek: ['deepseek-v4-flash','deepseek-v4-pro','deepseek-chat','deepseek-reasoner'],
-                    siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct','Pro/Qwen/Qwen2.5-72B-Instruct'],
-                    glm: ['glm-5.1','glm-4-Plus','glm-4','glm-z1','glm-4v-plus'],
-                    kimi: ['kimi-k2.6','moonshot-v2.5-250415','moonshot-v1.5-32k'],
+                    openai: ['gpt-5.5','gpt-5.5-pro','gpt-5.1','gpt-5.2','gpt-5.3-chat-latest','gpt-4o'],
+                    anthropic: ['claude-sonnet-4-6','claude-opus-4-7','claude-haiku-4-5'],
+                    gemini: ['gemini-3.1-pro-preview','gemini-3-flash-preview','gemini-3.1-flash-lite-preview','gemini-2.5-pro','gemini-2.5-flash'],
+                    deepseek: ['deepseek-v4-flash','deepseek-v4-pro'],
+                    siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct'],
+                    glm: ['glm-5.1','glm-4-Plus','glm-4'],
+                    kimi: ['kimi-k2.6','moonshot-v2.5-250415'],
                 };
                 // Show curated lists for ALL providers so user can switch immediately
                 ['openai','anthropic','gemini','deepseek','siliconflow','glm','kimi'].forEach(p => {
@@ -1173,13 +1173,13 @@ STAT3,IL6,regulation,0.88`;
         if (btn) btn.classList.add('spinning');
         if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.fetchingModels')}</span>`;
         const CURATED = {
-            openai: ['gpt-5.5','gpt-5.5-pro','gpt-4o','gpt-4o-mini','o4-mini','o3','o3-mini','gpt-5.4','gpt-5.4-mini'],
-            anthropic: ['claude-sonnet-4-7','claude-opus-4-7','claude-3-5-sonnet-20241022','claude-3-opus-20240229','claude-3-5-haiku-20241022'],
-            gemini: ['gemini-2.5-pro-preview-06-05','gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],
-            deepseek: ['deepseek-v4-flash','deepseek-v4-pro','deepseek-chat','deepseek-reasoner'],
-            siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct','Pro/Qwen/Qwen2.5-72B-Instruct'],
-            glm: ['glm-5.1','glm-4-Plus','glm-4','glm-z1','glm-4v-plus'],
-            kimi: ['kimi-k2.6','moonshot-v2.5-250415','moonshot-v1.5-32k'],
+            openai: ['gpt-5.5','gpt-5.5-pro','gpt-5.1','gpt-5.2','gpt-5.3-chat-latest','gpt-4o'],
+            anthropic: ['claude-sonnet-4-6','claude-opus-4-7','claude-haiku-4-5'],
+            gemini: ['gemini-3.1-pro-preview','gemini-3-flash-preview','gemini-3.1-flash-lite-preview','gemini-2.5-pro','gemini-2.5-flash'],
+            deepseek: ['deepseek-v4-flash','deepseek-v4-pro'],
+            siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct'],
+            glm: ['glm-5.1','glm-4-Plus','glm-4'],
+            kimi: ['kimi-k2.6','moonshot-v2.5-250415'],
         };
         const curated = CURATED[provider] || [];
         if (curated.length) {

@@ -121,8 +121,7 @@ class AnthropicProvider(LLMProvider):
     """Anthropic (Claude) LLM provider.
 
     官方文档: https://docs.anthropic.com/en/api/getting-started
-    支持模型: claude-opus-4-7, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022,
-              claude-3-opus-20240229, claude-3-haiku-20240307
+    支持模型: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5
     API Key:  https://console.anthropic.com/settings/keys
     """
 
@@ -141,8 +140,9 @@ class DeepSeekProvider(LLMProvider):
 
     官方文档: https://platform.deepseek.com/api-docs
     base_url:  https://api.deepseek.com
-    支持模型: deepseek-chat (DeepSeek-V3), deepseek-reasoner (DeepSeek-R1)
+    支持模型: deepseek-v4-flash, deepseek-v4-pro
     API Key:  https://platform.deepseek.com/api_keys
+    注意: deepseek-chat 和 deepseek-reasoner 已废弃(2026-07-24停用), 请使用新版模型
     注意: base_url 不带 /v1，langchain-openai SDK 会自动补全
           deepseek-reasoner 会输出 <think> 标签，已自动过滤
     """
@@ -356,9 +356,9 @@ _PROVIDERS: Dict[str, type] = {
 # 各 provider 的默认模型 + 推荐模型列表（2026-04 最新）
 _DEFAULT_MODELS: Dict[str, str] = {
     "openai":      "gpt-5.5",
-    "anthropic":   "claude-sonnet-4-7",
+    "anthropic":   "claude-sonnet-4-6",
     "deepseek":    "deepseek-v4-flash",
-    "gemini":      "gemini-2.5-pro-preview",
+    "gemini":      "gemini-3.1-pro-preview",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
     "glm":         "glm-5.1",
     "kimi":        "kimi-k2.6",
@@ -370,49 +370,45 @@ _RECOMMENDED_MODELS: Dict[str, list] = {
     "openai": [
         "gpt-5.5",
         "gpt-5.5-pro",
+        "gpt-5.1",
+        "gpt-5.2",
+        "gpt-5.3-chat-latest",
         "gpt-4o",
-        "gpt-4o-mini",
     ],
     "anthropic": [
-        "claude-sonnet-4-7",
+        "claude-sonnet-4-6",
         "claude-opus-4-7",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-opus-20240229",
+        "claude-haiku-4-5",
     ],
     "deepseek": [
         "deepseek-v4-flash",
         "deepseek-v4-pro",
-        "deepseek-chat",
-        "deepseek-reasoner",
     ],
     "gemini": [
-        "gemini-2.5-pro-preview",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
     ],
     "siliconflow": [
         "deepseek-ai/DeepSeek-V3",
         "deepseek-ai/DeepSeek-R1",
         "Qwen/Qwen2.5-72B-Instruct",
-        "Pro/Qwen/Qwen2.5-72B-Instruct",
     ],
     "glm": [
         "glm-5.1",
         "glm-4-Plus",
         "glm-4",
-        "glm-z1",
     ],
     "kimi": [
         "kimi-k2.6",
         "moonshot-v2.5-250415",
-        "moonshot-v1.5-32k",
     ],
     "ollama": [
         "llama3.2",
         "qwen2.5",
         "deepseek-r1",
-        "mistral",
     ],
 }
 
