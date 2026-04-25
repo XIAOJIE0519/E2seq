@@ -1631,6 +1631,7 @@ STAT3,IL6,regulation,0.88`;
             let streamingText = '';
             let thinkingSteps = [];
             let plotsData = [];
+            let sourceStats = null;
             let messageDiv = null;
             let messageContent = null;
 
@@ -1720,7 +1721,9 @@ STAT3,IL6,regulation,0.88`;
                             plotsData = plotsData.concat(JSON.parse(data));
                             this.displayPlots(plotsData);
                         } else if (partialLine === 'source_stats') {
-                            // Handled in done event
+                            try {
+                                sourceStats = JSON.parse(data);
+                            } catch (e) { /* ignore parse error */ }
                         } else if (partialLine === 'text') {
                             // Incremental text chunk from streaming LLM
                             try {
@@ -1740,6 +1743,10 @@ STAT3,IL6,regulation,0.88`;
                                 streamingText = result.response || '';
                             }
                             currentText = streamingText;
+                            // Merge source_stats from done event (supplements stream event)
+                            if (result.data && result.data.source_stats && !sourceStats) {
+                                sourceStats = result.data.source_stats;
+                            }
                         } else if (partialLine === 'error') {
                             currentText = '[Error] ' + data;
                         }
@@ -1777,6 +1784,10 @@ STAT3,IL6,regulation,0.88`;
                         msgContent.appendChild(finalDiv);
                     } else {
                         msgContent.innerHTML = finalHtml;
+                    }
+                    // Render source stats if available
+                    if (sourceStats) {
+                        this._renderSourceStats(msgContent, sourceStats);
                     }
                 }
             } else {
@@ -1860,6 +1871,85 @@ STAT3,IL6,regulation,0.88`;
             message.remove();
         }
         this.messages = this.messages.filter(m => m.id !== messageId);
+    }
+
+    _renderSourceStats(msgContent, stats) {
+        // Render data source statistics below the response content
+        const container = document.createElement('div');
+        container.className = 'source-stats';
+
+        // Build subtitle label
+        const header = document.createElement('div');
+        header.className = 'source-stats-header';
+        header.textContent = '📊 数据来源统计';
+        container.appendChild(header);
+
+        // Total genes queried
+        const totalGenes = stats.total_genes || 0;
+        const totalSection = document.createElement('div');
+        totalSection.className = 'stats-section';
+        totalSection.innerHTML = `<div class="stats-row"><span class="stats-label">查询基因数</span><span class="stats-value">${totalGenes}</span></div>`;
+        container.appendChild(totalSection);
+
+        // Articles
+        const pmCount = Array.isArray(stats.pubmed) ? stats.pubmed.length : 0;
+        const epmcCount = Array.isArray(stats.europepmc) ? stats.europepmc.length : 0;
+        if (pmCount > 0 || epmcCount > 0) {
+            const litSection = document.createElement('div');
+            litSection.className = 'stats-section';
+            let litHtml = '<div class="stats-row"><span class="stats-label">文献来源</span></div>';
+            if (pmCount > 0) litHtml += `<div class="stats-row sub-row"><span class="stats-label-sub">PubMed</span><span class="stats-value">${pmCount} 篇</span></div>`;
+            if (epmcCount > 0) litHtml += `<div class="stats-row sub-row"><span class="stats-label-sub">EuropePMC</span><span class="stats-value">${epmcCount} 篇</span></div>`;
+            litSection.innerHTML = litHtml;
+            container.appendChild(litSection);
+        }
+
+        // API sources
+        const apiHits = this._collectSourceHits(stats, 'apis');
+        if (apiHits.length > 0) {
+            const apiSection = document.createElement('div');
+            apiSection.className = 'stats-section';
+            apiSection.innerHTML = '<div class="stats-row"><span class="stats-label">在线 API</span></div>';
+            apiHits.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'stats-row sub-row';
+                const pct = totalGenes > 0 ? Math.round((item.hits / totalGenes) * 100) : 0;
+                row.innerHTML = `<span class="stats-label-sub">${item.name}</span><span class="stats-value">${item.hits} 基因 (${pct}%)</span>`;
+                apiSection.appendChild(row);
+            });
+            container.appendChild(apiSection);
+        }
+
+        // Local DB sources
+        const dbHits = this._collectSourceHits(stats, 'dbs');
+        if (dbHits.length > 0) {
+            const dbSection = document.createElement('div');
+            dbSection.className = 'stats-section';
+            dbSection.innerHTML = '<div class="stats-row"><span class="stats-label">本地数据库</span></div>';
+            dbHits.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'stats-row sub-row';
+                const pct = totalGenes > 0 ? Math.round((item.hits / totalGenes) * 100) : 0;
+                row.innerHTML = `<span class="stats-label-sub">${item.name}</span><span class="stats-value">${item.hits} 基因 (${pct}%)</span>`;
+                dbSection.appendChild(row);
+            });
+            container.appendChild(dbSection);
+        }
+
+        msgContent.appendChild(container);
+    }
+
+    _collectSourceHits(stats, category) {
+        const result = [];
+        const cat = stats[category];
+        if (!cat) return result;
+        for (const [name, info] of Object.entries(cat)) {
+            const hits = info && info.hit_genes ? info.hit_genes.size || (Array.isArray(info.hit_genes) ? info.hit_genes.length : 0) : 0;
+            if (hits > 0) {
+                result.push({ name, hits });
+            }
+        }
+        return result.sort((a, b) => b.hits - a.hits);
     }
 
     displayPlots(plots) {

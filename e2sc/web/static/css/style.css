@@ -1241,6 +1241,59 @@ body {
     border-top: 1px solid var(--border-color, rgba(61, 68, 96, 0.5));
 }
 
+/* ========== 数据来源统计 ========== */
+.source-stats {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: rgba(102, 126, 234, 0.08);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
+
+.source-stats-header {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    color: var(--text-primary, #e8eaeb);
+}
+
+.stats-section {
+    margin-bottom: 6px;
+}
+
+.stats-section:last-child {
+    margin-bottom: 0;
+}
+
+.stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    gap: 16px;
+}
+
+.stats-row.sub-row {
+    padding-left: 12px;
+    opacity: 0.85;
+}
+
+.stats-label {
+    color: var(--text-secondary, #8b8d97);
+}
+
+.stats-label-sub {
+    color: var(--text-secondary, #8b8d97);
+    font-size: 0.78rem;
+}
+
+.stats-value {
+    font-weight: 500;
+    color: var(--text-primary, #e8eaeb);
+    white-space: nowrap;
+}
+
 @keyframes fadeInStep {
     from { opacity: 0; transform: translateX(-4px); }
     to { opacity: 1; transform: translateX(0); }

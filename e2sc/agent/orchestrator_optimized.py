@@ -1284,11 +1284,9 @@ class E2scAgentOptimized:
             resp = {"text":str(resp),"plots":[],"data":{}}
         resp["thinking"] = thinking_steps
 
-        # Append source statistics report to response text and data
+        # Append source statistics to response data (frontend renders as styled HTML panel)
         src_stats = knowledge.get("_source_stats", {})
         if src_stats:
-            report_text = self._generate_source_report(src_stats)
-            resp["text"] = resp.get("text", "") + "\n" + report_text
             # Serialize sets -> lists for JSON response
             _ss: dict = dict(src_stats)
             for _cat in ("apis", "dbs"):
@@ -1296,6 +1294,9 @@ class E2scAgentOptimized:
                     for _sn, _si in _ss[_cat].items():
                         if isinstance(_si, dict) and isinstance(_si.get("hit_genes"), set):
                             _si["hit_genes"] = list(_si["hit_genes"])
+            # Ensure consistent key names for frontend
+            if "total_genes" in _ss:
+                _ss["total_genes_queried"] = _ss.pop("total_genes")
             resp.setdefault("data", {})["source_stats"] = _ss
 
         self.memory.working_memory.add_message("assistant", resp.get("text",""))
@@ -2852,8 +2853,6 @@ class E2scAgentOptimized:
         response_comp["thinking"] = thinking_steps
         # Append source stats report to comprehensive response
         if _merged_stats:
-            _report = self._generate_source_report(_merged_stats)
-            response_comp["text"] = response_comp.get("text", "") + "\n" + _report
             # Serialize sets -> lists
             _ss2 = dict(_merged_stats)
             for _cat in ("apis", "dbs"):
@@ -2861,6 +2860,9 @@ class E2scAgentOptimized:
                     for _sn, _si in _ss2[_cat].items():
                         if isinstance(_si, dict) and isinstance(_si.get("hit_genes"), set):
                             _si["hit_genes"] = list(_si["hit_genes"])
+            # Ensure consistent key names
+            if "total_genes" in _ss2:
+                _ss2["total_genes_queried"] = _ss2.pop("total_genes")
             response_comp["data"] = {"ct_map": ct_map, "grp_map": grp_map, "source_stats": _ss2}
         else:
             response_comp["data"] = {"ct_map": ct_map, "grp_map": grp_map}
