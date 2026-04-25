@@ -1668,9 +1668,15 @@ STAT3,IL6,regulation,0.88`;
             };
 
             // Parse SSE stream
+            let eventCount = { thinking: 0, plots: 0, text: 0, done: 0, unknown: 0, raw: 0 };
+            let rawEventCount = 0;
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+                if (done) {
+                    console.log('[SSE] Stream done. Events received:', eventCount, 'raw chunks:', rawEventCount);
+                    break;
+                }
+                rawEventCount++;
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
@@ -1679,6 +1685,14 @@ STAT3,IL6,regulation,0.88`;
                         partialLine = line.slice(7).trim();
                     } else if (line.startsWith('data: ')) {
                         const data = line.slice(6);
+                        const eventType = partialLine || '(none)';
+                        if (eventType === 'thinking') eventCount.thinking++;
+                        else if (eventType === 'plots') eventCount.plots++;
+                        else if (eventType === 'text') eventCount.text++;
+                        else if (eventType === 'done') eventCount.done++;
+                        else eventCount.unknown++;
+
+                        console.log(`[SSE] event=${eventType}, data_preview=${data.substring(0, 120)}`);
                         if (partialLine === 'thinking') {
                             try {
                                 const step = JSON.parse(data);
@@ -1696,6 +1710,28 @@ STAT3,IL6,regulation,0.88`;
                                     stepDiv.innerHTML = `<span class="step-name">${stepName}</span>${stepText}`;
                                     pl.appendChild(stepDiv);
                                     pl.scrollTop = pl.scrollHeight;
+                                } else {
+                                    // Fallback: create progress log if loading bubble was already replaced
+                                    console.warn('[SSE] Loading bubble not found for thinking event, creating fallback');
+                                    if (!messageDiv) {
+                                        this.removeMessage(loadingId);
+                                        messageDiv = this.addMessage('assistant', '', false);
+                                        const el = document.getElementById(messageDiv);
+                                        if (el) {
+                                            messageContent = el.querySelector('.message-content');
+                                            // Replace loading HTML with progress log
+                                            messageContent.innerHTML = `<div class="thinking-indicator">思考中...</div><div class="progress-log"></div>`;
+                                            const newPl = messageContent.querySelector('.progress-log');
+                                            if (newPl) {
+                                                const stepDiv2 = document.createElement('div');
+                                                stepDiv2.className = 'progress-step';
+                                                const stepName2 = step.step ? `[${step.step}] ` : '';
+                                                const stepText2 = step.content || '';
+                                                stepDiv2.innerHTML = `<span class="step-name">${stepName2}</span>${stepText2}`;
+                                                newPl.appendChild(stepDiv2);
+                                            }
+                                        }
+                                    }
                                 }
                                 // If the backend sends actual text content in thinking step, render it
                                 if (step.text) {
