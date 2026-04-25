@@ -759,18 +759,21 @@ class E2scAgentOptimized:
         import scipy.sparse as sp
         # User-configurable N — stored during configure-dataset, default 30
         _n_ctx = int(self.adata.uns.get("e2sc_n_top_genes", 30))
+        # Planner sees MORE genes so it can make informed selections across all groups
+        # Retrieval is expensive (live APIs) so we use the user's capped value
+        _n_ctx_planner = max(_n_ctx, 200)
         ct_matrix  = {}  # {label: {gene: mean_expr}}
         grp_matrix = {}  # {label: {gene: mean_expr}}
         _raw_ct_matrix  = {}  # {orig_label: {gene: mean_expr}}
         _raw_grp_matrix = {}  # {orig_label: {gene: mean_expr}}
         if self.scanpy_tools:
             if ct_col:
-                _m = self.scanpy_tools.get_top_genes_matrix(n_top_genes=_n_ctx, celltype_col=ct_col)
+                _m = self.scanpy_tools.get_top_genes_matrix(n_top_genes=_n_ctx_planner, celltype_col=ct_col)
                 _raw_ct_matrix = _m.get("top_genes_per_celltype", {})
                 ct_matrix = {celltype_labels.get(k,k): v for k,v in _raw_ct_matrix.items()}
                 self.memory.working_memory.update_context("gene_matrix", _m)
             if grp_col:
-                _g = self.scanpy_tools.get_top_genes_by_group(group_col=grp_col, n_top_genes=_n_ctx)
+                _g = self.scanpy_tools.get_top_genes_by_group(group_col=grp_col, n_top_genes=_n_ctx_planner)
                 _raw_grp_matrix = _g.get("top_genes_per_group", {})
                 grp_matrix = {group_labels.get(k,k): v for k,v in _raw_grp_matrix.items()}
                 self.memory.working_memory.update_context("group_matrix", _g)
@@ -789,12 +792,12 @@ class E2scAgentOptimized:
                     _hvg_col = _col
                     break
             if _hvg_col == "highly_variable":
-                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col]])[:_n_ctx]
+                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col]])[:_n_ctx_planner]
             elif _hvg_col == "highly_variable_rank":
-                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col].argsort()])[:_n_ctx]
+                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col].argsort()])[:_n_ctx_planner]
             else:
-                # Use first n_ctx genes as last resort
-                top_ranked_genes = list(self.adata.var_names[:_n_ctx])
+                # Use first n_ctx_planner genes as last resort
+                top_ranked_genes = list(self.adata.var_names[:_n_ctx_planner])
             logger.info(f"[AgenticRAG] No ct/grp cols — using {len(top_ranked_genes)} fallback genes from var_names")
 
         # --- Cross-group differential: genes with highest mean expression per group vs others ---
@@ -816,8 +819,8 @@ class E2scAgentOptimized:
                         axis=0)
                     # Log-fold-change: subtraction because data is already log-normalised
                     lfc = means - other_means
-                    # Rank by mean expression in this group (not LFC) — top _n_ctx genes
-                    top_idx = np.argsort(means)[::-1][:_n_ctx]
+                    # Rank by mean expression in this group (not LFC) — top _n_ctx_planner genes
+                    top_idx = np.argsort(means)[::-1][:_n_ctx_planner]
                     lbl = group_labels.get(orig_grp, orig_grp)
                     grp_diff_summary[lbl] = [
                         "{gene}(mean={expr:.3f},lfc={lfc:.3f})".format(
@@ -845,7 +848,7 @@ class E2scAgentOptimized:
                         joint_mask = ct_mask & grp_mask
                         if joint_mask.sum() < 3: continue
                         means = np.mean(X[joint_mask, :], axis=0)
-                        top_idx = np.argsort(means)[::-1][:_n_ctx]
+                        top_idx = np.argsort(means)[::-1][:_n_ctx_planner]
                         grp_lbl = group_labels.get(orig_grp, orig_grp)
                         ct_grp_joint[ct_lbl][grp_lbl] = [
                             "{g}(mean={v:.3f})".format(g=gene_names[i], v=float(means[i]))
@@ -854,16 +857,16 @@ class E2scAgentOptimized:
                 logger.debug("CT×Group joint failed: {}".format(_je))
 
         # --- Format context strings ---
-        # Group summary: gene(mean=X.XXXX) per group
+        # Group summary: gene(mean=X.XXXX) per group — use n_ctx_planner for richer context
         grp_sum_parts = []
         for gr, gs in grp_matrix.items():
             if isinstance(gs, dict):
                 genes_with_expr = [
                     "{g}(mean={v:.3f})".format(g=g, v=float(v))
-                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx]
+                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx_planner]
                 ]
             else:
-                genes_with_expr = [str(g) for g in gs[:_n_ctx]]
+                genes_with_expr = [str(g) for g in gs[:_n_ctx_planner]]
             grp_sum_parts.append("{}:[{}]".format(gr, ",".join(genes_with_expr)))
         grp_sum = "; ".join(grp_sum_parts)
 
@@ -873,10 +876,10 @@ class E2scAgentOptimized:
             if isinstance(gs, dict):
                 genes = [
                     "{g}(mean={v:.3f})".format(g=g, v=float(v))
-                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx]
+                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx_planner]
                 ]
             else:
-                genes = [str(g) for g in (gs[:_n_ctx] if isinstance(gs, list) else list(gs)[:_n_ctx])]
+                genes = [str(g) for g in (gs[:_n_ctx_planner] if isinstance(gs, list) else list(gs)[:_n_ctx_planner])]
             ct_sum_parts.append("{}:[{}]".format(ct, ",".join(genes)))
         ct_sum = "; ".join(ct_sum_parts)
 
@@ -892,7 +895,7 @@ class E2scAgentOptimized:
         for ct_lbl, grp_dict in ct_grp_joint.items():
             parts = []
             for grp_lbl, genes in grp_dict.items():
-                parts.append("{}=[{}]".format(grp_lbl, ",".join(genes[:_n_ctx])))
+                parts.append("{}=[{}]".format(grp_lbl, ",".join(genes[:_n_ctx_planner])))
             if parts:
                 joint_lines.append("  {}: {}".format(ct_lbl, " | ".join(parts)))
         joint_str = "\n".join(joint_lines) if joint_lines else "  (not available — requires both cell type and group columns)"
@@ -911,13 +914,13 @@ class E2scAgentOptimized:
         ).format(
             desc_line=("Dataset description (provided by user): {}\n".format(self.adata.uns.get("e2sc_dataset_description", "")) if self.adata.uns.get("e2sc_dataset_description", "") else ""),
             n_obs=self.adata.n_obs, n_vars=self.adata.n_vars,
-            n_top_per=_n_ctx,
+            n_top_per=_n_ctx_planner,
             n_gr=len(grp_matrix), gr=grp_sum,
             diff=diff_str,
             n_ct=len(ct_matrix), ct=ct_sum,
             joint=joint_str,
             n_top=len(top_ranked_genes),
-            top=", ".join(top_ranked_genes[:100])  # 展示更多基因给LLM
+            top=", ".join(top_ranked_genes[:300])  # show more genes for the planner to select from
         )
         thinking_steps.append({"step":"GeneContext","content":"{} cell types, {} groups, {} top genes, {} total — with expr values and diff analysis".format(
             len(ct_matrix), len(grp_matrix), len(top_ranked_genes), len(all_dataset_genes))})
@@ -964,20 +967,23 @@ class E2scAgentOptimized:
             "   - The group names are the ACTUAL labels from this dataset — use them exactly.\n"
             "   - The cell type names are the ACTUAL labels — use them exactly as shown.\n"
             "2. Select genes that are DATA-DRIVEN (high expression or high fold change in this dataset).\n"
+            "   IMPORTANT: For drug-target/therapeutic questions, you MUST select MORE genes (20-50+)\n"
+            "   from the pool above — do NOT limit to only 3-5. The pool contains up to {_n_ctx_planner} genes per group.\n"
+            "   Filtering happens at synthesis time based on retrieved drug/GO evidence.\n"
             "3. Select APIs and databases based solely on what the user question requires and your own judgment.\n"
             "4. Your PubMed/EuropePMC keywords MUST include the actual group names combined with genes/cell types.\n"
             "5. The focus sentence must mention the specific disease groups and cell types in THIS dataset.\n"
             "6. Output STRICT JSON only — no explanation, no markdown.\n"
             "JSON format:\n"
             "{{\n"
-            "  \"genes_to_retrieve\": [gene symbols — as many as needed, prioritize high fold change / cell-type specificity],\n"
+            "  \"genes_to_retrieve\": [gene symbols — include ALL promising candidates (20-50+ for drug-target questions)],\n"
             "  \"apis_to_use\": [subset of {apis} — choose based on the question and your own judgment],\n"
             "  \"dbs_to_use\": [subset of {dbs} — choose based on the question and your own judgment],\n"
             "  \"pubmed_keywords\": [keyword strings combining gene names + actual disease group names + cell types],\n"
             "  \"europepmc_keywords\": [keyword strings, different angle from pubmed],\n"
             "  \"focus\": \"one sentence mentioning the specific disease groups and cell types in this dataset\"\n"
             "}}"
-        ).format(q=message, ctx=gctx, apis=_all_apis, dbs=_all_dbs)
+        ).format(q=message, ctx=gctx, apis=_all_apis, dbs=_all_dbs, _n_ctx_planner=_n_ctx_planner)
         _gene_set = set(all_dataset_genes)
         try:
             plan_raw = self.llm.chat([{"role":"user","content":planning_prompt}])
@@ -994,7 +1000,8 @@ class E2scAgentOptimized:
             focus  = plan.get("focus", message[:80])
         except Exception as _pe:
             logger.warning("[AgenticRAG] Planning fallback: {}".format(_pe))
-            to_ret = top_ranked_genes[:]
+            # Fallback: use more genes so we don't miss potential targets
+            to_ret = top_ranked_genes[:min(200, len(top_ranked_genes))]
             _agent_apis = enabled_apis
             _agent_dbs  = enabled_dbs
             kws_pm = [message[:60]]
