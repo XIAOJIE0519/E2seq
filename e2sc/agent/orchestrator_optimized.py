@@ -984,13 +984,14 @@ class E2scAgentOptimized:
             "  \"focus\": \"one sentence mentioning the specific disease groups and cell types in this dataset\"\n"
             "}}"
         ).format(q=message, ctx=gctx, apis=_all_apis, dbs=_all_dbs, _n_ctx_planner=_n_ctx_planner)
-        _gene_set = set(all_dataset_genes)
+        # Constrain planner to top_ranked_genes only (user's filtered/prioritized gene range)
+        _gene_set = set(top_ranked_genes)
         try:
             plan_raw = self.llm.chat([{"role":"user","content":planning_prompt}])
             _jm = _re_ar.search(r"\{[\s\S]*\}", plan_raw)
             plan = json.loads(_jm.group()) if _jm else {}
-            # Validate genes against full dataset — no arbitrary upper cap
-            _gene_set = set(all_dataset_genes)
+            # Validate genes against filtered/prioritized gene range — respect user's filter
+            _gene_set = set(top_ranked_genes)
             to_ret = [g for g in plan.get("genes_to_retrieve", []) if g in _gene_set]
             # 强制使用用户启用的全部来源（20源），不允许按问题默认裁剪来源
             _agent_apis = set(enabled_apis)
