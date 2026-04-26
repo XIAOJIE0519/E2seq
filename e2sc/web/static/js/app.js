@@ -1643,6 +1643,7 @@ STAT3,IL6,regulation,0.88`;
             let sourceStats = null;
             let messageDiv = null;
             let messageContent = null;
+            let aborted = false; // Flag to prevent processing after abort
 
             // Helper: create or update the assistant message bubble with incremental content
             const ensureBubble = () => {
@@ -1763,6 +1764,8 @@ STAT3,IL6,regulation,0.88`;
                     _sseLog('DONE', `Events: ${JSON.stringify(eventCount)}, raw: ${rawEventCount}`);
                     break;
                 }
+                // Skip all events after abort
+                if (aborted) continue;
                 rawEventCount++;
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
@@ -1909,14 +1912,20 @@ STAT3,IL6,regulation,0.88`;
                             _sseLog('error', data);
                         } else if (partialLine === 'aborted') {
                             // User cancelled — replace loading bubble with abort notice
+                            aborted = true; // Mark as aborted to skip subsequent events
                             this.removeMessage(loadingId);
                             let abortReason = '';
                             try { abortReason = JSON.parse(data).reason || ''; } catch (_) {}
                             this.addMessage('assistant', '【已中止】' + abortReason + '回复已被中断。');
-                            // Restore button immediately and return
+                            // Restore button immediately and break SSE loop
                             this.isProcessing = false;
                             this.isAborting = false;
                             this._setSendButtonNormal();
+                            // Break out of SSE processing loop immediately
+                            while (true) {
+                                const { done } = await reader.read();
+                                if (done) break;
+                            }
                             return;
                         }
                         partialLine = '';
