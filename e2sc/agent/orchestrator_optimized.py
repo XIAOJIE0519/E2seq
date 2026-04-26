@@ -557,7 +557,8 @@ class E2scAgentOptimized:
         self.state_manager.set_state(AgentState.RETRIEVING)
         knowledge = self._build_group_knowledge(
             "csv/{}".format(focus[:30]), to_ret,
-            context_hint=focus, enabled_apis=_csv_agent_apis, enabled_dbs=_csv_agent_dbs)
+            context_hint=focus, enabled_apis=_csv_agent_apis, enabled_dbs=_csv_agent_dbs,
+            progress_callback=progress_callback)
         _check_abort()  # abort check after knowledge retrieval
 
         # Literature augmentation — no keyword count caps
