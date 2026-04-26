@@ -101,11 +101,11 @@ _reload_datasets()
 import collections as _collections
 import threading as _threading
 _progress_lock = _threading.Lock()
-_progress: Dict[str, list] = _collections.defaultdict(list)
+_progress: dict[str, list] = _collections.defaultdict(list)
 _MAX_PROGRESS = 60  # keep last 60 messages per session
 
 # Track KB build state per session: None=not started, False=building, True=done
-_kb_build_state: Dict[str, Any] = {}  # session_id -> {ready, n_docs, n_genes}
+_kb_build_state: dict[str, Any] = {}  # session_id -> {ready, n_docs, n_genes}
 
 
 def _push_progress(session_id: str, msg: str) -> None:
