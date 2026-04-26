@@ -1773,8 +1773,14 @@ STAT3,IL6,regulation,0.88`;
                 for (const line of lines) {
                     if (line.startsWith('event: ')) {
                         partialLine = line.slice(7).trim();
+                        _sseLog('event', `Set event type to: ${partialLine}`);
                     } else if (line.startsWith('data: ')) {
                         const data = line.slice(6);
+                        // Skip empty data lines (incomplete events from TCP fragmentation)
+                        if (!data && !partialLine) {
+                            _sseLog('parse', 'Empty data with no event type, skipping');
+                            continue;
+                        }
                         const eventType = partialLine || '(none)';
                         if (eventType === 'thinking') eventCount.thinking++;
                         else if (eventType === 'plots') eventCount.plots++;
@@ -1889,7 +1895,7 @@ STAT3,IL6,regulation,0.88`;
                         } else if (partialLine === 'done') {
                             try {
                                 const result = JSON.parse(data);
-                                _sseLog('done', `response_len=${(result.response || '').length}`);
+                                _sseLog('done', `response_len=${(result.response || '').length}, plots=${(result.plots || []).length}`);
                                 // Use streamed text if available, otherwise use full response
                                 if (!streamingText) {
                                     streamingText = result.response || '';
@@ -1899,6 +1905,10 @@ STAT3,IL6,regulation,0.88`;
                                 if (result.data && result.data.source_stats && !sourceStats) {
                                     sourceStats = result.data.source_stats;
                                 }
+                                // Ensure plots from done event are included
+                                if (result.plots && result.plots.length > 0) {
+                                    plotsData = plotsData.concat(result.plots);
+                                }
                             } catch (e) {
                                 _sseLog('done', `JSON parse error: ${e}, raw data: ${data.substring(0, 200)}`);
                                 // Try to use raw data as response
@@ -1907,6 +1917,7 @@ STAT3,IL6,regulation,0.88`;
                                     streamingText = data;
                                 }
                             }
+                            _sseLog('done', `After processing: currentText.len=${currentText.length}, streamingText.len=${streamingText.length}`);
                         } else if (partialLine === 'error') {
                             currentText = '[Error] ' + data;
                             _sseLog('error', data);
@@ -1932,6 +1943,9 @@ STAT3,IL6,regulation,0.88`;
                     }
                 }
             }
+
+            // Debug log before rendering final content
+            _sseLog('FINAL', `loadingBubble=${!!loadingBubble}, currentText.len=${(currentText || '').length}, streamingText.len=${(streamingText || '').length}, plotsData=${plotsData.length}`);
 
             // Replace loading bubble with final assistant message (keep progress steps visible)
             const loadingBubble = document.getElementById(loadingId);
@@ -1996,6 +2010,26 @@ STAT3,IL6,regulation,0.88`;
             this.isProcessing = false;
             this.isAborting = false;
             this._setSendButtonNormal();
+            // Defensive: ensure message content is visible even if SSE was interrupted
+            const finalLoadingBubble = document.getElementById(loadingId);
+            if (finalLoadingBubble && (currentText || streamingText)) {
+                _sseLog('DEFENSIVE', 'Restoring message content in finally block');
+                const msgContent = finalLoadingBubble.querySelector('.message-content');
+                if (msgContent && !msgContent.textContent?.trim()) {
+                    finalLoadingBubble.classList.remove('loading');
+                    finalLoadingBubble.classList.add('assistant');
+                    let finalHtml;
+                    if (typeof marked !== 'undefined') {
+                        finalHtml = marked.parse(currentText || streamingText || '');
+                    } else {
+                        finalHtml = currentText || streamingText || '';
+                    }
+                    msgContent.innerHTML = finalHtml;
+                    // Scroll to bottom
+                    const messagesArea = document.getElementById('messagesArea');
+                    if (messagesArea) messagesArea.scrollTop = messagesArea.scrollHeight;
+                }
+            }
         }
     }
 

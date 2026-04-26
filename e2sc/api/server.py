@@ -1404,7 +1404,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
             "chat_id": chat_id,
             "data": response.get("data", {}),
         }
+        logger.info(f"[SSE] Yielding done event for chat_id={chat_id}, response_len={len(resp_body.get('response', ''))}, plots={len(plots_data)}")
         yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
+        logger.info(f"[SSE] Done event sent for chat_id={chat_id}")
 
     except Exception as e:
         logger.error(f"SSE stream error: {e}")
