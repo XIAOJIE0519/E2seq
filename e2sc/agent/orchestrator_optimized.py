@@ -2391,44 +2391,22 @@ class E2scAgentOptimized:
                 logger.info(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询任务，等待完成...")
                 if progress_callback:
                     progress_callback(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询，等待完成...")
-                _completed = 0
-                _remaining = dict(futures_map)
-                _task_start = time.time()
-                while _remaining:
-                    _elapsed = time.time() - _task_start
-                    if _elapsed >= _BATCH_TIMEOUT:
-                        logger.warning(f"[进度] [{label}] [{gene}] API批次超时({_BATCH_TIMEOUT}s)，取消剩余 {len(_remaining)} 个任务")
-                        break
-                    _timeout = min(15, _batch_deadline - time.time())
-                    if _timeout <= 0:
-                        break
-                    done_futs, _ = as_completed(_remaining, timeout=_timeout)
-                    if not done_futs:
-                        # No futures completed within timeout — sleep briefly before retrying
-                        time.sleep(0.5)
-                        continue
-                    for fut in done_futs:
-                        del _remaining[fut]
-                    for fut in done_futs:
-                        _completed += 1
-                        _check_abort()  # Check abort after each completion
-                        api_name = futures_map[fut].lower()
-                        try:
-                            _, data = fut.result()
-                            gk.update(data)
-                            if data:
-                                _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
-                                _src_stats["apis"][api_name]["hit_genes"].add(gene)
-                            logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
-                            if progress_callback:
-                                progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] OK")
-                        except Exception as _api_e:
-                            logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
-                            if progress_callback:
-                                progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
-                # Log cancelled futures
-                if _remaining:
-                    logger.warning(f"[进度] [{label}] [{gene}] 取消 {len(_remaining)} 个未完成的任务: {[_remaining[f].lower() for f in _remaining]}")
+                for fut in as_completed(futures_map):
+                    _check_abort()  # Check abort after each completion
+                    api_name = futures_map[fut].lower()
+                    try:
+                        _, data = fut.result()
+                        gk.update(data)
+                        if data:
+                            _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
+                            _src_stats["apis"][api_name]["hit_genes"].add(gene)
+                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
+                        if progress_callback:
+                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] OK")
+                    except Exception as _api_e:
+                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
+                        if progress_callback:
+                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
             logger.info(f"[进度] [{label}] [{gene}] API查询完成，共{_completed}/{len(futures_map)}个")
             if progress_callback:
                 progress_callback(f"[进度] [{label}] [{gene}] API查询完成，{_completed}/{len(futures_map)}个")
