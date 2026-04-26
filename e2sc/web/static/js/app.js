@@ -1884,19 +1884,29 @@ STAT3,IL6,regulation,0.88`;
                                 renderIncrementalMarkdown(streamingText);
                             }
                         } else if (partialLine === 'done') {
-                            const result = JSON.parse(data);
-                            _sseLog('done', `response_len=${(result.response || '').length}`);
-                            // Use streamed text if available, otherwise use full response
-                            if (!streamingText) {
-                                streamingText = result.response || '';
-                            }
-                            currentText = streamingText;
-                            // Merge source_stats from done event (supplements stream event)
-                            if (result.data && result.data.source_stats && !sourceStats) {
-                                sourceStats = result.data.source_stats;
+                            try {
+                                const result = JSON.parse(data);
+                                _sseLog('done', `response_len=${(result.response || '').length}`);
+                                // Use streamed text if available, otherwise use full response
+                                if (!streamingText) {
+                                    streamingText = result.response || '';
+                                }
+                                currentText = streamingText;
+                                // Merge source_stats from done event (supplements stream event)
+                                if (result.data && result.data.source_stats && !sourceStats) {
+                                    sourceStats = result.data.source_stats;
+                                }
+                            } catch (e) {
+                                _sseLog('done', `JSON parse error: ${e}, raw data: ${data.substring(0, 200)}`);
+                                // Try to use raw data as response
+                                if (!currentText && !streamingText) {
+                                    currentText = data;
+                                    streamingText = data;
+                                }
                             }
                         } else if (partialLine === 'error') {
                             currentText = '[Error] ' + data;
+                            _sseLog('error', data);
                         } else if (partialLine === 'aborted') {
                             // User cancelled — replace loading bubble with abort notice
                             this.removeMessage(loadingId);
