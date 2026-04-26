@@ -2403,6 +2403,10 @@ class E2scAgentOptimized:
                     if _timeout <= 0:
                         break
                     done_futs, _ = as_completed(_remaining, timeout=_timeout)
+                    if not done_futs:
+                        # No futures completed within timeout — sleep briefly before retrying
+                        time.sleep(0.5)
+                        continue
                     for fut in done_futs:
                         del _remaining[fut]
                     for fut in done_futs:
