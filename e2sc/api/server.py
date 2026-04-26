@@ -134,8 +134,9 @@ class _ProgressHandler(logging.Handler):
             msg = record.getMessage()
             if msg.startswith("["):
                 _push_progress(self.session_id, msg)
-        except Exception:
-            pass
+                logger.info(f"[_ProgressHandler] captured: {msg[:80]}")
+        except Exception as _eh_e:
+            logger.warning(f"[_ProgressHandler] emit failed: {_eh_e}")
 
 
 import sqlite3 as _sqlite3
@@ -1194,6 +1195,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         _prog_handler = _ProgressHandler(chat_id)
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
+        logger.info(f"[SSE] Handler added for chat_id={chat_id}")
 
         # Progress queue for real-time streaming (async-safe via call_soon_threadsafe)
         progress_queue = asyncio.Queue()
@@ -1210,8 +1212,8 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 _running_loop.call_soon_threadsafe(
                     progress_queue.put_nowait, msg
                 )
-            except Exception:
-                pass
+            except Exception as _pcb_e:
+                logger.warning(f"[SSE] progress_callback failed: {_pcb_e}")
 
         async def drain_queue():
             """Drain all queued progress messages as SSE events."""
@@ -1275,10 +1277,10 @@ async def _stream_agent_chat(chat_id: str, message: str):
                                 msg = d.result()
                                 _push_progress(chat_id, msg)
                                 payload = json.dumps({"step": "progress", "content": msg})
-                                logger.debug(f"[SSE] progress: {msg[:100]}")
+                                logger.info(f"[SSE] yield thinking: {msg[:80]}")
                                 yield f"event: thinking\ndata: {payload}\n\n"
-                            except Exception:
-                                pass
+                            except Exception as _te:
+                                logger.warning(f"[SSE] yield thinking failed: {_te}")
 
                     # Drain LLM text chunks from queue while executor is running
                     _drained = 0
