@@ -784,6 +784,9 @@ def _build_chunks_for_gene(gene: str, info: Dict) -> List[Dict]:
 # --- Embedding model (loaded from config or defaults) -------------------------
 _EMBED_CFG: Optional[Dict[str, Any]] = None  # {model_name, dimension, normalize, local_only}
 
+# Thread tracking for cleanup
+_embed_threads: list = []
+
 # 可用的 Embedding 模型列表
 # 需求：默认 4 个，其中最小 80~90MB 模型内置可直接使用；其余支持用户填写本地路径
 AVAILABLE_EMBEDDING_MODELS = [
@@ -936,8 +939,13 @@ def _get_bge_embed_fn() -> embedding_functions.SentenceTransformerEmbeddingFunct
             result["exc"] = _e
 
     t = _thr.Thread(target=_worker, daemon=True)
+    _embed_threads.append(t)  # Track thread for cleanup
     t.start()
     t.join(timeout=20)   # 20 s hard budget
+
+    # Clean up thread reference after timeout or completion
+    if t in _embed_threads:
+        _embed_threads.remove(t)
 
     if t.is_alive() or result.get("exc"):
         logger.warning(
@@ -1437,8 +1445,9 @@ class VectorStore:
         n: int,
         where: Optional[Dict] = None,
     ) -> List[Dict]:
-        """Pure vector similarity search."""
-        count = self.collection.count()
+        """Pure vector similarity search with timeout protection."""
+        # Use local count with timeout
+        count = self.count()
         if count == 0:
             return []
         n = min(n, count)
@@ -1622,10 +1631,28 @@ class VectorStore:
     # ------------------------------------------------------------------
 
     def count(self) -> int:
-        try:
-            return self.collection.count()
-        except Exception:
+        """Get document count with timeout protection to prevent hangs."""
+        import threading
+        result = [None]
+        exc_info = [None]
+
+        def _count_worker():
+            try:
+                result[0] = self.collection.count()
+            except Exception as e:
+                exc_info[0] = e
+
+        t = threading.Thread(target=_count_worker, daemon=True)
+        t.start()
+        t.join(timeout=5)  # 5 second timeout
+
+        if t.is_alive():
+            logger.warning(f"VectorStore.count() timed out for collection '{self.collection_name}'")
             return 0
+        if exc_info[0]:
+            logger.warning(f"VectorStore.count() error: {exc_info[0]}")
+            return 0
+        return result[0] or 0
 
     def clear(self) -> None:
         self._ensure_collection(create_fresh=True)
