@@ -1,5 +1,6 @@
 """Final optimized Agent orchestrator with full integration of all modules."""
 
+import time
 from datetime import datetime
 from io import StringIO
 from typing import Any, Dict, Generator, List, Optional
@@ -558,7 +559,7 @@ class E2scAgentOptimized:
         knowledge = self._build_group_knowledge(
             "csv/{}".format(focus[:30]), to_ret,
             context_hint=focus, enabled_apis=_csv_agent_apis, enabled_dbs=_csv_agent_dbs,
-            progress_callback=progress_callback)
+            progress_callback=progress_callback, abort_flag=abort_flag)
         _check_abort()  # abort check after knowledge retrieval
 
         # Literature augmentation — no keyword count caps
@@ -1107,7 +1108,7 @@ class E2scAgentOptimized:
         knowledge = self._build_group_knowledge(
             "agentic/{}".format(focus[:30]), to_ret,
             context_hint=focus, enabled_apis=_agent_apis, enabled_dbs=_agent_dbs,
-            progress_callback=progress_callback)
+            progress_callback=progress_callback, abort_flag=abort_flag)
         _check_abort()  # abort check after retrieval step
 
         # Step 3b: Agent-directed literature augmentation using direct API calls
@@ -1219,6 +1220,7 @@ class E2scAgentOptimized:
                     enabled_apis=_agent_apis,
                     enabled_dbs=_agent_dbs,
                     progress_callback=progress_callback,
+                    abort_flag=abort_flag,
                 )
                 knowledge.setdefault("genes", {}).update(ekb.get("genes", {}))
                 _sp2 = {a.get("pmid") for a in knowledge.get("pubmed", [])}
@@ -1656,7 +1658,7 @@ class E2scAgentOptimized:
 
     def _build_group_knowledge(self, label: str, genes: list, context_hint: str = "",
                                     enabled_apis: set = None, enabled_dbs: set = None,
-                                    progress_callback=None) -> dict:
+                                    progress_callback=None, abort_flag=None) -> dict:
         """Query ALL APIs + local DBs for a gene group.
 
         Online APIs (UniProt, MyGene, QuickGO, Ensembl, ChEMBL, PubMed, EuropePMC)
@@ -1664,7 +1666,17 @@ class E2scAgentOptimized:
         (STRING, HMDB, TRRUST, GUTMGENE) are fast and run serially.
         Per-gene results are cached in self._gene_cache to avoid redundant
         cross-group queries.
+
+        Args:
+            abort_flag: threading.Event; if set, raises AbortChat to stop execution.
         """
+        from e2sc.api import AbortChat as _AbortChat
+
+        def _check_abort():
+            """Raise AbortChat if the user has clicked the abort button."""
+            if abort_flag is not None and abort_flag.is_set():
+                raise _AbortChat("User requested abort")
+
         import requests as _req
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from e2sc.data.local_db import HMDBDatabase, TRRUSTDatabase, GUTMGENEDatabase, STRINGDatabase
@@ -2333,6 +2345,7 @@ class E2scAgentOptimized:
         # Calculate total steps for percentage: each gene has online APIs + local DBs
         # Phase 1 (gene queries): 1-80%, Phase 2 (pubmed): 81-100%
         for gene_idx, gene in enumerate(genes_to_query, 1):
+            _check_abort()  # Check abort at start of each gene
             pct = int((gene_idx - 1) / total_genes * 80)
             # Return cached result immediately
             _cache_lock = self._get_gene_cache_lock()
@@ -2359,10 +2372,7 @@ class E2scAgentOptimized:
             if progress_callback:
                 progress_callback(f"[进度] [{label}] [{gene}] 开始提交API查询...")
             _BATCH_TIMEOUT = 45  # Safety timeout for entire batch of API calls per gene (seconds)
-            _task_start = time.time() if hasattr(time, 'time') else None
-            
-            import time as _time_module
-            _batch_deadline = _time_module.time() + _BATCH_TIMEOUT
+            _batch_deadline = time.time() + _BATCH_TIMEOUT
             
             with ThreadPoolExecutor(max_workers=6) as pool:  # Reduced from 16 to 6 to avoid rate limiting
                 if "uniprot"      in enabled_apis: futures_map[pool.submit(_fetch_uniprot,      gene)] = "uniprot"
@@ -2383,12 +2393,13 @@ class E2scAgentOptimized:
                     progress_callback(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询，等待完成...")
                 _completed = 0
                 _remaining = dict(futures_map)
+                _task_start = time.time()
                 while _remaining:
-                    _elapsed = _time_module.time() - _batch_deadline + _BATCH_TIMEOUT
+                    _elapsed = time.time() - _task_start
                     if _elapsed >= _BATCH_TIMEOUT:
                         logger.warning(f"[进度] [{label}] [{gene}] API批次超时({_BATCH_TIMEOUT}s)，取消剩余 {len(_remaining)} 个任务")
                         break
-                    _timeout = min(15, _batch_deadline - _time_module.time())
+                    _timeout = min(15, _batch_deadline - time.time())
                     if _timeout <= 0:
                         break
                     done_futs, _ = as_completed(_remaining, timeout=_timeout)
@@ -2544,6 +2555,8 @@ class E2scAgentOptimized:
                 self._gene_cache[gene] = dict(gk)
                 knowledge["genes"][gene] = gk
 
+        _check_abort()  # Check abort before starting PubMed queries
+
         # ------------------------------------------------------------------ #
         # Phase 2: PubMed + EuropePMC -- queries across four biological layers
         #   Layer 1: Function  (UniProt/MyGene/QuickGO/Ensembl level)
@@ -2595,6 +2608,7 @@ class E2scAgentOptimized:
             return arts[:8]  # cap per gene
 
         if "pubmed" in enabled_apis:
+            _check_abort()  # Check abort before starting PubMed queries
             _pm_genes = genes_to_query  # no cap — query all selected genes
             logger.info(f"[进度] [{label}] 81% 并发查询 PubMed 文献 ({len(_pm_genes)} genes, 4-layer queries) ...")
             if progress_callback:
@@ -2622,6 +2636,7 @@ class E2scAgentOptimized:
                 progress_callback(f"[进度] PubMed 查询完成: {len(knowledge['pubmed'])} 篇文献")
 
         if "europepmc" in enabled_apis:
+            _check_abort()  # Check abort before starting EuropePMC queries
             logger.info(f"[进度] [{label}] 92% 查询 Europe PMC 文献 (4-layer) ...")
             if progress_callback:
                 progress_callback("[进度] 开始查询 EuropePMC ...")
