@@ -229,26 +229,39 @@ class EnhancedQuickGOClient(APIClient):
 
 
 class EnhancedPubMedClient(APIClient):
-    """Enhanced PubMed API client."""
+    """Enhanced PubMed API client with rate limiting and retry logic."""
     
     def __init__(self):
         super().__init__("https://eutils.ncbi.nlm.nih.gov/entrez/eutils")
+        self._standalone = None
         if STANDALONE_APIS_AVAILABLE:
-            self.standalone = PubMedAPI()
+            try:
+                self._standalone = PubMedAPI()
+                logger.info("[PubMed] Using standalone API with rate limiting and retry")
+            except Exception as e:
+                logger.warning(f"[PubMed] Failed to init standalone API: {e}")
     
     def search(self, query: str, max_results: int = 10) -> Dict[str, Any]:
         """Search PubMed."""
-        if STANDALONE_APIS_AVAILABLE and hasattr(self, 'standalone'):
+        if self._standalone:
             try:
-                return self.standalone.search_articles(query, max_results=max_results)
+                return self._standalone.search_articles(query, max_results=max_results)
             except Exception as e:
-                logger.warning(f"Standalone API failed, using fallback: {e}")
+                logger.warning(f"[PubMed] Standalone search failed, using fallback: {e}")
         
         params = {"db": "pubmed", "term": query, "retmax": max_results, "retmode": "json"}
         return self.get("esearch.fcgi", params)
 
     def search_and_get_details(self, query: str, max_results: int = 5) -> Dict[str, Any]:
-        """Search PubMed and fetch article details (title, abstract, journal, pmid, url)."""
+        """Search PubMed and fetch article details with rate limiting and retry."""
+        # Use standalone API which has proper rate limiting and retry logic
+        if self._standalone:
+            try:
+                return self._standalone.search_and_get_details(query, max_results=max_results)
+            except Exception as e:
+                logger.warning(f"[PubMed] Standalone failed, using fallback: {e}")
+        
+        # Fallback: direct requests WITHOUT rate limiting (for backward compatibility)
         import requests as _req
         try:
             # Step 1: search
@@ -283,7 +296,7 @@ class EnhancedPubMedClient(APIClient):
                 })
             return {"articles": articles}
         except Exception as e:
-            logger.warning(f"PubMed search_and_get_details failed: {e}")
+            logger.warning(f"[PubMed] search_and_get_details failed: {e}")
             return {"articles": []}
 
 
