@@ -1251,15 +1251,27 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Also check abort_event periodically to support cancellation.
         progress_gen = None
         cancelled = False
+        _PING_INTERVAL = 5  # seconds between keepalive pings
         try:
             async def stream_progress():
                 while not executor_future.done():
                     # Build task list: progress queue + abort event
-                    tasks = [asyncio.create_task(progress_queue.get())]
-                    done, _ = await asyncio.wait(
-                        tasks + [asyncio.create_task(abort_event.wait())],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+                    # CRITICAL: progress_queue.get() MUST have a timeout to prevent infinite blocking.
+                    # Without timeout, if no progress arrives, the entire SSE stream hangs and
+                    # the browser's fetch times out (30s default), leaving the UI stuck on
+                    # "thinking" state while the backend has already completed.
+                    try:
+                        tasks = [
+                            asyncio.create_task(asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL)),
+                            asyncio.create_task(abort_event.wait())
+                        ]
+                        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                    except asyncio.TimeoutError:
+                        # No progress message within _PING_INTERVAL seconds.
+                        # Send a keepalive ping to prevent browser fetch timeout.
+                        yield ": keepalive\n\n"
+                        continue
+
                     if abort_event.is_set():
                         # Signal the agent thread to abort and cancel the executor
                         abort_flag.set()
@@ -1272,13 +1284,16 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     # Check which task completed
                     for d in done:
                         if d == tasks[0]:
-                            # Progress message
+                            # Progress message arrived
                             try:
                                 msg = d.result()
                                 _push_progress(chat_id, msg)
                                 payload = json.dumps({"step": "progress", "content": msg})
                                 logger.info(f"[SSE] yield thinking: {msg[:80]}")
                                 yield f"event: thinking\ndata: {payload}\n\n"
+                            except asyncio.CancelledError:
+                                # Queue get was cancelled (e.g., abort)
+                                pass
                             except Exception as _te:
                                 logger.warning(f"[SSE] yield thinking failed: {_te}")
 
