@@ -383,7 +383,9 @@ class E2scAgentOptimized:
     # Module-level gene knowledge cache
     _gene_cache: dict = {}
 
-    def _chat_csv_rag(self, message: str, thinking_steps: list, abort_flag=None) -> dict:
+    def _chat_csv_rag(self, message: str, thinking_steps: list,
+                      abort_flag=None, text_queue=None,
+                      progress_callback=None) -> dict:
         """Agentic RAG for CSV/TSV differential expression or expression tables.
         Builds gene context directly from the pre-filtered CSV records stored in uns,
         then follows the same Plan → Retrieve → Synthesise pipeline as scRNA-seq mode.
@@ -556,6 +558,7 @@ class E2scAgentOptimized:
         knowledge = self._build_group_knowledge(
             "csv/{}".format(focus[:30]), to_ret,
             context_hint=focus, enabled_apis=_csv_agent_apis, enabled_dbs=_csv_agent_dbs)
+        _check_abort()  # abort check after knowledge retrieval
 
         # Literature augmentation — no keyword count caps
         try:
@@ -618,6 +621,8 @@ class E2scAgentOptimized:
                 thinking_steps.append({"step": "VectorStoreBuild",
                     "content": "Reusing existing store: {} docs".format(self._vector_store.count())})
                 logger.info("[CsvRAG] Reusing vector store: {} docs".format(self._vector_store.count()))
+                if progress_callback:
+                    progress_callback(f"[进度] [向量库] 复用现有向量库，{self._vector_store.count()} 文档")
         except Exception as _vse:
             logger.warning("[CsvRAG] Vector store build failed: {}".format(_vse))
         _check_abort()  # abort check after vector store build
@@ -654,6 +659,9 @@ class E2scAgentOptimized:
             knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
+        logger.info("[CsvRAG] Starting synthesizer.synthesize... text_queue={}".format(text_queue is not None))
+        if progress_callback:
+            progress_callback("[进度] 正在综合解读分析结果...")
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
             message, fake_results, knowledge, history,
@@ -727,7 +735,9 @@ class E2scAgentOptimized:
 
         # ── CSV mode: data is a pre-filtered differential/expression table ──
         if self.adata.uns.get("e2sc_data_mode") == "csv":
-            return self._chat_csv_rag(message, thinking_steps, abort_flag=abort_flag)
+            return self._chat_csv_rag(message, thinking_steps,
+                abort_flag=abort_flag, text_queue=text_queue,
+                progress_callback=progress_callback)
 
         # ── Meta-questions about the AI model: answer directly without any RAG ──
         _quick_keywords = [
