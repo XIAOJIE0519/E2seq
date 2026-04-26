@@ -1688,40 +1688,64 @@ STAT3,IL6,regulation,0.88`;
                 // or "[进度] 正在综合解读分析结果..."
                 let stage = '\uD83D\uDCCA 准备中';
                 let pct = 0;
-                if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context/i.test(msg)) {
-                    stage = '\u2728 生成报告'; pct = 80;
-                } else if (/(?:vector|embed|\u5411\u91cf|\u6784\u5efa|\u5df2\u5d4c)/i.test(msg)) {
-                    stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
-                } else if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context|\u77E5\u8BC6\u67E5\u8BE2|\u6587\u732E\u68C0\u7D22/i.test(msg)) {
-                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                } else if (/(?:pubmed|europepmc)/i.test(msg)) {
-                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                } else if (/[\u8fdb\u5ea6]/i.test(msg)) {
-                    // Default for [进度] messages: knowledge retrieval
-                    if (/[\u7EFC\u5408]|synth|comprehensive/i.test(msg)) {
+                // Extract percentage from message FIRST - this takes highest priority
+                const m = msg.match(/(\d+)%/);
+                if (m) {
+                    const extractedPct = parseInt(m[1]);
+                    // Only trust extracted percentage if it's within reasonable bounds
+                    if (extractedPct >= 0 && extractedPct <= 100) {
+                        pct = Math.min(99, extractedPct);
+                    }
+                }
+                
+                // Stage detection based on keywords (only if no percentage was extracted, or for refinement)
+                if (!m) {
+                    if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context/i.test(msg)) {
                         stage = '\u2728 生成报告'; pct = 80;
-                    } else if (/(?:vector|embed)/i.test(msg)) {
+                    } else if (/(?:vector|embed|\u5411\u91cf|\u6784\u5efa|\u5df2\u5d4c)/i.test(msg)) {
                         stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
                     } else if (/(?:pubmed|europepmc)/i.test(msg)) {
                         stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                    } else {
-                        stage = '\uD83D\uDD0D 知识检索'; pct = 25;
+                    } else if (/[\u8fdb\u5ea6]/i.test(msg)) {
+                        // Default for [进度] messages without explicit percentage
+                        if (/[\u7EFC\u5408]|synth|comprehensive/i.test(msg)) {
+                            stage = '\u2728 生成报告'; pct = 80;
+                        } else if (/(?:vector|embed)/i.test(msg)) {
+                            stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
+                        } else if (/(?:pubmed|europepmc)/i.test(msg)) {
+                            stage = '\uD83D\uDCC4 文献检索'; pct = 45;
+                        } else if (/[\u5B8C\u6210]|\u7ED3\u675F/i.test(msg)) {
+                            stage = '\u2705 即将完成'; pct = 90;
+                        } else {
+                            stage = '\uD83D\uDD0D 知识检索'; pct = 25;
+                        }
+                    } else if (/ok|done|\u6210\u529F|100%/i.test(msg)) {
+                        stage = '\u2705 即将完成'; pct = 95;
+                    } else if (/[\u89C4\u5212planningplanner]/i.test(msg)) {
+                        stage = '\uD83D\uDDF0 规划中'; pct = 5;
+                    } else if (/[\u7F13\u5B58cache\u7f13\u5b58]/i.test(msg)) {
+                        stage = '\u26A1 使用缓存'; pct = 15;
+                    } else if (/[\u63D0\u4EA4\u65E0\u6548|\u65F6\u95F4\u8FC7\u957F|\u8D85\u65F6|\u53D6\u6D88]/i.test(msg)) {
+                        stage = '\u26A0 超时继续'; pct = 50;
                     }
-                } else if (/ok|done|\u6210\u529F|100%/i.test(msg)) {
-                    stage = '\u2705 即将完成'; pct = 95;
-                } else if (/[\u89C4\u5212planningplanner]/i.test(msg)) {
-                    stage = '\uD83D\uDDF0 规划中'; pct = 5;
-                } else if (/[\u7F13\u5B58cache\u7f13\u5b58]/i.test(msg)) {
-                    stage = '\u26A1 使用缓存'; pct = 15;
                 }
-
-                // Extract percentage from message if present
-                const m = msg.match(/(\d+)%/);
-                if (m) pct = Math.max(pct, parseInt(m[1]));
-                // Handle knowledge query completion messages
-                if (/\u77E5\u8BC6\u67E5\u8BE2\u5B8C\u6210|\u6587\u732E\u68C0\u7D22\u5B8C\u6210|\u67E5\u8BE2\u5B8C\u6210/i.test(msg)) {
-                    stage = '\u2705 即将完成'; pct = 95;
+                
+                // If message has percentage, also update stage based on the value
+                if (m && pct >= 0) {
+                    if (pct >= 90) {
+                        stage = '\u2705 即将完成';
+                    } else if (pct >= 70) {
+                        stage = '\u2728 生成报告';
+                    } else if (pct >= 50) {
+                        stage = '\uD83D\uDCC4 文献检索';
+                    } else if (pct >= 30) {
+                        stage = '\uD83D\uDD0D 知识检索';
+                    } else {
+                        stage = '\uD83D\uDCCA 准备中';
+                    }
                 }
+                
+                // Never exceed 99%
                 if (pct > 99) pct = 99;
 
                 barFill.style.width = pct + '%';

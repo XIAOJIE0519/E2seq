@@ -2351,47 +2351,69 @@ class E2scAgentOptimized:
             if progress_callback:
                 progress_callback(_start_msg)
 
-            # Concurrent online APIs -- only those enabled by user
+            # Concurrent online APIs -- limit to 6 workers to avoid overwhelming external APIs
+            # Each task has individual timeout in the fetch function (timeout=10-20s)
+            # Use wait() with timeout as safety net for the entire batch
             futures_map = {}
             logger.info(f"[进度] [{label}] [{gene}] 开始提交 {len(enabled_apis)} 个API查询...")
             if progress_callback:
                 progress_callback(f"[进度] [{label}] [{gene}] 开始提交API查询...")
-            with ThreadPoolExecutor(max_workers=16) as pool:
-                if "uniprot"     in enabled_apis: futures_map[pool.submit(_fetch_uniprot,     gene)] = "uniprot"
-                if "mygene"      in enabled_apis: futures_map[pool.submit(_fetch_mygene,      gene)] = "mygene"
-                if "ensembl"     in enabled_apis: futures_map[pool.submit(_fetch_ensembl,     gene)] = "ensembl"
-                if "chembl"      in enabled_apis: futures_map[pool.submit(_fetch_chembl,      gene)] = "chembl"
-                if "gtex"       in enabled_apis: futures_map[pool.submit(_fetch_gtex,        gene)] = "gtex"
-                if "humanbase"  in enabled_apis: futures_map[pool.submit(_fetch_humanbase,   gene)] = "humanbase"
-                if "gwas"       in enabled_apis: futures_map[pool.submit(_fetch_gwas,        gene)] = "gwas"
-                if "biogrid"    in enabled_apis: futures_map[pool.submit(_fetch_biogrid,     gene)] = "biogrid"
-                if "civic"      in enabled_apis: futures_map[pool.submit(_fetch_civic,       gene)] = "civic"
-                if "alliance"   in enabled_apis: futures_map[pool.submit(_fetch_alliance,    gene)] = "alliance"
-                if "reactome"   in enabled_apis: futures_map[pool.submit(_fetch_reactome,    gene)] = "reactome"
-                if "opentargets" in enabled_apis: futures_map[pool.submit(_fetch_opentargets, gene)] = "opentargets"
-                if "clinvar"   in enabled_apis: futures_map[pool.submit(_fetch_clinvar,     gene)] = "clinvar"
+            _BATCH_TIMEOUT = 45  # Safety timeout for entire batch of API calls per gene (seconds)
+            _task_start = time.time() if hasattr(time, 'time') else None
+            
+            import time as _time_module
+            _batch_deadline = _time_module.time() + _BATCH_TIMEOUT
+            
+            with ThreadPoolExecutor(max_workers=6) as pool:  # Reduced from 16 to 6 to avoid rate limiting
+                if "uniprot"      in enabled_apis: futures_map[pool.submit(_fetch_uniprot,      gene)] = "uniprot"
+                if "mygene"       in enabled_apis: futures_map[pool.submit(_fetch_mygene,       gene)] = "mygene"
+                if "ensembl"      in enabled_apis: futures_map[pool.submit(_fetch_ensembl,      gene)] = "ensembl"
+                if "chembl"       in enabled_apis: futures_map[pool.submit(_fetch_chembl,       gene)] = "chembl"
+                if "gtex"        in enabled_apis: futures_map[pool.submit(_fetch_gtex,         gene)] = "gtex"
+                if "humanbase"   in enabled_apis: futures_map[pool.submit(_fetch_humanbase,    gene)] = "humanbase"
+                if "gwas"        in enabled_apis: futures_map[pool.submit(_fetch_gwas,         gene)] = "gwas"
+                if "biogrid"     in enabled_apis: futures_map[pool.submit(_fetch_biogrid,      gene)] = "biogrid"
+                if "civic"       in enabled_apis: futures_map[pool.submit(_fetch_civic,        gene)] = "civic"
+                if "alliance"    in enabled_apis: futures_map[pool.submit(_fetch_alliance,    gene)] = "alliance"
+                if "reactome"    in enabled_apis: futures_map[pool.submit(_fetch_reactome,     gene)] = "reactome"
+                if "opentargets" in enabled_apis: futures_map[pool.submit(_fetch_opentargets,  gene)] = "opentargets"
+                if "clinvar"    in enabled_apis: futures_map[pool.submit(_fetch_clinvar,      gene)] = "clinvar"
                 logger.info(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询任务，等待完成...")
                 if progress_callback:
-                    progress_callback(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询任务，等待完成...")
+                    progress_callback(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询，等待完成...")
                 _completed = 0
-                for fut in as_completed(futures_map):
-                    _completed += 1
-                    _check_abort()  # Check abort after each completion
-                    api_name = futures_map[fut].lower()
-                    try:
-                        _, data = fut.result()
-                        gk.update(data)
-                        # Track source stats: non-empty data means a hit for this gene
-                        if data:
-                            _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
-                            _src_stats["apis"][api_name]["hit_genes"].add(gene)
-                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
-                        if progress_callback:
-                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] OK")
-                    except Exception as _api_e:
-                        logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
-                        if progress_callback:
-                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
+                _remaining = dict(futures_map)
+                while _remaining:
+                    _elapsed = _time_module.time() - _batch_deadline + _BATCH_TIMEOUT
+                    if _elapsed >= _BATCH_TIMEOUT:
+                        logger.warning(f"[进度] [{label}] [{gene}] API批次超时({_BATCH_TIMEOUT}s)，取消剩余 {len(_remaining)} 个任务")
+                        break
+                    _timeout = min(15, _batch_deadline - _time_module.time())
+                    if _timeout <= 0:
+                        break
+                    done_futs, _ = as_completed(_remaining, timeout=_timeout)
+                    for fut in done_futs:
+                        del _remaining[fut]
+                    for fut in done_futs:
+                        _completed += 1
+                        _check_abort()  # Check abort after each completion
+                        api_name = futures_map[fut].lower()
+                        try:
+                            _, data = fut.result()
+                            gk.update(data)
+                            if data:
+                                _src_stats["apis"].setdefault(api_name, {"hit_genes": set(), "total_genes": len(genes)})
+                                _src_stats["apis"][api_name]["hit_genes"].add(gene)
+                            logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
+                            if progress_callback:
+                                progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] OK")
+                        except Exception as _api_e:
+                            logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
+                            if progress_callback:
+                                progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
+                # Log cancelled futures
+                if _remaining:
+                    logger.warning(f"[进度] [{label}] [{gene}] 取消 {len(_remaining)} 个未完成的任务: {[_remaining[f].lower() for f in _remaining]}")
             logger.info(f"[进度] [{label}] [{gene}] API查询完成，共{_completed}/{len(futures_map)}个")
             if progress_callback:
                 progress_callback(f"[进度] [{label}] [{gene}] API查询完成，{_completed}/{len(futures_map)}个")
