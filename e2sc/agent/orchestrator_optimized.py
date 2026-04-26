@@ -657,12 +657,14 @@ class E2scAgentOptimized:
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
             message, fake_results, knowledge, history,
-            error_context="synthesize_csv_rag", is_comprehensive=True)
+            error_context="synthesize_csv_rag", is_comprehensive=True,
+            text_queue=text_queue)
         if not ok:
             resp = {"text": "合成失败: {}".format(err), "plots": [], "data": {}}
         if not isinstance(resp, dict):
             resp = {"text": str(resp), "plots": [], "data": {}}
         response_text = resp.get("text", "")
+        logger.info(f"[CsvRAG] Synthesize OK: response_len={len(response_text)}")
         thinking_steps.append({"step": "Synthesize", "content": "Report generated"})
 
         self.memory.working_memory.add_message("assistant", response_text)
@@ -777,6 +779,8 @@ class E2scAgentOptimized:
              "reactome","opentargets","clinvar"]))
         enabled_dbs = set(self.adata.uns.get("e2sc_enabled_dbs",
             ["string","hmdb","trrust","gutmgene"]))
+
+        logger.info(f"[AgenticRAG] START. message={message[:60]!r}, data_mode={self.adata.uns.get('e2sc_data_mode','h5ad')}, n_top_genes={_n_ctx}, apis={sorted(enabled_apis)}, dbs={sorted(enabled_dbs)}, text_queue={text_queue is not None}")
 
         # Step 1: Build rich joint gene context from FULL dataset
         # Includes: expression values, cross-group differential, cell-type×group joint analysis
@@ -1323,12 +1327,19 @@ class E2scAgentOptimized:
             knowledge["cross_gene_analysis"] = cross_gene
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
+        logger.info(f"[AgenticRAG] Starting synthesize. has_knowledge={bool(knowledge.get('genes'))}, text_queue={text_queue is not None}")
+        if progress_callback:
+            progress_callback("[进度] 正在综合解读分析结果...")
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
             message, fake_results, knowledge, history,
-            error_context="synthesize_agentic_rag", is_comprehensive=True)
+            error_context="synthesize_agentic_rag", is_comprehensive=True,
+            text_queue=text_queue)
         if not ok:
+            logger.error(f"[AgenticRAG] Synthesize failed: {err}")
             resp = {"text":"合成失败: {}".format(err),"plots":[],"data":{}}
+        else:
+            logger.info(f"[AgenticRAG] Synthesize OK: response_len={len(resp.get('text',''))}")
         if not isinstance(resp, dict):
             resp = {"text":str(resp),"plots":[],"data":{}}
         resp["thinking"] = thinking_steps
@@ -2889,15 +2900,20 @@ class E2scAgentOptimized:
         logger.info("[进度] 所有数据库查询完成，正在调用 synthesizer 进行综合解读...")
         if progress_callback:
             progress_callback("[进度] 正在综合解读分析结果...")
+        logger.info(f"[AgenticRAG] Starting comprehensive synthesize. has_knowledge={bool(combined_knowledge.get('genes'))}, text_queue={text_queue is not None}")
         success_comp, response_comp, error_comp = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
             message, fake_results_comp, combined_knowledge, history,
             error_context="synthesize_comprehensive",
             is_comprehensive=True,
             output_mode=output_mode,
+            text_queue=text_queue,
         )
         if not success_comp:
+            logger.error(f"[AgenticRAG] Comprehensive synthesize failed: {error_comp}")
             response_comp = {"text": f"合成失败: {error_comp}", "plots": [], "data": {}}
+        else:
+            logger.info(f"[AgenticRAG] Comprehensive synthesize OK: response_len={len(response_comp.get('text',''))}")
         if not isinstance(response_comp, dict):
             response_comp = {"text": str(response_comp), "plots": [], "data": {}}
         self.memory.working_memory.add_message("assistant", response_comp.get("text", ""))

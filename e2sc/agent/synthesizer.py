@@ -80,15 +80,19 @@ class SynthesizerAgent:
                         Uses put_nowait() so works from any thread.
                         If None, no streaming occurs.
         """
-        logger.info("Synthesizing final report")
+        import time as _time
+        _t0 = _time.time()
+        logger.info(f"[Synthesizer] Starting synthesis. question={question[:80]!r}, has_knowledge={'genes' in knowledge}, text_queue={text_queue is not None}")
 
         # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
+        _t1 = _time.time()
         results_summary = self._format_results(results, knowledge=knowledge)
         results_summary = self._truncate_to_token_budget(results_summary, max_chars=12000)
         knowledge_summary = self._format_knowledge(knowledge)
         knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=25000)
         similar_cases_summary = self._format_similar_cases(knowledge.get("similar_cases", []))
         similar_cases_summary = self._truncate_to_token_budget(similar_cases_summary, max_chars=2000)
+        logger.info(f"[Synthesizer] Formatting done in {_time.time()-_t1:.1f}s. results_len={len(results_summary)}, knowledge_len={len(knowledge_summary)}, history_len={len(history) if history else 0}")
         has_knowledge = bool(knowledge.get("genes")) or bool(knowledge.get("similar_cases"))
 
         prompt = SYNTHESIZER_PROMPT.format(
@@ -126,20 +130,25 @@ class SynthesizerAgent:
         # Stream text chunks in real-time if a callback queue is provided
         if text_queue is not None:
             full_text_parts = []
+            _chunk_count = 0
             try:
                 for chunk in self.llm.stream_chat(messages):
                     full_text_parts.append(chunk)
+                    _chunk_count += 1
                     # Send chunk to SSE stream
                     try:
                         text_queue.put_nowait(chunk)
-                    except Exception:
-                        pass
+                    except Exception as _qe:
+                        logger.debug(f"[Synthesizer] text_queue.put_nowait failed: {_qe}")
                 response_text = "".join(full_text_parts)
+                logger.info(f"[Synthesizer] Streaming done: {_chunk_count} chunks, total_len={len(response_text)}")
             except Exception as stream_err:
-                logger.warning(f"Streaming failed, falling back to non-streaming: {stream_err}")
+                logger.warning(f"[Synthesizer] Streaming failed, falling back to non-streaming: {stream_err}")
                 response_text = self.llm.chat(messages)
+                logger.info(f"[Synthesizer] Non-streaming fallback response_len={len(response_text)}")
         else:
             response_text = self.llm.chat(messages)
+            logger.info(f"[Synthesizer] Non-streaming response_len={len(response_text)}")
 
         # Strip forbidden "No data" / outlook phrases the LLM may have emitted
         for pat in _NO_DATA_PATTERNS:
@@ -151,6 +160,8 @@ class SynthesizerAgent:
             "similar_cases_found": len(knowledge.get("similar_cases", [])),
             "has_sufficient_knowledge": has_knowledge,
         }
+
+        logger.info(f"[Synthesizer] Done. total_time={_time.time()-_t0:.1f}s, response_len={len(response_text)}")
 
         response = {
             "text": response_text,

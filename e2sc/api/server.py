@@ -1264,6 +1264,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         nonlocal cancelled
                         cancelled = True
                         executor_future.cancel()
+                        logger.info(f"[SSE] Abort triggered for chat_id={chat_id}")
                         return
 
                     # Check which task completed
@@ -1274,18 +1275,24 @@ async def _stream_agent_chat(chat_id: str, message: str):
                                 msg = d.result()
                                 _push_progress(chat_id, msg)
                                 payload = json.dumps({"step": "progress", "content": msg})
+                                logger.debug(f"[SSE] progress: {msg[:100]}")
                                 yield f"event: thinking\ndata: {payload}\n\n"
                             except Exception:
                                 pass
 
-                    # Also drain any LLM text chunks from the queue.Queue (thread-safe)
+                    # Drain LLM text chunks from queue while executor is running
+                    _drained = 0
                     while True:
                         try:
                             chunk = text_queue.get_nowait()
                             text_payload = json.dumps({"content": chunk})
+                            logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
                             yield f"event: text\ndata: {text_payload}\n\n"
+                            _drained += 1
                         except Exception:
                             break
+                    if _drained > 0:
+                        logger.info(f"[SSE] Drained {_drained} text chunks from queue")
 
             progress_gen = stream_progress()
             async for ev in progress_gen:
@@ -1298,7 +1305,15 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 except Exception:
                     pass
 
-        # Drain any remaining progress messages from queue
+        # Drain any remaining LLM text chunks AND progress messages from queues
+        # (chunks may have been queued right before/during executor completion)
+        while True:
+            try:
+                chunk = text_queue.get_nowait()
+                text_payload = json.dumps({"content": chunk})
+                yield f"event: text\ndata: {text_payload}\n\n"
+            except Exception:
+                break
         while not progress_queue.empty():
             try:
                 msg = progress_queue.get_nowait()
