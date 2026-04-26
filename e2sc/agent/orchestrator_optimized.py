@@ -2407,6 +2407,7 @@ class E2scAgentOptimized:
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
                         if progress_callback:
                             progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
+            _completed = sum(1 for _ in futures_map.values())  # Count total submitted
             logger.info(f"[进度] [{label}] [{gene}] API查询完成，共{_completed}/{len(futures_map)}个")
             if progress_callback:
                 progress_callback(f"[进度] [{label}] [{gene}] API查询完成，{_completed}/{len(futures_map)}个")
