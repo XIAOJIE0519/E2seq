@@ -88,6 +88,8 @@ class APIConfig(BaseSettings):
     """External API keys and configuration."""
     biogrid_api_key: str = Field(default="biological")
     biogrid_rate_limit: int = Field(default=10)
+    pubmed_api_key: str = Field(default="")
+    pubmed_email: str = Field(default="e2sc@example.com")
 
     class Config:
         env_prefix = "E2SC_"
@@ -218,6 +220,8 @@ class E2scConfig:
             "api": {
                 "biogrid_api_key": self.api.biogrid_api_key,
                 "biogrid_rate_limit": self.api.biogrid_rate_limit,
+                "pubmed_api_key": self.api.pubmed_api_key,
+                "pubmed_email": self.api.pubmed_email,
             },
             "embedding": {
                 "model_name": self.embedding.model_name,

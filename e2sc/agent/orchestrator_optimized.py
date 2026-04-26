@@ -576,7 +576,7 @@ class E2scAgentOptimized:
                                 if pmid and pmid not in _sp:
                                     _sp.add(pmid); knowledge.setdefault("pubmed", []).append(art)
                         except Exception as e:
-                            logger.debug(f"PubMed search failed: {e}")
+                            logger.warning(f"PubMed search failed: {e}")
             if "europepmc" in _csv_agent_apis:
                 for kw in kws_em:  # no count cap
                     try:
@@ -593,9 +593,9 @@ class E2scAgentOptimized:
                                         "journal": rec.get("journalTitle", ""),
                                         "year": rec.get("pubYear", "")})
                     except Exception as e:
-                        logger.debug(f"EuropePMC search failed: {e}")
+                        logger.warning(f"EuropePMC search failed: {e}")
         except Exception as e:
-            logger.debug(f"CSV literature augmentation failed: {e}")
+            logger.warning(f"CSV literature augmentation failed: {e}")
 
         _check_abort()  # abort check after literature augmentation
 
@@ -867,7 +867,7 @@ class E2scAgentOptimized:
                         for i in top_idx
                     ]
             except Exception as _de:
-                logger.debug("Diff summary failed: {}".format(_de))
+                logger.warning("Diff summary failed: {}".format(_de))
 
         # --- Cell type × group joint: per cell type, top mean-expressed genes per group ---
         ct_grp_joint = {}  # {ct_label: {grp_label: ["gene(mean=X.XXX)", ...]}}
@@ -893,7 +893,7 @@ class E2scAgentOptimized:
                             "{g}(mean={v:.3f})".format(g=gene_names[i], v=float(means[i]))
                             for i in top_idx]
             except Exception as _je:
-                logger.debug("CT×Group joint failed: {}".format(_je))
+                logger.warning("CT×Group joint failed: {}".format(_je))
 
         # --- Format context strings ---
         # Group summary: gene(mean=X.XXXX) per group — use n_ctx_planner for richer context
@@ -1093,7 +1093,7 @@ class E2scAgentOptimized:
                     kws = list(OrderedDict.fromkeys(kws_pm + kws_em))
                     logger.info(f"[AgenticRAG] Keyword expansion: +{len(_extra_pm)} PM, +{len(_extra_em)} EPMC keywords")
             except Exception as _ke:
-                logger.debug(f"Keyword expansion failed: {_ke}")
+                logger.warning(f"Keyword expansion failed: {_ke}")
         _check_abort()  # abort check after keyword expansion
 
         thinking_steps.append({"step":"AgentPlan","content":"Focus: {} | {} genes selected | APIs: {} | DBs: {} | kws: {}".format(
@@ -1128,7 +1128,7 @@ class E2scAgentOptimized:
                                 if pmid and pmid not in _sp:
                                     _sp.add(pmid); knowledge.setdefault("pubmed", []).append(art)
                         except Exception as e:
-                            logger.debug(f"PubMed search failed: {e}")
+                            logger.warning(f"PubMed search failed: {e}")
             if "europepmc" in _agent_apis:
                 for kw_idx, kw in enumerate(kws_em, 1):
                     try:
@@ -1151,9 +1151,9 @@ class E2scAgentOptimized:
                                     "url": "https://europepmc.org/article/MED/{}".format(pmid)
                                 })
                     except Exception as e:
-                        logger.debug(f"EuropePMC search failed: {e}")
+                        logger.warning(f"EuropePMC search failed: {e}")
         except Exception as _le:
-            logger.debug(f"[AgenticRAG] Lit augmentation failed: {_le}")
+            logger.warning(f"[AgenticRAG] Lit augmentation failed: {_le}")
 
         _check_abort()  # abort check after literature augmentation
 
@@ -1426,7 +1426,7 @@ class E2scAgentOptimized:
                               if g in all_gi][:20]
             focus = plan.get("focus", message[:80])
         except Exception as _pe:
-            logger.debug("[CachePlan] fallback: {}".format(_pe))
+            logger.warning("[CachePlan] fallback: {}".format(_pe))
             priority_genes = all_cached_genes[:20]
             focus = message[:80]
 
@@ -1455,7 +1455,7 @@ class E2scAgentOptimized:
                         "content": "{} docs; top-15 retrieved for: {}".format(
                             self._vector_store.count(), message[:40])})
             except Exception as _ve:
-                logger.debug("[CachePlan] vector failed: {}".format(_ve))
+                logger.warning("[CachePlan] vector failed: {}".format(_ve))
 
         thinking_steps.append({"step": "CacheReuse",
             "content": "{} genes ({} prioritized), {} articles".format(
@@ -1703,7 +1703,7 @@ class E2scAgentOptimized:
                             break
                     return ("uniprot", {"uniprot_accession": acc, "function": fn})
             except Exception as e:
-                logger.debug(f"UniProt {gene}: {e}")
+                logger.warning(f"UniProt {gene}: {e}")
             return ("uniprot", {})
 
         def _fetch_mygene(gene: str) -> tuple:
@@ -1732,7 +1732,7 @@ class E2scAgentOptimized:
                         "gene_summary": summary,
                     })
             except Exception as e:
-                logger.debug(f"MyGene {gene}: {e}")
+                logger.warning(f"MyGene {gene}: {e}")
             return ("mygene", {})
 
         def _fetch_quickgo(gene: str, accession: str) -> tuple:
@@ -1767,7 +1767,7 @@ class E2scAgentOptimized:
                             "go_aspects": go_aspects,
                         })
             except Exception as e:
-                logger.debug(f"QuickGO {gene}: {e}")
+                logger.warning(f"QuickGO {gene}: {e}")
             return ("quickgo", {})
 
         def _fetch_ensembl(gene: str) -> tuple:
@@ -1784,7 +1784,7 @@ class E2scAgentOptimized:
                         "biotype": data.get("biotype", ""),
                     })
             except Exception as e:
-                logger.debug(f"Ensembl {gene}: {e}")
+                logger.warning(f"Ensembl {gene}: {e}")
             return ("ensembl", {})
 
         def _fetch_chembl(gene: str) -> tuple:
@@ -1826,7 +1826,7 @@ class E2scAgentOptimized:
                     if drug_targets:
                         return ("chembl", {"drug_targets": drug_targets})
             except Exception as e:
-                logger.debug(f"ChEMBL {gene}: {e}")
+                logger.warning(f"ChEMBL {gene}: {e}")
             return ("chembl", {})
 
 
@@ -1876,7 +1876,7 @@ class E2scAgentOptimized:
                         diseases.append(f"{d['name']} (score={score}, id={d.get('id','')})")
                 return ("opentargets", {"ot_diseases": diseases[:5], "ot_ensembl": ensembl_id})
             except Exception as e:
-                logger.debug(f"OpenTargets {gene}: {e}")
+                logger.warning(f"OpenTargets {gene}: {e}")
             return ("opentargets", {})
 
         def _fetch_clinvar(gene: str) -> tuple:
@@ -1910,7 +1910,7 @@ class E2scAgentOptimized:
                         variants.append(display)
                 return ("clinvar", {"clinvar_variants": variants[:5]})
             except Exception as e:
-                logger.debug(f"ClinVar {gene}: {e}")
+                logger.warning(f"ClinVar {gene}: {e}")
             return ("clinvar", {})
 
         def _fetch_gtex(gene: str) -> tuple:
@@ -1992,7 +1992,7 @@ class E2scAgentOptimized:
                         if summary: tissues.append(f"NCBI summary: {summary}")
                         return ("gtex", {"gtex_tissues": tissues})
             except Exception as e:
-                logger.debug(f"GTEx/NCBI {gene}: {e}")
+                logger.warning(f"GTEx/NCBI {gene}: {e}")
             return ("gtex", {})
 
         def _fetch_reactome(gene: str) -> tuple:
@@ -2027,7 +2027,7 @@ class E2scAgentOptimized:
                 pathways = [_re.sub(r'<[^>]+>', '', p) for p in pathways]
                 return ("reactome", {"reactome_pathways": [p for p in pathways if p.strip()][:5]})
             except Exception as e:
-                logger.debug(f"Reactome {gene}: {e}")
+                logger.warning(f"Reactome {gene}: {e}")
             return ("reactome", {})
 
         def _fetch_gwas(gene: str) -> tuple:
@@ -2060,7 +2060,7 @@ class E2scAgentOptimized:
                         if snps:
                             return ("gwas", {"gwas_snps": snps[:8]})
             except Exception as e:
-                logger.debug(f"GWAS V2 {gene}: {e}")
+                logger.warning(f"GWAS V2 {gene}: {e}")
             # Fallback: V1 REST API — search by reported gene
             try:
                 r2 = _req.get(
@@ -2082,7 +2082,7 @@ class E2scAgentOptimized:
                     if snps:
                         return ("gwas", {"gwas_snps": snps[:8]})
             except Exception as e:
-                logger.debug(f"GWAS V1 {gene}: {e}")
+                logger.warning(f"GWAS V1 {gene}: {e}")
             return ("gwas", {})
 
         def _fetch_biogrid(gene: str) -> tuple:
@@ -2117,7 +2117,7 @@ class E2scAgentOptimized:
                     if interactions:
                         return ("biogrid", {"biogrid_interactions": interactions[:10]})
             except Exception as e:
-                logger.debug(f"BioGRID {gene}: {e}")
+                logger.warning(f"BioGRID {gene}: {e}")
             return ("biogrid", {})
 
         def _fetch_humanbase(gene: str) -> tuple:
@@ -2179,9 +2179,9 @@ class E2scAgentOptimized:
                         if tissues:
                             return ("humanbase", {"humanbase_tissues": tissues[:8]})
                     else:
-                        logger.debug(f"HPA JSON for {ensembl_id}: HTTP {r_hpa.status_code}")
+                        logger.warning(f"HPA JSON for {ensembl_id}: HTTP {r_hpa.status_code}")
             except Exception as e:
-                logger.debug(f"HumanBase HPA route {gene}: {e}")
+                logger.warning(f"HumanBase HPA route {gene}: {e}")
 
             # Fallback 1: Jensen Lab TISSUES
             try:
@@ -2231,7 +2231,7 @@ class E2scAgentOptimized:
                         if tissues:
                             return ("humanbase", {"humanbase_tissues": tissues})
             except Exception as e:
-                logger.debug(f"HumanBase MyGene fallback {gene}: {e}")
+                logger.warning(f"HumanBase MyGene fallback {gene}: {e}")
             return ("humanbase", {})
 
         def _fetch_civic(gene: str) -> tuple:
@@ -2266,7 +2266,7 @@ class E2scAgentOptimized:
                 if r.status_code == 200:
                     data = r.json()
                     if "errors" in data:
-                        logger.debug(f"CIViC GraphQL errors for {gene}: {data['errors']}")
+                        logger.warning(f"CIViC GraphQL errors for {gene}: {data['errors']}")
                     genes_data = data.get("data", {}).get("genes", {}).get("nodes", [])
                     if genes_data:
                         variants = genes_data[0].get("variants", {}).get("nodes", [])[:10]
@@ -2274,9 +2274,9 @@ class E2scAgentOptimized:
                         if variant_names:
                             return ("civic", {"civic_variants": variant_names[:8]})
                 else:
-                    logger.debug(f"CIViC {gene}: HTTP {r.status_code} {r.text[:200]}")
+                    logger.warning(f"CIViC {gene}: HTTP {r.status_code} {r.text[:200]}")
             except Exception as e:
-                logger.debug(f"CIViC {gene}: {e}")
+                logger.warning(f"CIViC {gene}: {e}")
             return ("civic", {})
 
         def _fetch_alliance(gene: str) -> tuple:
@@ -2321,7 +2321,7 @@ class E2scAgentOptimized:
                     if homolog_summary:
                         return ("alliance", {"alliance_homologs": homolog_summary})
             except Exception as e:
-                logger.debug(f"Alliance {gene}: {e}")
+                logger.warning(f"Alliance {gene}: {e}")
             return ("alliance", {})
 
         # ------------------------------------------------------------------ #
@@ -2368,6 +2368,7 @@ class E2scAgentOptimized:
                 if "opentargets" in enabled_apis: futures_map[pool.submit(_fetch_opentargets, gene)] = "opentargets"
                 if "clinvar"     in enabled_apis: futures_map[pool.submit(_fetch_clinvar,     gene)] = "clinvar"
                 for fut in as_completed(futures_map):
+                    _check_abort()  # Check abort after each completion
                     api_name = futures_map[fut].lower()
                     try:
                         _, data = fut.result()
@@ -2432,7 +2433,7 @@ class E2scAgentOptimized:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [STRING] [OK] {len(partners)} 互作")
                 except Exception as e:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [STRING] [FAIL]")
-                    logger.debug(f"STRING {gene}: {e}")
+                    logger.warning(f"STRING {gene}: {e}")
 
             if "hmdb" in enabled_dbs:
                 try:
@@ -2453,7 +2454,7 @@ class E2scAgentOptimized:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [HMDB] [OK] {n_met} 代谢物")
                 except Exception as e:
                     logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [HMDB] [FAIL]")
-                    logger.debug(f"HMDB {gene}: {e}")
+                    logger.warning(f"HMDB {gene}: {e}")
 
             if "trrust" in enabled_dbs:
                 try:
@@ -2480,7 +2481,7 @@ class E2scAgentOptimized:
                             _src_stats["dbs"]["trrust"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] ({gene_idx}/{total_genes}) [TRRUST] [OK]")
                 except Exception as e:
-                    logger.debug(f"TRRUST {gene}: {e}")
+                    logger.warning(f"TRRUST {gene}: {e}")
                     logger.info(f"[进度] [{label}] [{gene}] ({gene_idx}/{total_genes}) [TRRUST] [FAIL]")
 
             if "gutmgene" in enabled_dbs:
@@ -2503,7 +2504,7 @@ class E2scAgentOptimized:
                                 _src_stats["dbs"]["gutmgene"]["hit_genes"].add(gene)
                     logger.info(f"[进度] [{label}] [{gene}] ({gene_idx}/{total_genes}) [GUTMGENE] [OK]")
                 except Exception as e:
-                    logger.debug(f"GUTMGENE {gene}: {e}")
+                    logger.warning(f"GUTMGENE {gene}: {e}")
 
             # Cache and store
             with _cache_lock:
@@ -2557,7 +2558,7 @@ class E2scAgentOptimized:
                     except Exception:
                         pass
             except Exception as e:
-                logger.debug(f"PubMed {gene}: {e}")
+                logger.warning(f"PubMed {gene}: {e}")
             return arts[:8]  # cap per gene
 
         if "pubmed" in enabled_apis:
@@ -2569,6 +2570,7 @@ class E2scAgentOptimized:
                 pubmed_futures = {pool.submit(_fetch_pubmed, g): g for g in _pm_genes}
                 done_count = 0
                 for fut in as_completed(pubmed_futures):
+                    _check_abort()  # Check abort after each completion
                     done_count += 1
                     pct = 81 + int(done_count / len(pubmed_futures) * 9)
                     g = pubmed_futures[fut]
@@ -2580,6 +2582,11 @@ class E2scAgentOptimized:
                         if art.get("pmid") not in seen_pmids:
                             seen_pmids.add(art.get("pmid"))
                             knowledge["pubmed"].append(art)
+            
+            # Log final PubMed summary
+            logger.info(f"[进度] [{label}] PubMed 查询完成: {len(knowledge['pubmed'])} 篇文献")
+            if progress_callback:
+                progress_callback(f"[进度] PubMed 查询完成: {len(knowledge['pubmed'])} 篇文献")
 
         if "europepmc" in enabled_apis:
             logger.info(f"[进度] [{label}] 92% 查询 Europe PMC 文献 (4-layer) ...")
@@ -2620,14 +2627,16 @@ class E2scAgentOptimized:
                                     "url": f"https://europepmc.org/article/MED/{pmid}"
                                 })
                     except Exception as _eq_e:
-                        logger.debug(f"EuropePMC query '{eq[:40]}': {_eq_e}")
+                        logger.warning(f"EuropePMC query '{eq[:40]}': {_eq_e}")
                 logger.info(f"[进度] [{label}] 96% [EuropePMC] {len(knowledge['europepmc'])} articles")
                 if progress_callback:
                     progress_callback(f"[进度] EuropePMC 完成: {len(knowledge['europepmc'])} articles")
             except Exception as e:
-                logger.debug(f"EuropePMC {label}: {e}")
+                logger.warning(f"EuropePMC {label}: {e}")
 
         logger.info(f"[进度] [{label}] 100% 知识查询完成: {len(knowledge['genes'])} 基因, {len(knowledge['pubmed'])} 篇文献")
+        if progress_callback:
+            progress_callback(f"[进度] 100% 知识查询完成: {len(knowledge['genes'])} 基因, {len(knowledge['pubmed'])} 篇文献")
 
         # Build source stats report from tracked data
         total_genes = _src_stats["total_genes"]
@@ -2881,7 +2890,7 @@ class E2scAgentOptimized:
                     if progress_callback:
                         progress_callback(f"[进度] [RAG] 向量检索完成，{self._vector_store.count()} 文档")
             except Exception as _rag_e:
-                logger.debug(f"RAG retrieval skipped: {_rag_e}")
+                logger.warning(f"RAG retrieval skipped: {_rag_e}")
 
 
         import pandas as pd
@@ -3038,7 +3047,7 @@ class E2scAgentOptimized:
                         thinking_steps.append({"step": "RAG", "content": f"Vector store ({self._vector_store.count()} docs); top-12 chunks retrieved for follow-up"})
                         logger.info(f"[进度] [RAG跟进] 向量检索完成: {self._vector_store.count()} 文档")
                 except Exception as _rag_e:
-                    logger.debug(f"RAG retrieval skipped: {_rag_e}")
+                    logger.warning(f"RAG retrieval skipped: {_rag_e}")
             _all_genes = list(_all_gene_info.keys())[:40]
             _fake_results = {
                 "deg": {"results": pd.DataFrame({"names": _all_genes}), "params": {}},
@@ -3204,7 +3213,7 @@ class E2scAgentOptimized:
                     thinking_steps.append({"step": "RAG", "content": f"Retrieved {self._vector_store.count()} docs; top-8 chunks injected"})
                     logger.info(f"[进度] RAG检索完成: {self._vector_store.count()} 文档库，注入上下文")
             except Exception as _rag_e:
-                logger.debug(f"RAG retrieval skipped: {_rag_e}")
+                logger.warning(f"RAG retrieval skipped: {_rag_e}")
 
         # Format knowledge for synthesizer
         fake_results = {
@@ -3404,7 +3413,7 @@ class E2scAgentOptimized:
         try:
             # VectorStore does not expose add_case; knowledge base is built via
             # build_knowledge_base() / reset_and_build().  Skip silently.
-            logger.debug("_save_to_vector_db: skipped (add_case not available)")
+            logger.warning("_save_to_vector_db: skipped (add_case not available)")
         except Exception as e:
             logger.warning(f"Failed to save case to vector database: {e}")
     
@@ -3779,5 +3788,5 @@ class E2scAgentOptimized:
             if hasattr(self, 'gutmgene_db'):
                 self.gutmgene_db.close()
         except Exception as e:
-            logger.debug(f"Cleanup error: {e}")
+            logger.warning(f"Cleanup error: {e}")
 

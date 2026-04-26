@@ -1692,7 +1692,9 @@ STAT3,IL6,regulation,0.88`;
                     stage = '\u2728 生成报告'; pct = 80;
                 } else if (/(?:vector|embed|\u5411\u91cf|\u6784\u5efa|\u5df2\u5d4c)/i.test(msg)) {
                     stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
-                } else if (/(?:pubmed|europepmc)/i.test(msg) && !/done|ok|\u5b8c\u6210/i.test(msg)) {
+                } else if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context|\u77E5\u8BC6\u67E5\u8BE2|\u6587\u732E\u68C0\u7D22/i.test(msg)) {
+                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
+                } else if (/(?:pubmed|europepmc)/i.test(msg)) {
                     stage = '\uD83D\uDCC4 文献检索'; pct = 45;
                 } else if (/[\u8fdb\u5ea6]/i.test(msg)) {
                     // Default for [进度] messages: knowledge retrieval
@@ -1716,6 +1718,10 @@ STAT3,IL6,regulation,0.88`;
                 // Extract percentage from message if present
                 const m = msg.match(/(\d+)%/);
                 if (m) pct = Math.max(pct, parseInt(m[1]));
+                // Handle knowledge query completion messages
+                if (/\u77E5\u8BC6\u67E5\u8BE2\u5B8C\u6210|\u6587\u732E\u68C0\u7D22\u5B8C\u6210|\u67E5\u8BE2\u5B8C\u6210/i.test(msg)) {
+                    stage = '\u2705 即将完成'; pct = 95;
+                }
                 if (pct > 99) pct = 99;
 
                 barFill.style.width = pct + '%';
