@@ -611,6 +611,8 @@ class E2scAgentOptimized:
                 thinking_steps.append({"step": "VectorStoreBuild",
                     "content": "{} docs embedded (session={})".format(n_vs_docs, self._session_id)})
                 logger.info("[CsvRAG] Vector store built: {} docs".format(n_vs_docs))
+                if progress_callback:
+                    progress_callback(f"[进度] [向量库] 构建完成，{n_vs_docs} 文档已嵌入")
             else:
                 # Update with new knowledge (add without resetting)
                 thinking_steps.append({"step": "VectorStoreBuild",
@@ -1274,6 +1276,8 @@ class E2scAgentOptimized:
                 thinking_steps.append({"step": "VectorStoreBuild",
                     "content": "{} docs embedded".format(n_vs_docs)})
                 logger.info("[AgenticRAG] Vector store built: {} docs".format(n_vs_docs))
+                if progress_callback:
+                    progress_callback(f"[进度] [向量库] 构建完成，{n_vs_docs} 文档已嵌入")
             else:
                 thinking_steps.append({"step": "VectorStoreBuild",
                     "content": "Reusing existing store: {} docs".format(self._vector_store.count())})
@@ -2316,7 +2320,7 @@ class E2scAgentOptimized:
                 knowledge["genes"][gene] = dict(_cached)
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [OK] 使用缓存结果")
                 if progress_callback:
-                    progress_callback(f"[进度] [{gene}] {pct}% ({gene_idx}/{total_genes}) [缓存]")
+                    progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{gene_idx}/{total_genes}] 使用缓存结果")
                 continue
             gk: dict = {}
             active_apis = [a.upper() for a in ["uniprot","mygene","ensembl","chembl"] if a in enabled_apis]
@@ -2353,11 +2357,11 @@ class E2scAgentOptimized:
                             _src_stats["apis"][api_name]["hit_genes"].add(gene)
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [OK]")
                         if progress_callback:
-                            progress_callback(f"[进度] [{gene}] [{api_name.upper()}] OK")
+                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] OK")
                     except Exception as _api_e:
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
                         if progress_callback:
-                            progress_callback(f"[进度] [{gene}] [{api_name.upper()}] FAIL")
+                            progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
 
             # QuickGO needs accession from UniProt (sequential dependency)
             accession = gk.get("uniprot_accession", "")
@@ -2373,7 +2377,7 @@ class E2scAgentOptimized:
                     _src_stats["apis"]["quickgo"]["hit_genes"].add(gene)
                 logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [QuickGO] [OK]")
                 if progress_callback:
-                    progress_callback(f"[进度] [{gene}] [QuickGO] OK")
+                    progress_callback(f"[进度] [{label}] [{gene}] {pct}% [QuickGO] GO注释 OK")
 
             # Local DBs (fast, serial) -- only those enabled by user
             active_dbs = [d.upper() for d in ["string","hmdb","trrust","gutmgene"] if d in enabled_dbs]
@@ -2698,7 +2702,7 @@ class E2scAgentOptimized:
         if _cached_know is not None:
             ct_knowledge  = _cached_know["ct_knowledge"]
             grp_knowledge = _cached_know["grp_knowledge"]
-            logger.info("[进度] 使用缓存的API查询结果，跳过重复查询")
+            logger.info(f"[进度] 使用缓存的API查询结果，跳过重复查询")
             thinking_steps.append({"step": "Cache", "content": "Reusing cached API knowledge — no redundant network calls"})
         else:
             # Query knowledge per group
@@ -2853,6 +2857,8 @@ class E2scAgentOptimized:
                     combined_knowledge["rag_context"] = rag_context
                     thinking_steps.append({"step": "RAG", "content": f"Vector store ({self._vector_store.count()} docs); top-12 chunks retrieved"})
                     logger.info(f"[进度] [RAG] 向量检索完成: {self._vector_store.count()} 文档，注入12个最相关块")
+                    if progress_callback:
+                        progress_callback(f"[进度] [RAG] 向量检索完成，{self._vector_store.count()} 文档")
             except Exception as _rag_e:
                 logger.debug(f"RAG retrieval skipped: {_rag_e}")
 
@@ -2881,6 +2887,8 @@ class E2scAgentOptimized:
         history = self.memory.get_conversation_history()
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info("[进度] 所有数据库查询完成，正在调用 synthesizer 进行综合解读...")
+        if progress_callback:
+            progress_callback("[进度] 正在综合解读分析结果...")
         success_comp, response_comp, error_comp = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
             message, fake_results_comp, combined_knowledge, history,

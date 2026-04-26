@@ -1676,6 +1676,44 @@ STAT3,IL6,regulation,0.88`;
                 if (messagesArea) messagesArea.scrollTop = messagesArea.scrollHeight;
             };
 
+            // Helper: update progress bar and stage label based on incoming progress message
+            const _updateProgressBar = (msg) => {
+                const barFill = document.getElementById('progressBarFill');
+                const stageEl = document.getElementById('progressStageLabel');
+                const pctEl = document.getElementById('progressPct');
+                if (!barFill) return;
+
+                // Stage detection: map progress keywords to pipeline stages
+                let stage = '\uD83D\uDCCA 准备中';
+                let pct = 0;
+                if (/[\u6B63\u5728]查询\s*\[?(uniprot|mygene|ensembl|chembl|quickgo|string|hmdb|trrust|gutmgene)/i.test(msg)) {
+                    stage = '\uD83D\uDD0D 知识检索'; pct = 25;
+                } else if (/pubmed|europepmc/i.test(msg) && !/完成|done/i.test(msg)) {
+                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
+                } else if (/[\u5411\u91CF\u5E93]|vector|embed/i.test(msg)) {
+                    stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
+                } else if (/[\u7EFC\u5408]|synth|[\u89E3\u8BFB]|[\u751F\u6210\u62A5\u544A]/i.test(msg)) {
+                    stage = '\u2728 生成报告'; pct = 80;
+                } else if (/OK|[\u6210\u529F]|done|100%/i.test(msg)) {
+                    stage = '\u2705 即将完成'; pct = 95;
+                } else if (/[\u89C4\u5212]|plan|planner/i.test(msg)) {
+                    stage = '\uD83D\uDDF0 规划中'; pct = 5;
+                } else if (/[\u68C0\u7D22]|retriev/i.test(msg)) {
+                    stage = '\uD83D\uDD0D 检索中'; pct = 20;
+                } else if (/[\u7F13\u5B58]|cache/i.test(msg)) {
+                    stage = '\u26A1 使用缓存'; pct = 15;
+                }
+
+                // Extract percentage from message if present
+                const m = msg.match(/(\d+)%/);
+                if (m) pct = Math.max(pct, parseInt(m[1]));
+                if (pct > 99) pct = 99;
+
+                barFill.style.width = pct + '%';
+                if (stageEl) stageEl.textContent = stage;
+                if (pctEl) pctEl.textContent = pct + '%';
+            };
+
             // Parse SSE stream
             let eventCount = { thinking: 0, plots: 0, text: 0, done: 0, unknown: 0, raw: 0 };
             let rawEventCount = 0;
@@ -1705,7 +1743,6 @@ STAT3,IL6,regulation,0.88`;
                         if (partialLine === 'thinking') {
                             try {
                                 const step = JSON.parse(data);
-                                // Append progress step to loading bubble's .progress-log
                                 const loadingBubble = document.getElementById(loadingId);
                                 const pl = loadingBubble
                                     ? loadingBubble.querySelector('.progress-log')
@@ -1713,43 +1750,20 @@ STAT3,IL6,regulation,0.88`;
                                 if (pl) {
                                     const stepDiv = document.createElement('div');
                                     stepDiv.className = 'progress-step';
-                                    // Show step name prominently + content
                                     const stepName = step.step ? `[${step.step}] ` : '';
                                     const stepText = step.content || '';
-                                    stepDiv.innerHTML = `<span class="step-name">${stepName}</span>${stepText}`;
+                                    stepDiv.innerHTML = `<span class="step-name">${stepName}</span><span class="step-text">${stepText}</span>`;
                                     pl.appendChild(stepDiv);
                                     pl.scrollTop = pl.scrollHeight;
-                                } else {
-                                    // Fallback: create progress log if loading bubble was already replaced
-                                    console.warn('[SSE] Loading bubble not found for thinking event, creating fallback');
-                                    if (!messageDiv) {
-                                        this.removeMessage(loadingId);
-                                        messageDiv = this.addMessage('assistant', '', false);
-                                        const el = document.getElementById(messageDiv);
-                                        if (el) {
-                                            messageContent = el.querySelector('.message-content');
-                                            // Replace loading HTML with progress log
-                                            messageContent.innerHTML = `<div class="thinking-indicator">思考中...</div><div class="progress-log"></div>`;
-                                            const newPl = messageContent.querySelector('.progress-log');
-                                            if (newPl) {
-                                                const stepDiv2 = document.createElement('div');
-                                                stepDiv2.className = 'progress-step';
-                                                const stepName2 = step.step ? `[${step.step}] ` : '';
-                                                const stepText2 = step.content || '';
-                                                stepDiv2.innerHTML = `<span class="step-name">${stepName2}</span>${stepText2}`;
-                                                newPl.appendChild(stepDiv2);
-                                            }
-                                        }
-                                    }
+                                    _updateProgressBar(stepText || step.content || '');
                                 }
-                                // If the backend sends actual text content in thinking step, render it
                                 if (step.text) {
                                     streamingText += step.text;
                                     ensureBubble();
                                     renderIncrementalMarkdown(streamingText);
                                 }
                             } catch (e) {
-                                // Non-JSON thinking data — treat as raw progress message
+                                // Non-JSON — raw progress text (e.g. "[进度] ...")
                                 const loadingBubble = document.getElementById(loadingId);
                                 if (loadingBubble) {
                                     const pl = loadingBubble.querySelector('.progress-log');
@@ -1759,6 +1773,7 @@ STAT3,IL6,regulation,0.88`;
                                         stepDiv.textContent = data;
                                         pl.appendChild(stepDiv);
                                         pl.scrollTop = pl.scrollHeight;
+                                        _updateProgressBar(data);
                                     }
                                 }
                             }
@@ -1818,9 +1833,11 @@ STAT3,IL6,regulation,0.88`;
                 loadingBubble.classList.add('assistant');
                 const msgContent = loadingBubble.querySelector('.message-content');
                 if (msgContent) {
-                    // Remove thinking indicator, keep progress log
+                    // Remove thinking indicator and progress header, keep progress log
                     const indicator = msgContent.querySelector('.thinking-indicator');
                     if (indicator) indicator.remove();
+                    const progHeader = msgContent.querySelector('.progress-header');
+                    if (progHeader) progHeader.remove();
                     const progressLog = msgContent.querySelector('.progress-log');
                     // Render final markdown content
                     let finalHtml;
@@ -1932,8 +1949,13 @@ STAT3,IL6,regulation,0.88`;
 
         if (isLoading) {
             messageContent.innerHTML = `
-                <div class="thinking-indicator">思考中...</div>
-                <div class="progress-log"></div>
+                <div class="thinking-indicator">思考中<span class="thinking-dots"></span></div>
+                <div class="progress-header">
+                    <span class="progress-stage">📊 准备中</span>
+                    <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+                    <span class="progress-pct" id="progressPct">0%</span>
+                </div>
+                <div class="progress-log" id="progressLog"></div>
             `;
         } else if (role === 'assistant' && typeof marked !== 'undefined') {
             // Render markdown with marked.js
@@ -3271,6 +3293,67 @@ style.textContent = `    .chat-item { display:flex; align-items:center; justify-
         animation-delay: -0.32s;
     }
 
+    /* ===== Thinking & Progress ===== */
+    .thinking-indicator {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+    .thinking-dots::after {
+        content: '';
+        display: inline-block;
+        animation: thinkingEllipsis 1.4s infinite;
+    }
+    @keyframes thinkingEllipsis {
+        0%   { content: ''; }
+        25%  { content: '.'; }
+        50%  { content: '..'; }
+        75%  { content: '...'; }
+        100% { content: ''; }
+    }
+
+    .progress-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 0.78rem;
+    }
+    .progress-stage {
+        white-space: nowrap;
+        color: var(--text-secondary);
+        min-width: 90px;
+    }
+    .progress-bar-wrap {
+        flex: 1;
+        height: 5px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        border-radius: 3px;
+        transition: width 0.4s ease;
+        animation: progressGlow 2s ease-in-out infinite;
+    }
+    @keyframes progressGlow {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.7; }
+    }
+    .progress-pct {
+        white-space: nowrap;
+        color: #4facfe;
+        font-family: 'Fira Mono', monospace;
+        min-width: 32px;
+        text-align: right;
+    }
+
     .loading-dots span:nth-child(2) {
         animation-delay: -0.16s;
     }
@@ -3292,22 +3375,33 @@ style.textContent = `    .chat-item { display:flex; align-items:center; justify-
     }
 
     .progress-log {
-        margin-top: 10px;
-        max-height: 220px;
+        margin-top: 6px;
+        max-height: 200px;
         overflow-y: auto;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-family: 'Fira Mono', 'Consolas', monospace;
         color: #8ab4f8;
-        line-height: 1.7;
+        line-height: 1.8;
         border-left: 2px solid #3b82f633;
         padding-left: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(74,172,254,0.3) transparent;
     }
+    .progress-log::-webkit-scrollbar { width: 4px; }
+    .progress-log::-webkit-scrollbar-thumb { background: rgba(74,172,254,0.3); border-radius: 2px; }
 
     .progress-step {
         padding: 1px 0;
         white-space: pre-wrap;
         word-break: break-all;
-        animation: fadeInUp 0.2s ease;
+        animation: fadeInUp 0.15s ease;
+    }
+    .progress-step .step-name {
+        color: #f59e0b;
+        margin-right: 4px;
+    }
+    .progress-step .step-text {
+        color: #93c5fd;
     }
 
     @keyframes fadeInUp {
