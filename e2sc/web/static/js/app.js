@@ -1684,23 +1684,32 @@ STAT3,IL6,regulation,0.88`;
                 if (!barFill) return;
 
                 // Stage detection: map progress keywords to pipeline stages
+                // Backend sends messages like "[进度] 查询 [UNIPROT] [GENE] 50%"
+                // or "[进度] 正在综合解读分析结果..."
                 let stage = '\uD83D\uDCCA 准备中';
                 let pct = 0;
-                if (/[\u6B63\u5728]查询\s*\[?(uniprot|mygene|ensembl|chembl|quickgo|string|hmdb|trrust|gutmgene)/i.test(msg)) {
-                    stage = '\uD83D\uDD0D 知识检索'; pct = 25;
-                } else if (/pubmed|europepmc/i.test(msg) && !/完成|done/i.test(msg)) {
-                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                } else if (/[\u5411\u91CF\u5E93]|vector|embed/i.test(msg)) {
-                    stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
-                } else if (/[\u7EFC\u5408]|synth|[\u89E3\u8BFB]|[\u751F\u6210\u62A5\u544A]/i.test(msg)) {
+                if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context/i.test(msg)) {
                     stage = '\u2728 生成报告'; pct = 80;
-                } else if (/OK|[\u6210\u529F]|done|100%/i.test(msg)) {
+                } else if (/(?:vector|embed|\u5411\u91cf|\u6784\u5efa|\u5df2\u5d4c)/i.test(msg)) {
+                    stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
+                } else if (/(?:pubmed|europepmc)/i.test(msg) && !/done|ok|\u5b8c\u6210/i.test(msg)) {
+                    stage = '\uD83D\uDCC4 文献检索'; pct = 45;
+                } else if (/[\u8fdb\u5ea6]/i.test(msg)) {
+                    // Default for [进度] messages: knowledge retrieval
+                    if (/[\u7EFC\u5408]|synth|comprehensive/i.test(msg)) {
+                        stage = '\u2728 生成报告'; pct = 80;
+                    } else if (/(?:vector|embed)/i.test(msg)) {
+                        stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
+                    } else if (/(?:pubmed|europepmc)/i.test(msg)) {
+                        stage = '\uD83D\uDCC4 文献检索'; pct = 45;
+                    } else {
+                        stage = '\uD83D\uDD0D 知识检索'; pct = 25;
+                    }
+                } else if (/ok|done|\u6210\u529F|100%/i.test(msg)) {
                     stage = '\u2705 即将完成'; pct = 95;
-                } else if (/[\u89C4\u5212]|plan|planner/i.test(msg)) {
+                } else if (/[\u89C4\u5212planningplanner]/i.test(msg)) {
                     stage = '\uD83D\uDDF0 规划中'; pct = 5;
-                } else if (/[\u68C0\u7D22]|retriev/i.test(msg)) {
-                    stage = '\uD83D\uDD0D 检索中'; pct = 20;
-                } else if (/[\u7F13\u5B58]|cache/i.test(msg)) {
+                } else if (/[\u7F13\u5B58cache\u7f13\u5b58]/i.test(msg)) {
                     stage = '\u26A1 使用缓存'; pct = 15;
                 }
 
@@ -1714,13 +1723,14 @@ STAT3,IL6,regulation,0.88`;
                 if (pctEl) pctEl.textContent = pct + '%';
             };
 
-            // Parse SSE stream
+            // Parse SSE stream with detailed debug logging
             let eventCount = { thinking: 0, plots: 0, text: 0, done: 0, unknown: 0, raw: 0 };
             let rawEventCount = 0;
+            const _sseLog = (label, detail) => console.log(`[SSE|${label}] ${detail}`);
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
-                    console.log('[SSE] Stream done. Events received:', eventCount, 'raw chunks:', rawEventCount);
+                    _sseLog('DONE', `Events: ${JSON.stringify(eventCount)}, raw: ${rawEventCount}`);
                     break;
                 }
                 rawEventCount++;
@@ -1739,41 +1749,64 @@ STAT3,IL6,regulation,0.88`;
                         else if (eventType === 'done') eventCount.done++;
                         else eventCount.unknown++;
 
-                        console.log(`[SSE] event=${eventType}, data_preview=${data.substring(0, 120)}`);
+                        _sseLog(eventType, data.substring(0, 200));
                         if (partialLine === 'thinking') {
+                            // Find the loading bubble - it may have been removed if streaming started
+                            let loadingBubble = document.getElementById(loadingId);
+                            let targetContent = null;
+                            if (loadingBubble) {
+                                targetContent = loadingBubble.querySelector('.message-content');
+                            }
                             try {
                                 const step = JSON.parse(data);
-                                const loadingBubble = document.getElementById(loadingId);
-                                const pl = loadingBubble
-                                    ? loadingBubble.querySelector('.progress-log')
-                                    : null;
-                                if (pl) {
-                                    const stepDiv = document.createElement('div');
-                                    stepDiv.className = 'progress-step';
-                                    const stepName = step.step ? `[${step.step}] ` : '';
-                                    const stepText = step.content || '';
-                                    stepDiv.innerHTML = `<span class="step-name">${stepName}</span><span class="step-text">${stepText}</span>`;
-                                    pl.appendChild(stepDiv);
-                                    pl.scrollTop = pl.scrollHeight;
-                                    _updateProgressBar(stepText || step.content || '');
+                                const stepText = step.content || '';
+                                // Update progress bar with step text
+                                if (stepText) _updateProgressBar(stepText);
+                                // Append step to progress log if bubble still exists
+                                if (targetContent) {
+                                    const pl = targetContent.querySelector('.progress-log');
+                                    if (pl) {
+                                        const stepDiv = document.createElement('div');
+                                        stepDiv.className = 'progress-step';
+                                        const stepName = step.step ? `[${step.step}] ` : '';
+                                        stepDiv.innerHTML = `<span class="step-name">${stepName}</span><span class="step-text">${stepText}</span>`;
+                                        pl.appendChild(stepDiv);
+                                        pl.scrollTop = pl.scrollHeight;
+                                    }
                                 }
-                                if (step.text) {
+                                // Inject streaming text into the loading bubble's content area
+                                // (not into progress log — into a dedicated text preview div)
+                                if (step.text && targetContent) {
+                                    let previewDiv = targetContent.querySelector('.streaming-preview');
+                                    if (!previewDiv) {
+                                        previewDiv = document.createElement('div');
+                                        previewDiv.className = 'streaming-preview';
+                                        previewDiv.style.cssText = 'margin-top:10px;padding:8px;background:#f0f0f0;border-radius:6px;font-size:0.85rem;max-height:120px;overflow-y:auto;';
+                                        targetContent.appendChild(previewDiv);
+                                    }
                                     streamingText += step.text;
-                                    ensureBubble();
-                                    renderIncrementalMarkdown(streamingText);
+                                    try {
+                                        if (typeof marked !== 'undefined') {
+                                            previewDiv.innerHTML = marked.parse(streamingText || '');
+                                        } else {
+                                            previewDiv.textContent = streamingText;
+                                        }
+                                    } catch (_) {
+                                        previewDiv.textContent = streamingText;
+                                    }
                                 }
                             } catch (e) {
                                 // Non-JSON — raw progress text (e.g. "[进度] ...")
-                                const loadingBubble = document.getElementById(loadingId);
-                                if (loadingBubble) {
-                                    const pl = loadingBubble.querySelector('.progress-log');
+                                // These are plain text progress messages from the backend
+                                _updateProgressBar(data);
+                                if (targetContent) {
+                                    const pl = targetContent.querySelector('.progress-log');
                                     if (pl) {
                                         const stepDiv = document.createElement('div');
                                         stepDiv.className = 'progress-step';
                                         stepDiv.textContent = data;
                                         pl.appendChild(stepDiv);
                                         pl.scrollTop = pl.scrollHeight;
-                                        _updateProgressBar(data);
                                     }
                                 }
                             }
@@ -1786,18 +1819,43 @@ STAT3,IL6,regulation,0.88`;
                             } catch (e) { /* ignore parse error */ }
                         } else if (partialLine === 'text') {
                             // Incremental text chunk from streaming LLM
+                            // These come after progress steps — bubble may still be loading or already replaced
                             try {
                                 const chunk = JSON.parse(data);
                                 streamingText += chunk.content || '';
-                                ensureBubble();
-                                renderIncrementalMarkdown(streamingText);
                             } catch (e) {
                                 streamingText += data;
+                            }
+                            // Try to inject into loading bubble first, then into a new bubble
+                            const lb = document.getElementById(loadingId);
+                            if (lb) {
+                                const lc = lb.querySelector('.message-content');
+                                if (lc) {
+                                    let previewDiv = lc.querySelector('.streaming-preview');
+                                    if (!previewDiv) {
+                                        previewDiv = document.createElement('div');
+                                        previewDiv.className = 'streaming-preview';
+                                        previewDiv.style.cssText = 'margin-top:10px;padding:8px;background:#f0f0f0;border-radius:6px;font-size:0.85rem;max-height:120px;overflow-y:auto;';
+                                        lc.appendChild(previewDiv);
+                                    }
+                                    try {
+                                        if (typeof marked !== 'undefined') {
+                                            previewDiv.innerHTML = marked.parse(streamingText || '');
+                                        } else {
+                                            previewDiv.textContent = streamingText;
+                                        }
+                                    } catch (_) {
+                                        previewDiv.textContent = streamingText;
+                                    }
+                                }
+                            } else {
+                                // Loading bubble already removed — use ensureBubble
                                 ensureBubble();
                                 renderIncrementalMarkdown(streamingText);
                             }
                         } else if (partialLine === 'done') {
                             const result = JSON.parse(data);
+                            _sseLog('done', `response_len=${(result.response || '').length}`);
                             // Use streamed text if available, otherwise use full response
                             if (!streamingText) {
                                 streamingText = result.response || '';
@@ -1833,11 +1891,13 @@ STAT3,IL6,regulation,0.88`;
                 loadingBubble.classList.add('assistant');
                 const msgContent = loadingBubble.querySelector('.message-content');
                 if (msgContent) {
-                    // Remove thinking indicator and progress header, keep progress log
+                    // Remove thinking indicator, progress header, and streaming preview
                     const indicator = msgContent.querySelector('.thinking-indicator');
                     if (indicator) indicator.remove();
                     const progHeader = msgContent.querySelector('.progress-header');
                     if (progHeader) progHeader.remove();
+                    const streamingPreview = msgContent.querySelector('.streaming-preview');
+                    if (streamingPreview) streamingPreview.remove();
                     const progressLog = msgContent.querySelector('.progress-log');
                     // Render final markdown content
                     let finalHtml;
@@ -1864,7 +1924,7 @@ STAT3,IL6,regulation,0.88`;
                     }
                 }
             } else {
-                // No loading bubble (shouldn't happen) — just add message normally
+                // No loading bubble — just add message normally
                 if (currentText) {
                     this.addMessage('assistant', currentText);
                 } else if (streamingText) {
