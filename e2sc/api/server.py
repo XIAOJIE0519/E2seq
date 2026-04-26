@@ -52,6 +52,12 @@ agents = {}
 datasets = {}
 # Per-chat-id abort events — set by /api/chat/abort, checked by _stream_agent_chat
 _abort_events: dict[str, asyncio.Event] = {}
+# Per-chat-id abort flags — threading.Event for use inside agent thread
+_abort_flags: dict[str, _threading.Event] = {}
+# Shared exception raised inside agent thread when user aborts
+class AbortChat(Exception):
+    """Raised when the user clicks the abort button during agent execution."""
+    pass
 
 # Persistent dataset storage directory
 _DATASET_DIR = Path(__file__).parent.parent.parent / "_datasets"
@@ -903,6 +909,9 @@ async def configure_csv(request: Request):
             groups = ["Data"]
             group_col = "_default_group_"
 
+        # Compute original unique gene count BEFORE filtering (for display)
+        n_genes_total = len(df[gene_col].astype(str).unique())
+
         # Apply significance filter
         if sig_col and sig_col in df.columns and sig_thresh is not None:
             try:
@@ -1001,12 +1010,13 @@ async def configure_csv(request: Request):
             "success": True,
             "session_id": session_id,
             "n_genes": n_genes,
+            "n_genes_total": n_genes_total,  # original count before filtering
             "n_rows_filtered": n_filtered,
             "groups": groups,
             "expr_type": expr_type,
-            # 兼容前端：cells=过滤后行数，genes=唯一基因数
+            # cells=过滤后行数（display only），genes=原始唯一基因数（display only）
             "cells": n_filtered,
-            "genes": n_genes,
+            "genes": n_genes_total,
         }
     except HTTPException:
         raise
@@ -1136,6 +1146,10 @@ async def _stream_agent_chat(chat_id: str, message: str):
     from e2sc.utils import get_config, get_security_manager
     from e2sc import E2scAgent
 
+    # Register abort flag for the agent thread to check
+    abort_flag = _threading.Event()
+    _abort_flags[chat_id] = abort_flag
+
     # Register abort event for this chat session
     abort_event = asyncio.Event()
     _abort_events[chat_id] = abort_event
@@ -1223,7 +1237,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     message,
                     progress_callback=progress_callback,
                     text_queue=text_queue,
+                    abort_flag=abort_flag,
                 )
+            except AbortChat as e:
+                agent_result_holder["aborted"] = True
+                agent_result_holder["abort_reason"] = str(e) if str(e) else "User requested abort"
             except Exception as e:
                 agent_result_holder["error"] = e
 
@@ -1233,6 +1251,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Interleave progress streaming with agent execution.
         # Also check abort_event periodically to support cancellation.
         progress_gen = None
+        cancelled = False
         try:
             async def stream_progress():
                 while not executor_future.done():
@@ -1243,6 +1262,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     if abort_event.is_set():
+                        # Signal the agent thread to abort and cancel the executor
+                        abort_flag.set()
+                        nonlocal cancelled
+                        cancelled = True
+                        executor_future.cancel()
                         return
 
                     # Check which task completed
@@ -1289,13 +1313,24 @@ async def _stream_agent_chat(chat_id: str, message: str):
             except Exception:
                 break
 
-        # Wait for agent to complete
-        await loop.run_in_executor(None, lambda: executor_future.result())
+        # Wait for agent to complete (or be cancelled after abort)
+        try:
+            await loop.run_in_executor(None, lambda: executor_future.result())
+        except (asyncio.CancelledError, asyncio.InvalidStateError):
+            # CancelledError means abort was triggered and executor was cancelled
+            _orch_logger.removeHandler(_prog_handler)
+            yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
+            return
+
         _orch_logger.removeHandler(_prog_handler)
 
-        # Check if abort was requested before yielding results
+        # Check if agent raised AbortChat internally (caught in run_agent)
+        if agent_result_holder.get("aborted"):
+            yield f"event: aborted\ndata: {json.dumps({'reason': agent_result_holder.get('abort_reason', 'User requested abort')})}\n\n"
+            return
+
+        # Check if abort was requested while we were draining queues
         if abort_event.is_set():
-            _orch_logger.removeHandler(_prog_handler)
             yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
             return
 

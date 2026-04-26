@@ -354,12 +354,13 @@ class E2scAgentOptimized:
             return {"success": False, "n_docs": 0, "n_genes": 0, "error": str(e)}
 
     def chat(self, message: str, stream: bool = False, use_agent_mode: bool = False,
-             progress_callback=None, text_queue=None):
+             progress_callback=None, text_queue=None, abort_flag=None):
         """Agentic RAG chat: Agent thinks -> RAG retrieves -> Agent evaluates -> re-retrieves -> LLM answers.
 
         Args:
             text_queue: if provided, synthesizer streams LLM text chunks through this queue
                         which is consumed by the SSE handler for real-time text display.
+            abort_flag: threading.Event set by the server when the user clicks abort.
         """
         import re
         logger.info(f"User message: {message}")
@@ -374,18 +375,26 @@ class E2scAgentOptimized:
         # ── Agentic RAG loop (LLM auto-detects intent and data structure) ──
         return self._chat_agentic_rag(message, thinking_steps,
                                       progress_callback=progress_callback,
-                                      text_queue=text_queue)
+                                      text_queue=text_queue,
+                                      abort_flag=abort_flag)
 
 
 
     # Module-level gene knowledge cache
     _gene_cache: dict = {}
 
-    def _chat_csv_rag(self, message: str, thinking_steps: list) -> dict:
+    def _chat_csv_rag(self, message: str, thinking_steps: list, abort_flag=None) -> dict:
         """Agentic RAG for CSV/TSV differential expression or expression tables.
         Builds gene context directly from the pre-filtered CSV records stored in uns,
         then follows the same Plan → Retrieve → Synthesise pipeline as scRNA-seq mode.
         """
+
+        def _check_abort():
+            """Raise AbortChat if the user has clicked the abort button."""
+            from e2sc.api import AbortChat as _AbortChat
+            if abort_flag is not None and abort_flag.is_set():
+                raise _AbortChat("User requested abort")
+
         import json, re as _re_ar
         from collections import OrderedDict
 
@@ -515,6 +524,7 @@ class E2scAgentOptimized:
                  apis=_all_apis, dbs=_all_dbs)
         try:
             plan_raw = self.llm.chat([{"role": "user", "content": planning_prompt}])
+            _check_abort()  # abort check after planning LLM call
             _jm = _re_ar.search(r"\{[\s\S]*\}", plan_raw)
             plan = json.loads(_jm.group()) if _jm else {}
             _gene_set = set(all_dataset_genes)
@@ -584,6 +594,8 @@ class E2scAgentOptimized:
         except Exception as e:
             logger.debug(f"CSV literature augmentation failed: {e}")
 
+        _check_abort()  # abort check after literature augmentation
+
         n_ret  = len([k for k in knowledge if k not in ("pubmed","europepmc")])
         n_arts = len(knowledge.get("pubmed", [])) + len(knowledge.get("europepmc", []))
         thinking_steps.append({"step": "RAGRetrieve", "content": "{} genes retrieved, {} articles".format(n_ret, n_arts)})
@@ -606,6 +618,7 @@ class E2scAgentOptimized:
                 logger.info("[CsvRAG] Reusing vector store: {} docs".format(self._vector_store.count()))
         except Exception as _vse:
             logger.warning("[CsvRAG] Vector store build failed: {}".format(_vse))
+        _check_abort()  # abort check after vector store build
 
         # --- Step 3c: RAG retrieval from vector store ---
         if self._vector_store is not None and self._vector_store.count() > 0:
@@ -687,12 +700,22 @@ class E2scAgentOptimized:
         self.memory.save_current_session(success=True)
         return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
     def _chat_agentic_rag(self, message: str, thinking_steps: list,
-                          progress_callback=None, text_queue=None) -> dict:
+                          progress_callback=None, text_queue=None, abort_flag=None) -> dict:
         """Agentic RAG: plan -> retrieve -> evaluate -> re-retrieve -> synthesize.
         Agent drives the entire flow; no pre-built KB cache is consulted.
-        Gene selection is from the FULL dataset gene list, not just top-N.
         Cell types and disease phenotypes are considered JOINTLY.
+
+        Args:
+            abort_flag: threading.Event; if set, raises AbortChat to stop execution.
         """
+        import threading as _threading
+
+        def _check_abort():
+            """Raise AbortChat if the user has clicked the abort button."""
+            from e2sc.api import AbortChat as _AbortChat
+            if abort_flag is not None and abort_flag.is_set():
+                raise _AbortChat("User requested abort")
+
         import json
         import re as _re_ar
         import pandas as pd
@@ -700,7 +723,7 @@ class E2scAgentOptimized:
 
         # ── CSV mode: data is a pre-filtered differential/expression table ──
         if self.adata.uns.get("e2sc_data_mode") == "csv":
-            return self._chat_csv_rag(message, thinking_steps)
+            return self._chat_csv_rag(message, thinking_steps, abort_flag=abort_flag)
 
         # ── Meta-questions about the AI model: answer directly without any RAG ──
         _quick_keywords = [
@@ -988,6 +1011,7 @@ class E2scAgentOptimized:
         _gene_set = set(top_ranked_genes)
         try:
             plan_raw = self.llm.chat([{"role":"user","content":planning_prompt}])
+            _check_abort()  # abort check after planning LLM call
             _jm = _re_ar.search(r"\{[\s\S]*\}", plan_raw)
             plan = json.loads(_jm.group()) if _jm else {}
             # Validate genes against filtered/prioritized gene range — respect user's filter
@@ -1054,6 +1078,7 @@ class E2scAgentOptimized:
                     logger.info(f"[AgenticRAG] Keyword expansion: +{len(_extra_pm)} PM, +{len(_extra_em)} EPMC keywords")
             except Exception as _ke:
                 logger.debug(f"Keyword expansion failed: {_ke}")
+        _check_abort()  # abort check after keyword expansion
 
         thinking_steps.append({"step":"AgentPlan","content":"Focus: {} | {} genes selected | APIs: {} | DBs: {} | kws: {}".format(
             focus, len(to_ret), sorted(_agent_apis), sorted(_agent_dbs), kws[:3])})
@@ -1066,6 +1091,7 @@ class E2scAgentOptimized:
             "agentic/{}".format(focus[:30]), to_ret,
             context_hint=focus, enabled_apis=_agent_apis, enabled_dbs=_agent_dbs,
             progress_callback=progress_callback)
+        _check_abort()  # abort check after retrieval step
 
         # Step 3b: Agent-directed literature augmentation using direct API calls
         # PubMed and EuropePMC use SEPARATE keyword sets from the agent plan — no count cap
@@ -1113,6 +1139,8 @@ class E2scAgentOptimized:
         except Exception as _le:
             logger.debug(f"[AgenticRAG] Lit augmentation failed: {_le}")
 
+        _check_abort()  # abort check after literature augmentation
+
         n_ret  = len(knowledge.get("genes", {}))
         n_arts = len(knowledge.get("pubmed", [])) + len(knowledge.get("europepmc", []))
         thinking_steps.append({"step": "RAGRetrieve", "content": "{} genes retrieved, {} articles".format(n_ret, n_arts)})
@@ -1122,6 +1150,7 @@ class E2scAgentOptimized:
         # Required flow: question -> source-aware retrieval -> embed/rag -> sufficiency check -> repeat
         _max_refine_rounds = 3
         for _round in range(1, _max_refine_rounds + 1):
+            _check_abort()  # abort check at start of each refine round
             n_ret_now = len(knowledge.get("genes", {}))
             n_arts_now = len(knowledge.get("pubmed", [])) + len(knowledge.get("europepmc", []))
             eval_prompt = (
