@@ -2353,22 +2353,29 @@ class E2scAgentOptimized:
 
             # Concurrent online APIs -- only those enabled by user
             futures_map = {}
+            logger.info(f"[进度] [{label}] [{gene}] 开始提交 {len(enabled_apis)} 个API查询...")
+            if progress_callback:
+                progress_callback(f"[进度] [{label}] [{gene}] 开始提交API查询...")
             with ThreadPoolExecutor(max_workers=16) as pool:
                 if "uniprot"     in enabled_apis: futures_map[pool.submit(_fetch_uniprot,     gene)] = "uniprot"
                 if "mygene"      in enabled_apis: futures_map[pool.submit(_fetch_mygene,      gene)] = "mygene"
                 if "ensembl"     in enabled_apis: futures_map[pool.submit(_fetch_ensembl,     gene)] = "ensembl"
                 if "chembl"      in enabled_apis: futures_map[pool.submit(_fetch_chembl,      gene)] = "chembl"
-                if "gtex"        in enabled_apis: futures_map[pool.submit(_fetch_gtex,        gene)] = "gtex"
-                if "humanbase"   in enabled_apis: futures_map[pool.submit(_fetch_humanbase,   gene)] = "humanbase"
-                if "gwas"        in enabled_apis: futures_map[pool.submit(_fetch_gwas,        gene)] = "gwas"
-                if "biogrid"     in enabled_apis: futures_map[pool.submit(_fetch_biogrid,     gene)] = "biogrid"
-                if "civic"       in enabled_apis: futures_map[pool.submit(_fetch_civic,       gene)] = "civic"
-                if "alliance"    in enabled_apis: futures_map[pool.submit(_fetch_alliance,    gene)] = "alliance"
-                # OpenTargets和ClinVar也保持可用
-                if "reactome"    in enabled_apis: futures_map[pool.submit(_fetch_reactome,    gene)] = "reactome"
+                if "gtex"       in enabled_apis: futures_map[pool.submit(_fetch_gtex,        gene)] = "gtex"
+                if "humanbase"  in enabled_apis: futures_map[pool.submit(_fetch_humanbase,   gene)] = "humanbase"
+                if "gwas"       in enabled_apis: futures_map[pool.submit(_fetch_gwas,        gene)] = "gwas"
+                if "biogrid"    in enabled_apis: futures_map[pool.submit(_fetch_biogrid,     gene)] = "biogrid"
+                if "civic"      in enabled_apis: futures_map[pool.submit(_fetch_civic,       gene)] = "civic"
+                if "alliance"   in enabled_apis: futures_map[pool.submit(_fetch_alliance,    gene)] = "alliance"
+                if "reactome"   in enabled_apis: futures_map[pool.submit(_fetch_reactome,    gene)] = "reactome"
                 if "opentargets" in enabled_apis: futures_map[pool.submit(_fetch_opentargets, gene)] = "opentargets"
-                if "clinvar"     in enabled_apis: futures_map[pool.submit(_fetch_clinvar,     gene)] = "clinvar"
+                if "clinvar"   in enabled_apis: futures_map[pool.submit(_fetch_clinvar,     gene)] = "clinvar"
+                logger.info(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询任务，等待完成...")
+                if progress_callback:
+                    progress_callback(f"[进度] [{label}] [{gene}] 已提交 {len(futures_map)} 个查询任务，等待完成...")
+                _completed = 0
                 for fut in as_completed(futures_map):
+                    _completed += 1
                     _check_abort()  # Check abort after each completion
                     api_name = futures_map[fut].lower()
                     try:
@@ -2385,6 +2392,9 @@ class E2scAgentOptimized:
                         logger.info(f"[进度] [{label}] [{gene}] {pct}% ({gene_idx}/{total_genes}) [{api_name.upper()}] [FAIL]")
                         if progress_callback:
                             progress_callback(f"[进度] [{label}] [{gene}] {pct}% [{api_name.upper()}] FAIL")
+            logger.info(f"[进度] [{label}] [{gene}] API查询完成，共{_completed}/{len(futures_map)}个")
+            if progress_callback:
+                progress_callback(f"[进度] [{label}] [{gene}] API查询完成，{_completed}/{len(futures_map)}个")
 
             # QuickGO needs accession from UniProt (sequential dependency)
             accession = gk.get("uniprot_accession", "")
