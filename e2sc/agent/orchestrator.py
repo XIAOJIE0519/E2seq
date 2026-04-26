@@ -105,7 +105,7 @@ class E2scAgent:
                         rag_lines = [f"[{r.get('source','db')}] {r.get('content', r.get('text', str(r)))}" for r in db_results[:8]]
                         rag_context = "\n".join(rag_lines)
             except Exception as re:
-                pass
+                logger.warning(f"RAG context retrieval failed: {re}")
 
             system_prompt = (
                 "You are E2sc, an AI assistant specialized in single-cell RNA sequencing (scRNA-seq) analysis. "

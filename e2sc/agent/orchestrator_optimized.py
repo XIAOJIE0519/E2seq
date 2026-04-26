@@ -1249,8 +1249,8 @@ class E2scAgentOptimized:
                                     if pmid and pmid not in _sp:
                                         _sp.add(pmid)
                                         knowledge.setdefault("pubmed", []).append(art)
-                            except Exception:
-                                pass
+                            except Exception as _pe:
+                                logger.warning(f"PubMed extra search failed: {_pe}")
                 if "europepmc" in _agent_apis and extra_em:
                     _sep = {a.get("pmid") or a.get("id") for a in knowledge.get("europepmc", [])}
                     for kw_idx, kw in enumerate(extra_em, 1):
@@ -1275,10 +1275,10 @@ class E2scAgentOptimized:
                                         "query_layer": kw[:60],
                                         "url": "https://europepmc.org/article/MED/{}".format(pmid),
                                     })
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as _ee:
+                            logger.warning(f"EuropePMC extra search failed: {_ee}")
+            except Exception as _le2:
+                logger.warning(f"Extra literature failed: {_le2}")
 
         # --- Step 4c: Build vector store from retrieved knowledge ---
         try:
@@ -1808,8 +1808,8 @@ class E2scAgentOptimized:
                                 params={"target_chembl_id": tid, "limit": 5}, timeout=6)
                             mechs = r2.json().get("mechanisms", [])
                             drugs = [m.get("molecule_name", "") for m in mechs if m.get("molecule_name")]
-                        except Exception:
-                            pass
+                        except Exception as _ee:
+                            logger.warning(f"EuropePMC extra search failed: {_ee}")
                         # Fall back to activity molecules if no mechanism drugs
                         if not drugs:
                             try:
@@ -1817,8 +1817,8 @@ class E2scAgentOptimized:
                                     params={"target_chembl_id": tid, "limit": 3, "assay_type": "B"}, timeout=6)
                                 acts = r3.json().get("activities", [])
                                 drugs = list(set(a.get("molecule_chembl_id", "") for a in acts if a.get("molecule_chembl_id")))[:3]
-                            except Exception:
-                                pass
+                            except Exception as _pe:
+                                logger.warning(f"PubMed extra search failed: {_pe}")
                         entry = f"{name} ({tid})"
                         if drugs:
                             entry += f" [drugs: {', '.join(str(d) for d in drugs[:3])}]"
@@ -1931,8 +1931,8 @@ class E2scAgentOptimized:
                         ensg = row.get("Ensembl", "") or row.get("eg", "")
                         if rna_ts:
                             return ("gtex", {"gtex_tissues": [f"HPA RNA specificity: {rna_ts}", f"Ensembl: {ensg}"]})
-            except Exception:
-                pass
+            except Exception as _le2:
+                logger.warning(f"Extra literature failed: {_le2}")
             # Fallback 1: Human Protein Atlas tissue page JSON
             try:
                 r2 = _gtex_req.get(
@@ -1949,8 +1949,8 @@ class E2scAgentOptimized:
                             tissues.append(f"{tissue}: {level}" if level else tissue)
                     if tissues:
                         return ("gtex", {"gtex_tissues": tissues[:8]})
-            except Exception:
-                pass
+            except Exception as _le2:
+                logger.warning(f"Extra literature failed: {_le2}")
             # Fallback 2: NCBI Gene + MyGene expression field
             try:
                 r1 = _gtex_req.get(
@@ -2206,8 +2206,8 @@ class E2scAgentOptimized:
                             tissues.append(entry)
                     if tissues:
                         return ("humanbase", {"humanbase_tissues": tissues[:8]})
-            except Exception:
-                pass
+            except Exception as _le2:
+                logger.warning(f"Extra literature failed: {_le2}")
 
             # Fallback 2: MyGene expression field
             try:
@@ -2679,7 +2679,7 @@ class E2scAgentOptimized:
         return knowledge
 
 
-    def _chat_comprehensive(self, message: str, thinking_steps: list) -> dict:
+    def _chat_comprehensive(self, message: str, thinking_steps: list, progress_callback=None) -> dict:
         """Comprehensive analysis: all cell types + disease groups + overall."""
         self.state_manager.set_state(AgentState.RETRIEVING)
         n_top = int(self.adata.uns.get("e2sc_n_top_genes", 50)) if self.adata is not None else 50
