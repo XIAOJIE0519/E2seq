@@ -52,8 +52,6 @@ agents = {}
 datasets = {}
 # Per-chat-id abort events — set by /api/chat/abort, checked by _stream_agent_chat
 _abort_events: dict[str, asyncio.Event] = {}
-# Per-chat-id abort flags — threading.Event for use inside agent thread
-_abort_flags: dict[str, _threading.Event] = {}
 # Shared exception raised inside agent thread when user aborts
 class AbortChat(Exception):
     """Raised when the user clicks the abort button during agent execution."""
