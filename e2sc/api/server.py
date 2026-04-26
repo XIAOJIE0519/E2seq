@@ -1144,13 +1144,12 @@ async def _stream_agent_chat(chat_id: str, message: str):
     from e2sc.utils import get_config, get_security_manager
     from e2sc import E2scAgent
 
-    # Register abort flag for the agent thread to check
-    abort_flag = _threading.Event()
-    _abort_flags[chat_id] = abort_flag
-
     # Register abort event for this chat session
     abort_event = asyncio.Event()
     _abort_events[chat_id] = abort_event
+
+    # threading.Event checked inside the agent thread for fast abort
+    abort_flag = _threading.Event()
 
     try:
         # Yield abort check at start
