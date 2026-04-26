@@ -1870,6 +1870,14 @@ STAT3,IL6,regulation,0.88`;
                             if (lb) {
                                 const lc = lb.querySelector('.message-content');
                                 if (lc) {
+                                    // CRITICAL: When streaming starts, hide the "thinking" state
+                                    // and progress bar to avoid confusing the user with both
+                                    // the progress indicator AND the streaming content visible.
+                                    const indicator = lc.querySelector('.thinking-indicator');
+                                    if (indicator) indicator.style.display = 'none';
+                                    const progHeader = lc.querySelector('.progress-header');
+                                    if (progHeader) progHeader.style.display = 'none';
+
                                     let previewDiv = lc.querySelector('.streaming-preview');
                                     if (!previewDiv) {
                                         previewDiv = document.createElement('div');
