@@ -1251,7 +1251,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Also check abort_event periodically to support cancellation.
         progress_gen = None
         cancelled = False
-        _PING_INTERVAL = 5  # seconds between keepalive pings
+        _PING_INTERVAL = 2  # seconds between keepalive pings (shorter for faster disconnect detection)
         try:
             async def stream_progress():
                 while not executor_future.done():

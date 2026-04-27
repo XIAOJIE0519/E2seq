@@ -1615,6 +1615,9 @@ STAT3,IL6,regulation,0.88`;
 
         try {
             // Use SSE streaming for real-time progress and incremental text
+            // Use AbortController to prevent browser default timeout (~300s) and allow proper cleanup
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
             const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: {
@@ -1624,7 +1627,9 @@ STAT3,IL6,regulation,0.88`;
                     message: message,
                     chat_id: this.currentChatId,
                 }),
+                signal: controller.signal,
             });
+            clearTimeout(timeoutId);
 
             clearInterval(progressTimer);
 
@@ -1946,6 +1951,39 @@ STAT3,IL6,regulation,0.88`;
                                 if (done) break;
                             }
                             return;
+                        }
+                        partialLine = '';
+                    }
+                }
+            }
+
+            // CRITICAL: Process any remaining data in buffer after stream ends
+            // This handles the case where the last SSE event's data was split
+            // and the partial line is still in the buffer
+            if (buffer.trim()) {
+                _sseLog('BUFFER_FLUSH', `Processing remaining buffer: "${buffer.substring(0, 100)}..."`);
+                const bufferLines = buffer.split('\n');
+                for (const line of bufferLines) {
+                    if (line.startsWith('event: ')) {
+                        partialLine = line.slice(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        _sseLog('BUFFER_EVENT', `${partialLine}: ${data.substring(0, 100)}`);
+                        // Process data line with current partialLine
+                        if (partialLine === 'text') {
+                            try {
+                                const chunk = JSON.parse(data);
+                                streamingText += chunk.content || '';
+                            } catch (e) {
+                                streamingText += data;
+                            }
+                        } else if (partialLine === 'done') {
+                            try {
+                                const result = JSON.parse(data);
+                                if (!streamingText && result.response) {
+                                    streamingText = result.response;
+                                }
+                            } catch (e) {}
                         }
                         partialLine = '';
                     }
