@@ -1582,15 +1582,16 @@ STAT3,IL6,regulation,0.88`;
         this.isAborting = false;
         this._setSendButtonAbort();
 
-        // Add loading bubble
+        // Add loading bubble with progress display
         const loadingId = this.addMessage('assistant', '', true);
         const sessionId = this.currentChatId || 'default';
 
         // Start progress polling
         let lastProgressCount = 0;
+        const progressEl = document.getElementById(loadingId)?.querySelector('.progress-log');
         const pollProgress = async () => {
             try {
-                const pr = await fetch('/api/progress/' + sessionId);
+                const pr = await fetch(`/api/progress/${sessionId}`);
                 if (pr.ok) {
                     const pd = await pr.json();
                     const msgs = pd.messages || [];
@@ -1600,7 +1601,9 @@ STAT3,IL6,regulation,0.88`;
                         if (bubble) {
                             const pl = bubble.querySelector('.progress-log');
                             if (pl) {
-                                pl.innerHTML = msgs.map(m => '<div class="progress-step">' + m + '</div>').join('');
+                                pl.innerHTML = msgs.map(m =>
+                                    `<div class="progress-step">${m}</div>`
+                                ).join('');
                                 pl.scrollTop = pl.scrollHeight;
                             }
                         }
@@ -1611,10 +1614,12 @@ STAT3,IL6,regulation,0.88`;
         const progressTimer = setInterval(pollProgress, 800);
 
         try {
-            // Use regular JSON API (not SSE streaming)
+            // Use regular JSON API call (not SSE streaming) for simplicity and reliability
             const response = await fetch('/api/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({
                     message: message,
                     chat_id: this.currentChatId,
@@ -1630,17 +1635,24 @@ STAT3,IL6,regulation,0.88`;
             }
 
             const data = await response.json();
+
+            // Extract response data
             const resultText = data.response || '';
             const plotsData = data.plots || [];
+            const thinkingSteps = data.thinking || [];
+            const sourceStats = data.data?.source_stats || null;
 
-            // Replace loading with assistant message
+            // Remove loading bubble and create assistant message with full response
             this.removeMessage(loadingId);
-            this.addMessage('assistant', resultText);
+            const messageId = this.addMessage('assistant', resultText);
+            const messageEl = document.getElementById(messageId);
 
+            // Render plots if any
             if (plotsData.length > 0) {
                 this.displayPlots(plotsData);
             }
 
+            // Refresh history after new message
             this.loadChatHistory();
 
         } catch (error) {
@@ -2719,7 +2731,7 @@ STAT3,IL6,regulation,0.88`;
             setTimeout(() => notification.remove(), 300);
         }, 3000);
     }
-}
+
 
 // Inject dynamic styles for analysis panel
 // ========== Analysis Panel Tab + CSV Logic ==========
