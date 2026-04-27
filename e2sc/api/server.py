@@ -1673,12 +1673,21 @@ async def chat(request: Request):
         _prog_handler = _ProgressHandler(chat_id)
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
+        
+        # Create a progress_callback that pushes messages to the progress buffer
+        # This runs in the thread pool alongside agent.chat
+        def _progress_callback(msg: str):
+            _push_progress(chat_id, msg)
+        
         try:
             # Run blocking agent.chat in a thread pool to avoid blocking the
             # async event loop (agent makes many synchronous HTTP + DB calls)
             import asyncio
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, agent.chat, message)
+            response = await loop.run_in_executor(
+                None, 
+                lambda: agent.chat(message, progress_callback=_progress_callback)
+            )
         finally:
             _orch_logger.removeHandler(_prog_handler)
             _push_progress(chat_id, "[进度] 分析完成")
