@@ -1269,7 +1269,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     except asyncio.TimeoutError:
                         # No progress message within _PING_INTERVAL seconds.
                         # Send a keepalive ping to prevent browser fetch timeout.
-                        yield ": keepalive\n\n"
+                        try:
+                            yield ": keepalive\n\n"
+                        except asyncio.CancelledError:
+                            # Client disconnected - exit gracefully
+                            return
                         continue
 
                     if abort_event.is_set():
@@ -1292,8 +1296,8 @@ async def _stream_agent_chat(chat_id: str, message: str):
                                 logger.info(f"[SSE] yield thinking: {msg[:80]}")
                                 yield f"event: thinking\ndata: {payload}\n\n"
                             except asyncio.CancelledError:
-                                # Queue get was cancelled (e.g., abort)
-                                pass
+                                # Queue get was cancelled (e.g., abort or client disconnect)
+                                return
                             except Exception as _te:
                                 logger.warning(f"[SSE] yield thinking failed: {_te}")
 
@@ -1306,14 +1310,27 @@ async def _stream_agent_chat(chat_id: str, message: str):
                             logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
                             yield f"event: text\ndata: {text_payload}\n\n"
                             _drained += 1
+                        except asyncio.CancelledError:
+                            # Client disconnected - exit gracefully
+                            return
                         except Exception:
                             break
                     if _drained > 0:
                         logger.info(f"[SSE] Drained {_drained} text chunks from queue")
 
             progress_gen = stream_progress()
-            async for ev in progress_gen:
-                yield ev
+            try:
+                async for ev in progress_gen:
+                    try:
+                        yield ev
+                    except asyncio.CancelledError:
+                        # Client disconnected while yielding
+                        logger.info(f"[SSE] Client disconnected during yield for chat_id={chat_id}")
+                        progress_gen.aclose()
+                        raise
+            except asyncio.CancelledError:
+                # Let it propagate to outer handler
+                raise
         finally:
             # Properly await aclose() per Python cpython issue #117536
             if progress_gen is not None:
@@ -1329,6 +1346,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 chunk = text_queue.get_nowait()
                 text_payload = json.dumps({"content": chunk})
                 yield f"event: text\ndata: {text_payload}\n\n"
+            except asyncio.CancelledError:
+                # Client disconnected during drain
+                return
             except Exception:
                 break
         while not progress_queue.empty():
@@ -1337,6 +1357,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 _push_progress(chat_id, msg)
                 payload = json.dumps({"step": "progress", "content": msg})
                 yield f"event: thinking\ndata: {payload}\n\n"
+            except asyncio.CancelledError:
+                # Client disconnected during drain
+                return
             except asyncio.QueueEmpty:
                 break
             except Exception:
@@ -1345,22 +1368,32 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Wait for agent to complete (or be cancelled after abort)
         try:
             await loop.run_in_executor(None, lambda: executor_future.result())
-        except (asyncio.CancelledError, asyncio.InvalidStateError):
-            # CancelledError means abort was triggered and executor was cancelled
+        except asyncio.CancelledError:
+            # CancelledError means abort was triggered or client disconnected
             _orch_logger.removeHandler(_prog_handler)
-            yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
-            return
+            # Re-raise to propagate the cancellation
+            raise
+        except asyncio.InvalidStateError:
+            # Already completed but result() failed - treat as error
+            _orch_logger.removeHandler(_prog_handler)
+            raise
 
         _orch_logger.removeHandler(_prog_handler)
 
         # Check if agent raised AbortChat internally (caught in run_agent)
         if agent_result_holder.get("aborted"):
-            yield f"event: aborted\ndata: {json.dumps({'reason': agent_result_holder.get('abort_reason', 'User requested abort')})}\n\n"
+            try:
+                yield f"event: aborted\ndata: {json.dumps({'reason': agent_result_holder.get('abort_reason', 'User requested abort')})}\n\n"
+            except asyncio.CancelledError:
+                raise
             return
 
         # Check if abort was requested while we were draining queues
         if abort_event.is_set():
-            yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
+            try:
+                yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
+            except asyncio.CancelledError:
+                raise
             return
 
         _push_progress(chat_id, "[进度] 分析完成")
@@ -1373,7 +1406,10 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 _save_chat_message(chat_id, "assistant", f"[Error] {_stream_err_msg}")
             except Exception as _pe:
                 logger.warning(f"Failed to persist stream error: {_pe}")
-            yield f"event: error\ndata: {_stream_err_msg}\n\n"
+            try:
+                yield f"event: error\ndata: {_stream_err_msg}\n\n"
+            except asyncio.CancelledError:
+                raise
             return
 
         response = agent_result_holder.get("result", {})
@@ -1383,7 +1419,12 @@ async def _stream_agent_chat(chat_id: str, message: str):
         # Yield thinking steps accumulated during execution
         for step in response.get("thinking", []):
             content = json.dumps({"step": step.get("step", ""), "content": step.get("content", "")})
-            yield f"event: thinking\ndata: {content}\n\n"
+            try:
+                yield f"event: thinking\ndata: {content}\n\n"
+            except asyncio.CancelledError:
+                raise
+            # Allow cancellation check between yields
+            await asyncio.sleep(0)
 
         # Yield plot data
         plots_data = []
@@ -1399,12 +1440,18 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 except Exception:
                     pass
         if plots_data:
-            yield f"event: plots\ndata: {json.dumps(plots_data)}\n\n"
+            try:
+                yield f"event: plots\ndata: {json.dumps(plots_data)}\n\n"
+            except asyncio.CancelledError:
+                raise
 
         # Yield source_stats
         src_stats = response.get("data", {}).get("source_stats", {})
         if src_stats:
-            yield f"event: source_stats\ndata: {json.dumps(src_stats)}\n\n"
+            try:
+                yield f"event: source_stats\ndata: {json.dumps(src_stats)}\n\n"
+            except asyncio.CancelledError:
+                raise
 
         # Persist assistant response after completion
         try:
@@ -1420,12 +1467,26 @@ async def _stream_agent_chat(chat_id: str, message: str):
             "data": response.get("data", {}),
         }
         logger.info(f"[SSE] Yielding done event for chat_id={chat_id}, response_len={len(resp_body.get('response', ''))}, plots={len(plots_data)}")
-        yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
+        try:
+            yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
+        except asyncio.CancelledError:
+            raise
         logger.info(f"[SSE] Done event sent for chat_id={chat_id}")
 
+    except asyncio.CancelledError:
+        # Client disconnected - this is expected behavior, not an error
+        logger.info(f"[SSE] Client disconnected for chat_id={chat_id}, stopping stream")
+        # Clean up abort event registration
+        _abort_events.pop(chat_id, None)
+        # Re-raise CancelledError so StreamingResponse can handle it gracefully
+        raise
     except Exception as e:
         logger.error(f"SSE stream error: {e}")
-        yield f"event: error\ndata: {str(e)}\n\n"
+        try:
+            yield f"event: error\ndata: {str(e)}\n\n"
+        except asyncio.CancelledError:
+            # If we can't even send the error event, client definitely disconnected
+            raise
     finally:
         # Clean up abort event registration
         _abort_events.pop(chat_id, None)
