@@ -1219,15 +1219,23 @@ async def _stream_agent_chat(chat_id: str, message: str):
 
         # Capture the running loop for thread-safe access from the executor thread
         _running_loop = asyncio.get_running_loop()
+        # Flag to track if event loop is still running (for cleanup on disconnect)
+        _loop_closed = False
 
         def progress_callback(msg: str):
             """Thread-safe callback: put progress message into the async queue."""
+            # Skip if event loop has been closed (client disconnected)
+            if _loop_closed:
+                return
             try:
                 _running_loop.call_soon_threadsafe(
                     progress_queue.put_nowait, msg
                 )
+            except RuntimeError as _e:
+                # Event loop is closed - this can happen after client disconnect
+                pass
             except Exception as _pcb_e:
-                logger.warning(f"[SSE] progress_callback failed: {_pcb_e}")
+                logger.debug(f"[SSE] progress_callback failed: {_pcb_e}")
 
         async def drain_queue():
             """Drain all queued progress messages as SSE events."""
@@ -1535,17 +1543,29 @@ async def _stream_agent_chat(chat_id: str, message: str):
     except asyncio.CancelledError:
         # Client disconnected - this is expected behavior, not an error
         logger.info(f"[SSE] Client disconnected for chat_id={chat_id}, stopping stream")
+        # Mark loop as closed to prevent progress_callback from trying to use it
+        nonlocal _loop_closed
+        _loop_closed = True
         # Clean up abort event registration
         _abort_events.pop(chat_id, None)
         # Re-raise CancelledError so StreamingResponse can handle it gracefully
         raise
     except Exception as e:
         logger.error(f"SSE stream error: {e}")
+        # Mark loop as closed
+        nonlocal _loop_closed
+        _loop_closed = True
         try:
             yield f"event: error\ndata: {str(e)}\n\n"
         except CLIENT_DISCONNECT_EXCEPTIONS:
             raise
     finally:
+        # Mark loop as closed to prevent further progress_callback calls
+        try:
+            nonlocal _loop_closed
+            _loop_closed = True
+        except SyntaxError:
+            pass  # nonlocal already set
         # Clean up abort event registration
         _abort_events.pop(chat_id, None)
 
