@@ -1409,7 +1409,16 @@ async def _stream_agent_chat(chat_id: str, message: str):
             # Re-raise to propagate the cancellation
             raise
         except asyncio.InvalidStateError:
-            # Already completed but result() failed - treat as error
+            # Future not completed yet - this can happen if we got CancelledError
+            # from client disconnect before the future completed normally.
+            # Don't raise, just log and continue (result may not be available).
+            logger.warning("[SSE] Future not completed when accessing result, client may have disconnected")
+            _orch_logger.removeHandler(_prog_handler)
+            # Return gracefully instead of crashing
+            return
+        except Exception as e:
+            # Other unexpected errors
+            logger.error(f"[SSE] Error waiting for agent: {e}")
             _orch_logger.removeHandler(_prog_handler)
             raise
 
