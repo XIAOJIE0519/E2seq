@@ -1268,81 +1268,96 @@ async def _stream_agent_chat(chat_id: str, message: str):
         _PING_INTERVAL = 2  # seconds between keepalive pings (shorter for faster disconnect detection)
         try:
             async def stream_progress():
-                while not executor_future.done():
-                    # Build task list: progress queue + abort event
-                    # CRITICAL: progress_queue.get() MUST have a timeout to prevent infinite blocking.
-                    # Without timeout, if no progress arrives, the entire SSE stream hangs and
-                    # the browser's fetch times out (30s default), leaving the UI stuck on
-                    # "thinking" state while the backend has already completed.
-                    try:
-                        tasks = [
-                            asyncio.create_task(asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL)),
-                            asyncio.create_task(abort_event.wait())
-                        ]
-                        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                    except asyncio.TimeoutError:
-                        # No progress message within _PING_INTERVAL seconds.
-                        # Send a keepalive ping to prevent browser fetch timeout.
+                pending_tasks = []  # Track all created tasks for cleanup
+                try:
+                    while not executor_future.done():
+                        # Build task list: progress queue + abort event
+                        # CRITICAL: progress_queue.get() MUST have a timeout to prevent infinite blocking.
+                        # Without timeout, if no progress arrives, the entire SSE stream hangs and
+                        # the browser's fetch times out (30s default), leaving the UI stuck on
+                        # "thinking" state while the backend has already completed.
                         try:
-                            yield ": keepalive\n\n"
-                        except asyncio.CancelledError:
-                            # Client disconnected - exit gracefully
-                            return
-                        except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                            logger.debug(f"[SSE] Client disconnected during keepalive: {_cd}")
-                            return
-                        continue
-
-                    if abort_event.is_set():
-                        # Signal the agent thread to abort and cancel the executor
-                        abort_flag.set()
-                        nonlocal cancelled
-                        cancelled = True
-                        executor_future.cancel()
-                        logger.info(f"[SSE] Abort triggered for chat_id={chat_id}")
-                        return
-
-                    # Check which task completed
-                    for d in done:
-                        if d == tasks[0]:
-                            # Progress message arrived
+                            task1 = asyncio.create_task(asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL))
+                            task2 = asyncio.create_task(abort_event.wait())
+                            pending_tasks.extend([task1, task2])
+                            done, _ = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
+                        except asyncio.TimeoutError:
+                            # No progress message within _PING_INTERVAL seconds.
+                            # Send a keepalive ping to prevent browser fetch timeout.
                             try:
-                                msg = d.result()
-                                _push_progress(chat_id, msg)
-                                payload = json.dumps({"step": "progress", "content": msg})
-                                logger.info(f"[SSE] yield thinking: {msg[:80]}")
-                                yield f"event: thinking\ndata: {payload}\n\n"
-                            except asyncio.CancelledError:
-                                # Queue get was cancelled (e.g., abort or client disconnect)
+                                yield ": keepalive\n\n"
+                            except CLIENT_DISCONNECT_EXCEPTIONS:
+                                # Client disconnected - cancel pending tasks and exit
+                                for t in pending_tasks:
+                                    t.cancel()
                                 return
-                            except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                                # Client disconnects during progress yield - treat as graceful exit.
-                                logger.debug(f"[SSE] Client disconnected: {_cd}")
+                            # Clean up completed tasks from the list
+                            pending_tasks = [t for t in pending_tasks if not t.done()]
+                            continue
+
+                        if abort_event.is_set():
+                            # Signal the agent thread to abort and cancel the executor
+                            abort_flag.set()
+                            nonlocal cancelled
+                            cancelled = True
+                            executor_future.cancel()
+                            logger.info(f"[SSE] Abort triggered for chat_id={chat_id}")
+                            # Cancel pending tasks before return
+                            for t in pending_tasks:
+                                t.cancel()
+                            return
+
+                        # Check which task completed
+                        for d in done:
+                            if d == task1:
+                                # Progress message arrived
+                                try:
+                                    msg = d.result()
+                                    _push_progress(chat_id, msg)
+                                    payload = json.dumps({"step": "progress", "content": msg})
+                                    logger.info(f"[SSE] yield thinking: {msg[:80]}")
+                                    yield f"event: thinking\ndata: {payload}\n\n"
+                                except CLIENT_DISCONNECT_EXCEPTIONS:
+                                    # Client disconnected - cancel pending tasks and exit
+                                    for t in pending_tasks:
+                                        t.cancel()
+                                    return
+                                except Exception as _te:
+                                    logger.warning(f"[SSE] yield thinking failed: {_te}")
+
+                        # Cancel uncompleted tasks before draining text queue
+                        for t in pending_tasks:
+                            if not t.done():
+                                t.cancel()
+                        pending_tasks.clear()
+
+                        # Drain LLM text chunks from queue while executor is running
+                        _drained = 0
+                        while True:
+                            try:
+                                chunk = text_queue.get_nowait()
+                                text_payload = json.dumps({"content": chunk})
+                                logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
+                                yield f"event: text\ndata: {text_payload}\n\n"
+                                _drained += 1
+                            except CLIENT_DISCONNECT_EXCEPTIONS:
+                                # Client disconnected - exit gracefully
                                 return
-                            except Exception as _te:
-                                logger.warning(f"[SSE] yield thinking failed: {_te}")
+                            except Exception:
+                                break
+                        if _drained > 0:
+                            logger.info(f"[SSE] Drained {_drained} text chunks from queue")
+                finally:
+                    # CRITICAL: Cancel all pending tasks when exiting the generator
+                    # This prevents "Task was destroyed but it is pending!" errors
+                    for t in pending_tasks:
+                        if not t.done():
+                            t.cancel()
+                    # Wait briefly for tasks to be cancelled
+                    if pending_tasks:
+                        await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-                    # Drain LLM text chunks from queue while executor is running
-                    _drained = 0
-                    while True:
-                        try:
-                            chunk = text_queue.get_nowait()
-                            text_payload = json.dumps({"content": chunk})
-                            logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
-                            yield f"event: text\ndata: {text_payload}\n\n"
-                            _drained += 1
-                        except asyncio.CancelledError:
-                            # Client disconnected - exit gracefully
-                            return
-                        except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                            logger.debug(f"[SSE] Client disconnected during text drain: {_cd}")
-                            return
-                        except Exception:
-                            break
-                    if _drained > 0:
-                        logger.info(f"[SSE] Drained {_drained} text chunks from queue")
-
-            progress_gen = stream_progress()
+                progress_gen = stream_progress()
             try:
                 async for ev in progress_gen:
                     try:
