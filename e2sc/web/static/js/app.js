@@ -2731,12 +2731,12 @@ STAT3,IL6,regulation,0.88`;
             setTimeout(() => notification.remove(), 300);
         }, 3000);
     }
-
+}
 
 // Inject dynamic styles for analysis panel
 // ========== Analysis Panel Tab + CSV Logic ==========
-(function() {
-    let _csvColumns = [];
+// Module-level code (executed at load time, outside the class)
+let _csvColumns = [];
     let _csvSessionId = '';
 
     // ---- Tab switching ----
@@ -2967,8 +2967,8 @@ STAT3,IL6,regulation,0.88`;
             window.t('confirm.cancel') || '取消',
             true
         );
-    };
-})();
+    }
+
 
 // Fix CSV file input: use event delegation since panel may not be in DOM on DOMContentLoaded
 document.addEventListener('change', function(e) {
