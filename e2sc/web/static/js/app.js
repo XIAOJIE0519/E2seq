@@ -1582,16 +1582,15 @@ STAT3,IL6,regulation,0.88`;
         this.isAborting = false;
         this._setSendButtonAbort();
 
-        // Add loading bubble with progress display
+        // Add loading bubble
         const loadingId = this.addMessage('assistant', '', true);
         const sessionId = this.currentChatId || 'default';
 
         // Start progress polling
         let lastProgressCount = 0;
-        const progressEl = document.getElementById(loadingId)?.querySelector('.progress-log');
         const pollProgress = async () => {
             try {
-                const pr = await fetch(`/api/progress/${sessionId}`);
+                const pr = await fetch('/api/progress/' + sessionId);
                 if (pr.ok) {
                     const pd = await pr.json();
                     const msgs = pd.messages || [];
@@ -1601,9 +1600,7 @@ STAT3,IL6,regulation,0.88`;
                         if (bubble) {
                             const pl = bubble.querySelector('.progress-log');
                             if (pl) {
-                                pl.innerHTML = msgs.map(m =>
-                                    `<div class="progress-step">${m}</div>`
-                                ).join('');
+                                pl.innerHTML = msgs.map(m => '<div class="progress-step">' + m + '</div>').join('');
                                 pl.scrollTop = pl.scrollHeight;
                             }
                         }
@@ -1614,437 +1611,36 @@ STAT3,IL6,regulation,0.88`;
         const progressTimer = setInterval(pollProgress, 800);
 
         try {
-            // Use SSE streaming for real-time progress and incremental text
-            // Use AbortController to prevent browser default timeout (~300s) and allow proper cleanup
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
-            const response = await fetch('/api/chat/stream', {
+            // Use regular JSON API (not SSE streaming)
+            const response = await fetch('/api/chat', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: message,
                     chat_id: this.currentChatId,
                 }),
-                signal: controller.signal,
             });
-            clearTimeout(timeoutId);
 
             clearInterval(progressTimer);
 
             if (!response.ok) {
+                const errText = await response.text();
+                console.error('Chat API error:', response.status, errText);
                 throw new Error(this.t('error.chatFailed'));
             }
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let partialLine = '';
-            let currentText = '';
-            let streamingText = '';
-            let thinkingSteps = [];
-            let plotsData = [];
-            let sourceStats = null;
-            let messageDiv = null;
-            let messageContent = null;
-            let aborted = false; // Flag to prevent processing after abort
+            const data = await response.json();
+            const resultText = data.response || '';
+            const plotsData = data.plots || [];
 
-            // Helper: create or update the assistant message bubble with incremental content
-            const ensureBubble = () => {
-                if (!messageDiv) {
-                    this.removeMessage(loadingId);
-                    messageDiv = this.addMessage('assistant', '', false);
-                    const el = document.getElementById(messageDiv);
-                    if (el) {
-                        messageContent = el.querySelector('.message-content');
-                    }
-                }
-            };
+            // Replace loading with assistant message
+            this.removeMessage(loadingId);
+            this.addMessage('assistant', resultText);
 
-            // Helper: render markdown text incrementally (partial parse)
-            const renderIncrementalMarkdown = (text) => {
-                if (!messageContent) return;
-                try {
-                    if (typeof marked !== 'undefined') {
-                        messageContent.innerHTML = marked.parse(text || '');
-                        messageContent.querySelectorAll('pre code').forEach(function(b) {
-                            if (typeof hljs !== 'undefined') hljs.highlightElement(b);
-                        });
-                    } else {
-                        messageContent.innerHTML = _renderMarkdownFallback(text);
-                    }
-                } catch (e) {
-                    messageContent.textContent = text;
-                }
-                // Scroll to bottom
-                const messagesArea = document.getElementById('messagesArea');
-                if (messagesArea) messagesArea.scrollTop = messagesArea.scrollHeight;
-            };
-
-            // Helper: update progress bar and stage label based on incoming progress message
-            const _updateProgressBar = (msg) => {
-                const barFill = document.getElementById('progressBarFill');
-                const stageEl = document.getElementById('progressStageLabel');
-                const pctEl = document.getElementById('progressPct');
-                if (!barFill) return;
-
-                // Stage detection: map progress keywords to pipeline stages
-                // Backend sends messages like "[进度] 查询 [UNIPROT] [GENE] 50%"
-                // or "[进度] 正在综合解读分析结果..."
-                let stage = '\uD83D\uDCCA 准备中';
-                let pct = 0;
-                // Extract percentage from message FIRST - this takes highest priority
-                const m = msg.match(/(\d+)%/);
-                if (m) {
-                    const extractedPct = parseInt(m[1]);
-                    // Only trust extracted percentage if it's within reasonable bounds
-                    if (extractedPct >= 0 && extractedPct <= 100) {
-                        pct = Math.min(99, extractedPct);
-                    }
-                }
-                
-                // Stage detection based on keywords (only if no percentage was extracted, or for refinement)
-                if (!m) {
-                    if (/[\u7EFC\u5408\u89E3\u8BFB\u751F\u6210\u62A5\u544A]|synth|comprehensive|gene context/i.test(msg)) {
-                        stage = '\u2728 生成报告'; pct = 80;
-                    } else if (/(?:vector|embed|\u5411\u91cf|\u6784\u5efa|\u5df2\u5d4c)/i.test(msg)) {
-                        stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
-                    } else if (/(?:pubmed|europepmc)/i.test(msg)) {
-                        stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                    } else if (/[\u8fdb\u5ea6]/i.test(msg)) {
-                        // Default for [进度] messages without explicit percentage
-                        if (/[\u7EFC\u5408]|synth|comprehensive/i.test(msg)) {
-                            stage = '\u2728 生成报告'; pct = 80;
-                        } else if (/(?:vector|embed)/i.test(msg)) {
-                            stage = '\uD83E\uDDE0 构建向量库'; pct = 65;
-                        } else if (/(?:pubmed|europepmc)/i.test(msg)) {
-                            stage = '\uD83D\uDCC4 文献检索'; pct = 45;
-                        } else if (/[\u5B8C\u6210]|\u7ED3\u675F/i.test(msg)) {
-                            stage = '\u2705 即将完成'; pct = 90;
-                        } else {
-                            stage = '\uD83D\uDD0D 知识检索'; pct = 25;
-                        }
-                    } else if (/ok|done|\u6210\u529F|100%/i.test(msg)) {
-                        stage = '\u2705 即将完成'; pct = 95;
-                    } else if (/[\u89C4\u5212planningplanner]/i.test(msg)) {
-                        stage = '\uD83D\uDDF0 规划中'; pct = 5;
-                    } else if (/[\u7F13\u5B58cache\u7f13\u5b58]/i.test(msg)) {
-                        stage = '\u26A1 使用缓存'; pct = 15;
-                    } else if (/[\u63D0\u4EA4\u65E0\u6548|\u65F6\u95F4\u8FC7\u957F|\u8D85\u65F6|\u53D6\u6D88]/i.test(msg)) {
-                        stage = '\u26A0 超时继续'; pct = 50;
-                    }
-                }
-                
-                // If message has percentage, also update stage based on the value
-                if (m && pct >= 0) {
-                    if (pct >= 90) {
-                        stage = '\u2705 即将完成';
-                    } else if (pct >= 70) {
-                        stage = '\u2728 生成报告';
-                    } else if (pct >= 50) {
-                        stage = '\uD83D\uDCC4 文献检索';
-                    } else if (pct >= 30) {
-                        stage = '\uD83D\uDD0D 知识检索';
-                    } else {
-                        stage = '\uD83D\uDCCA 准备中';
-                    }
-                }
-                
-                // Never exceed 99%
-                if (pct > 99) pct = 99;
-
-                barFill.style.width = pct + '%';
-                if (stageEl) stageEl.textContent = stage;
-                if (pctEl) pctEl.textContent = pct + '%';
-            };
-
-            // Parse SSE stream with detailed debug logging
-            let eventCount = { thinking: 0, plots: 0, text: 0, done: 0, unknown: 0, raw: 0 };
-            let rawEventCount = 0;
-            const _sseLog = (label, detail) => console.log(`[SSE|${label}] ${detail}`);
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    _sseLog('DONE', `Events: ${JSON.stringify(eventCount)}, raw: ${rawEventCount}`);
-                    break;
-                }
-                // Skip all events after abort
-                if (aborted) continue;
-                rawEventCount++;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (line.startsWith('event: ')) {
-                        partialLine = line.slice(7).trim();
-                        _sseLog('event', `Set event type to: ${partialLine}`);
-                    } else if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        // Skip empty data lines (incomplete events from TCP fragmentation)
-                        if (!data && !partialLine) {
-                            _sseLog('parse', 'Empty data with no event type, skipping');
-                            continue;
-                        }
-                        const eventType = partialLine || '(none)';
-                        if (eventType === 'thinking') eventCount.thinking++;
-                        else if (eventType === 'plots') eventCount.plots++;
-                        else if (eventType === 'text') eventCount.text++;
-                        else if (eventType === 'done') eventCount.done++;
-                        else eventCount.unknown++;
-
-                        _sseLog(eventType, data.substring(0, 200));
-                        if (partialLine === 'thinking') {
-                            // Find the loading bubble - it may have been removed if streaming started
-                            let loadingBubble = document.getElementById(loadingId);
-                            let targetContent = null;
-                            if (loadingBubble) {
-                                targetContent = loadingBubble.querySelector('.message-content');
-                            }
-                            try {
-                                const step = JSON.parse(data);
-                                const stepText = step.content || '';
-                                // Update progress bar with step text
-                                if (stepText) _updateProgressBar(stepText);
-                                // Append step to progress log if bubble still exists
-                                if (targetContent) {
-                                    const pl = targetContent.querySelector('.progress-log');
-                                    if (pl) {
-                                        const stepDiv = document.createElement('div');
-                                        stepDiv.className = 'progress-step';
-                                        const stepName = step.step ? `[${step.step}] ` : '';
-                                        stepDiv.innerHTML = `<span class="step-name">${stepName}</span><span class="step-text">${stepText}</span>`;
-                                        pl.appendChild(stepDiv);
-                                        pl.scrollTop = pl.scrollHeight;
-                                    }
-                                }
-                                // Inject streaming text into the loading bubble's content area
-                                // (not into progress log — into a dedicated text preview div)
-                                if (step.text && targetContent) {
-                                    let previewDiv = targetContent.querySelector('.streaming-preview');
-                                    if (!previewDiv) {
-                                        previewDiv = document.createElement('div');
-                                        previewDiv.className = 'streaming-preview';
-                                        previewDiv.style.cssText = 'margin-top:10px;padding:8px;background:#f0f0f0;border-radius:6px;font-size:0.85rem;max-height:120px;overflow-y:auto;';
-                                        targetContent.appendChild(previewDiv);
-                                    }
-                                    streamingText += step.text;
-                                    try {
-                                        if (typeof marked !== 'undefined') {
-                                            previewDiv.innerHTML = marked.parse(streamingText || '');
-                                        } else {
-                                            previewDiv.textContent = streamingText;
-                                        }
-                                    } catch (_) {
-                                        previewDiv.textContent = streamingText;
-                                    }
-                                }
-                            } catch (e) {
-                                // Non-JSON — raw progress text (e.g. "[进度] ...")
-                                // These are plain text progress messages from the backend
-                                _updateProgressBar(data);
-                                if (targetContent) {
-                                    const pl = targetContent.querySelector('.progress-log');
-                                    if (pl) {
-                                        const stepDiv = document.createElement('div');
-                                        stepDiv.className = 'progress-step';
-                                        stepDiv.textContent = data;
-                                        pl.appendChild(stepDiv);
-                                        pl.scrollTop = pl.scrollHeight;
-                                    }
-                                }
-                            }
-                        } else if (partialLine === 'plots') {
-                            plotsData = plotsData.concat(JSON.parse(data));
-                            this.displayPlots(plotsData);
-                        } else if (partialLine === 'source_stats') {
-                            try {
-                                sourceStats = JSON.parse(data);
-                            } catch (e) { /* ignore parse error */ }
-                        } else if (partialLine === 'text') {
-                            // Incremental text chunk from streaming LLM
-                            // These come after progress steps — bubble may still be loading or already replaced
-                            try {
-                                const chunk = JSON.parse(data);
-                                streamingText += chunk.content || '';
-                            } catch (e) {
-                                streamingText += data;
-                            }
-                            // Try to inject into loading bubble first, then into a new bubble
-                            const lb = document.getElementById(loadingId);
-                            if (lb) {
-                                const lc = lb.querySelector('.message-content');
-                                if (lc) {
-                                    // CRITICAL: When streaming starts, hide the "thinking" state
-                                    // and progress bar to avoid confusing the user with both
-                                    // the progress indicator AND the streaming content visible.
-                                    const indicator = lc.querySelector('.thinking-indicator');
-                                    if (indicator) indicator.style.display = 'none';
-                                    const progHeader = lc.querySelector('.progress-header');
-                                    if (progHeader) progHeader.style.display = 'none';
-
-                                    let previewDiv = lc.querySelector('.streaming-preview');
-                                    if (!previewDiv) {
-                                        previewDiv = document.createElement('div');
-                                        previewDiv.className = 'streaming-preview';
-                                        previewDiv.style.cssText = 'margin-top:10px;padding:8px;background:#f0f0f0;border-radius:6px;font-size:0.85rem;max-height:120px;overflow-y:auto;';
-                                        lc.appendChild(previewDiv);
-                                    }
-                                    try {
-                                        if (typeof marked !== 'undefined') {
-                                            previewDiv.innerHTML = marked.parse(streamingText || '');
-                                        } else {
-                                            previewDiv.textContent = streamingText;
-                                        }
-                                    } catch (_) {
-                                        previewDiv.textContent = streamingText;
-                                    }
-                                }
-                            } else {
-                                // Loading bubble already removed — use ensureBubble
-                                ensureBubble();
-                                renderIncrementalMarkdown(streamingText);
-                            }
-                        } else if (partialLine === 'done') {
-                            try {
-                                const result = JSON.parse(data);
-                                _sseLog('done', `response_len=${(result.response || '').length}, plots=${(result.plots || []).length}`);
-                                // Use streamed text if available, otherwise use full response
-                                if (!streamingText) {
-                                    streamingText = result.response || '';
-                                }
-                                currentText = streamingText;
-                                // Merge source_stats from done event (supplements stream event)
-                                if (result.data && result.data.source_stats && !sourceStats) {
-                                    sourceStats = result.data.source_stats;
-                                }
-                                // Ensure plots from done event are included
-                                if (result.plots && result.plots.length > 0) {
-                                    plotsData = plotsData.concat(result.plots);
-                                }
-                            } catch (e) {
-                                _sseLog('done', `JSON parse error: ${e}, raw data: ${data.substring(0, 200)}`);
-                                // Try to use raw data as response
-                                if (!currentText && !streamingText) {
-                                    currentText = data;
-                                    streamingText = data;
-                                }
-                            }
-                            _sseLog('done', `After processing: currentText.len=${currentText.length}, streamingText.len=${streamingText.length}`);
-                        } else if (partialLine === 'error') {
-                            currentText = '[Error] ' + data;
-                            _sseLog('error', data);
-                        } else if (partialLine === 'aborted') {
-                            // User cancelled — replace loading bubble with abort notice
-                            aborted = true; // Mark as aborted to skip subsequent events
-                            this.removeMessage(loadingId);
-                            let abortReason = '';
-                            try { abortReason = JSON.parse(data).reason || ''; } catch (_) {}
-                            this.addMessage('assistant', '【已中止】' + abortReason + '回复已被中断。');
-                            // Restore button immediately and break SSE loop
-                            this.isProcessing = false;
-                            this.isAborting = false;
-                            this._setSendButtonNormal();
-                            // Break out of SSE processing loop immediately
-                            while (true) {
-                                const { done } = await reader.read();
-                                if (done) break;
-                            }
-                            return;
-                        }
-                        partialLine = '';
-                    }
-                }
-            }
-
-            // CRITICAL: Process any remaining data in buffer after stream ends
-            // This handles the case where the last SSE event's data was split
-            // and the partial line is still in the buffer
-            if (buffer.trim()) {
-                _sseLog('BUFFER_FLUSH', `Processing remaining buffer: "${buffer.substring(0, 100)}..."`);
-                const bufferLines = buffer.split('\n');
-                for (const line of bufferLines) {
-                    if (line.startsWith('event: ')) {
-                        partialLine = line.slice(7).trim();
-                    } else if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        _sseLog('BUFFER_EVENT', `${partialLine}: ${data.substring(0, 100)}`);
-                        // Process data line with current partialLine
-                        if (partialLine === 'text') {
-                            try {
-                                const chunk = JSON.parse(data);
-                                streamingText += chunk.content || '';
-                            } catch (e) {
-                                streamingText += data;
-                            }
-                        } else if (partialLine === 'done') {
-                            try {
-                                const result = JSON.parse(data);
-                                if (!streamingText && result.response) {
-                                    streamingText = result.response;
-                                }
-                            } catch (e) {}
-                        }
-                        partialLine = '';
-                    }
-                }
-            }
-
-            // Debug log before rendering final content
-            _sseLog('FINAL', `loadingBubble=${!!loadingBubble}, currentText.len=${(currentText || '').length}, streamingText.len=${(streamingText || '').length}, plotsData=${plotsData.length}`);
-
-            // Replace loading bubble with final assistant message (keep progress steps visible)
-            const loadingBubble = document.getElementById(loadingId);
-            if (loadingBubble) {
-                loadingBubble.classList.remove('loading');
-                loadingBubble.classList.add('assistant');
-                const msgContent = loadingBubble.querySelector('.message-content');
-                if (msgContent) {
-                    // Remove thinking indicator, progress header, and streaming preview
-                    const indicator = msgContent.querySelector('.thinking-indicator');
-                    if (indicator) indicator.remove();
-                    const progHeader = msgContent.querySelector('.progress-header');
-                    if (progHeader) progHeader.remove();
-                    const streamingPreview = msgContent.querySelector('.streaming-preview');
-                    if (streamingPreview) streamingPreview.remove();
-                    const progressLog = msgContent.querySelector('.progress-log');
-                    // Render final markdown content
-                    let finalHtml;
-                    if (typeof marked !== 'undefined') {
-                        finalHtml = marked.parse(currentText || streamingText || '');
-                        msgContent.querySelectorAll('pre code').forEach(function(b) {
-                            if (typeof hljs !== 'undefined') hljs.highlightElement(b);
-                        });
-                    } else {
-                        finalHtml = currentText || streamingText || '';
-                    }
-                    if (progressLog) {
-                        // Keep progress steps, append final text below
-                        const finalDiv = document.createElement('div');
-                        finalDiv.className = 'final-response';
-                        finalDiv.innerHTML = finalHtml;
-                        msgContent.appendChild(finalDiv);
-                    } else {
-                        msgContent.innerHTML = finalHtml;
-                    }
-                    // Render source stats if available
-                    if (sourceStats) {
-                        this._renderSourceStats(msgContent, sourceStats);
-                    }
-                }
-            } else {
-                // No loading bubble — just add message normally
-                if (currentText) {
-                    this.addMessage('assistant', currentText);
-                } else if (streamingText) {
-                    this.addMessage('assistant', streamingText);
-                }
-            }
             if (plotsData.length > 0) {
                 this.displayPlots(plotsData);
             }
 
-            // Refresh history after new message
             this.loadChatHistory();
 
         } catch (error) {
@@ -2056,26 +1652,6 @@ STAT3,IL6,regulation,0.88`;
             this.isProcessing = false;
             this.isAborting = false;
             this._setSendButtonNormal();
-            // Defensive: ensure message content is visible even if SSE was interrupted
-            const finalLoadingBubble = document.getElementById(loadingId);
-            if (finalLoadingBubble && (currentText || streamingText)) {
-                _sseLog('DEFENSIVE', 'Restoring message content in finally block');
-                const msgContent = finalLoadingBubble.querySelector('.message-content');
-                if (msgContent && !msgContent.textContent?.trim()) {
-                    finalLoadingBubble.classList.remove('loading');
-                    finalLoadingBubble.classList.add('assistant');
-                    let finalHtml;
-                    if (typeof marked !== 'undefined') {
-                        finalHtml = marked.parse(currentText || streamingText || '');
-                    } else {
-                        finalHtml = currentText || streamingText || '';
-                    }
-                    msgContent.innerHTML = finalHtml;
-                    // Scroll to bottom
-                    const messagesArea = document.getElementById('messagesArea');
-                    if (messagesArea) messagesArea.scrollTop = messagesArea.scrollHeight;
-                }
-            }
         }
     }
 
