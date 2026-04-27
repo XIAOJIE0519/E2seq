@@ -21,6 +21,14 @@ import base64
 from pathlib import Path
 import scanpy as sc
 import logging
+import anyio
+
+# Try to import ClientDisconnected for proper SSE client disconnect handling (Uvicorn v0.28.0+)
+try:
+    from starlette.exceptions import ClientDisconnected
+except ImportError:
+    # Fallback: define a marker for client disconnection detection
+    ClientDisconnected = type("ClientDisconnected", (RuntimeError,), {})
 
 from e2sc import E2scAgent
 from e2sc.utils import get_config, get_security_manager
@@ -1274,6 +1282,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         except asyncio.CancelledError:
                             # Client disconnected - exit gracefully
                             return
+                        except (ClientDisconnected, RuntimeError) as _cd:
+                            logger.debug(f"[SSE] Client disconnected during keepalive: {_cd}")
+                            return
                         continue
 
                     if abort_event.is_set():
@@ -1298,6 +1309,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
                             except asyncio.CancelledError:
                                 # Queue get was cancelled (e.g., abort or client disconnect)
                                 return
+                            except (ClientDisconnected, RuntimeError) as _cd:
+                                # Uvicorn v0.28.0+ raises ClientDisconnected (RuntimeError subclass)
+                                # when client disconnects. Treat as graceful exit.
+                                logger.debug(f"[SSE] Client disconnected: {_cd}")
+                                return
                             except Exception as _te:
                                 logger.warning(f"[SSE] yield thinking failed: {_te}")
 
@@ -1312,6 +1328,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                             _drained += 1
                         except asyncio.CancelledError:
                             # Client disconnected - exit gracefully
+                            return
+                        except (ClientDisconnected, RuntimeError) as _cd:
+                            logger.debug(f"[SSE] Client disconnected during text drain: {_cd}")
                             return
                         except Exception:
                             break
@@ -1328,6 +1347,11 @@ async def _stream_agent_chat(chat_id: str, message: str):
                         logger.info(f"[SSE] Client disconnected during yield for chat_id={chat_id}")
                         progress_gen.aclose()
                         raise
+                    except (ClientDisconnected, RuntimeError) as _cd:
+                        # Uvicorn v0.28.0+ client disconnect
+                        logger.info(f"[SSE] Client disconnected (ClientDisconnected): {chat_id}")
+                        progress_gen.aclose()
+                        raise asyncio.CancelledError("client disconnected") from _cd
             except asyncio.CancelledError:
                 # Let it propagate to outer handler
                 raise
@@ -1349,6 +1373,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
             except asyncio.CancelledError:
                 # Client disconnected during drain
                 return
+            except (ClientDisconnected, RuntimeError) as _cd:
+                logger.debug(f"[SSE] Client disconnected during final drain: {_cd}")
+                return
             except Exception:
                 break
         while not progress_queue.empty():
@@ -1359,6 +1386,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 yield f"event: thinking\ndata: {payload}\n\n"
             except asyncio.CancelledError:
                 # Client disconnected during drain
+                return
+            except (ClientDisconnected, RuntimeError) as _cd:
+                logger.debug(f"[SSE] Client disconnected during progress drain: {_cd}")
                 return
             except asyncio.QueueEmpty:
                 break
@@ -1384,7 +1414,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if agent_result_holder.get("aborted"):
             try:
                 yield f"event: aborted\ndata: {json.dumps({'reason': agent_result_holder.get('abort_reason', 'User requested abort')})}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
             return
 
@@ -1392,7 +1422,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if abort_event.is_set():
             try:
                 yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
             return
 
@@ -1408,7 +1438,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 logger.warning(f"Failed to persist stream error: {_pe}")
             try:
                 yield f"event: error\ndata: {_stream_err_msg}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
             return
 
@@ -1421,7 +1451,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
             content = json.dumps({"step": step.get("step", ""), "content": step.get("content", "")})
             try:
                 yield f"event: thinking\ndata: {content}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
             # Allow cancellation check between yields
             await asyncio.sleep(0)
@@ -1442,7 +1472,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if plots_data:
             try:
                 yield f"event: plots\ndata: {json.dumps(plots_data)}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
 
         # Yield source_stats
@@ -1450,7 +1480,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if src_stats:
             try:
                 yield f"event: source_stats\ndata: {json.dumps(src_stats)}\n\n"
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
                 raise
 
         # Persist assistant response after completion
@@ -1469,7 +1499,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         logger.info(f"[SSE] Yielding done event for chat_id={chat_id}, response_len={len(resp_body.get('response', ''))}, plots={len(plots_data)}")
         try:
             yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
             raise
         logger.info(f"[SSE] Done event sent for chat_id={chat_id}")
 
@@ -1484,8 +1514,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
         logger.error(f"SSE stream error: {e}")
         try:
             yield f"event: error\ndata: {str(e)}\n\n"
-        except asyncio.CancelledError:
-            # If we can't even send the error event, client definitely disconnected
+        except (asyncio.CancelledError, ClientDisconnected, RuntimeError):
             raise
     finally:
         # Clean up abort event registration
