@@ -1686,7 +1686,7 @@ async def chat(request: Request):
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None, 
-                lambda: agent.chat(message, progress_callback=_progress_callback)
+                lambda: agent.chat(message, progress_callback=_progress_callback, text_queue=None)
             )
         finally:
             _orch_logger.removeHandler(_prog_handler)
