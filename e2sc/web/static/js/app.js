@@ -259,6 +259,8 @@ class E2seqApp {
                     const selectedModel = selEl.value;
                     if (!selectedModel) return;
                     // 获取当前已配置的 provider 和 decrypted key（从 status badge 推断，或用已配置的）
+                    // 显示连接中状态
+                    const testingOverlay = this.showConnectionStatus('testing', '');
                     try {
                         const r = await fetch('/api/settings/switch-model', {
                             method: 'POST',
@@ -269,17 +271,22 @@ class E2seqApp {
                                 key_field: PROVIDER_FIELDS[provider]
                             })
                         });
+                        testingOverlay.remove();
                         const d = await r.json();
                         if (d.success) {
+                            if (d.connection_test) {
+                                this.showConnectionStatus(d.connection_test.success ? 'success' : 'error', 
+                                    d.connection_test.message || (d.connection_test.success ? '连接成功' : '连接失败'));
+                            }
                             if (statusEl) statusEl.innerHTML = '<span style="color:#34d399;font-size:.8rem">✓ 已切换至 ' + selectedModel + '</span>';
                             this._updateModelBadge(provider, selectedModel);
-                            this.showNotification(`${PROVIDER_LABELS[provider]} 已切换至 ${selectedModel}`, 'success');
                         } else {
-                            this.showNotification(d.detail || '切换失败，请先保存 API Key', 'error');
+                            this.showConnectionStatus('error', d.detail || '切换失败');
                             if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-size:.8rem">' + (d.detail||'切换失败') + '</span>';
                         }
                     } catch(err) {
-                        this.showNotification('切换失败: ' + err.message, 'error');
+                        testingOverlay.remove();
+                        this.showConnectionStatus('error', err.message || '切换失败');
                     }
                 });
             }
@@ -1303,16 +1310,10 @@ STAT3,IL6,regulation,0.88`;
             }
             await this.loadSettings();
 
-            // 显示连接状态弹窗
+            // 显示连接状态弹窗（使用后端返回的连接测试结果）
             const connTest = result.connection_test;
             if (connTest) {
-                if (connTest.success) {
-                    this.showConnectionStatus('success', connTest.message || '连接成功');
-                } else {
-                    this.showConnectionStatus('error', connTest.message || '连接失败');
-                }
-            } else {
-                this.testConnectionWithFeedback();
+                this.showConnectionStatus(connTest.success ? 'success' : 'error', connTest.message || (connTest.success ? '连接成功' : '连接失败'));
             }
 
         } catch (error) {
