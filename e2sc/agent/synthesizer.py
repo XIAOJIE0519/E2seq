@@ -87,9 +87,9 @@ class SynthesizerAgent:
         # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
         _t1 = _time.time()
         results_summary = self._format_results(results, knowledge=knowledge)
-        results_summary = self._truncate_to_token_budget(results_summary, max_chars=12000)
+        results_summary = self._truncate_to_token_budget(results_summary, max_chars=15000)
         knowledge_summary = self._format_knowledge(knowledge)
-        knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=25000)
+        knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=40000)
         similar_cases_summary = self._format_similar_cases(knowledge.get("similar_cases", []))
         similar_cases_summary = self._truncate_to_token_budget(similar_cases_summary, max_chars=2000)
         logger.info(f"[Synthesizer] Formatting done in {_time.time()-_t1:.1f}s. results_len={len(results_summary)}, knowledge_len={len(knowledge_summary)}, history_len={len(history) if history else 0}")
@@ -205,6 +205,11 @@ class SynthesizerAgent:
             r'\b(模块|模块化|网络|互作|相互作用|ppi|通路|调控|module|network|interaction|pathway|regulat|共调控|协同)\b',
             q_lower
         ))
+        # Detect comprehensive/overall analysis request
+        is_comprehensive_q = bool(re.search(
+            r'\b(综合|全面|整体|概括|总结|overview|comprehensive|overall|summary|summarize|综合分析|整体分析|全面解读)\b',
+            q_lower
+        ))
         has_cross_gene = bool(
             knowledge and (
                 (knowledge.get("cross_gene_analysis") or {}).get("modules") or
@@ -235,6 +240,20 @@ class SynthesizerAgent:
             "9. If the question asks about specific targets, biomarkers, drugs, or pathways — "
             "discuss ONLY those. Do NOT force a network/interaction analysis.\n"
         )
+
+        # Comprehensive analysis: MUST integrate ALL data sources
+        if is_comprehensive_q or is_comprehensive:
+            comprehensive_rules = (
+                "\n*** COMPREHENSIVE ANALYSIS MODE ***\n"
+                "This is a COMPREHENSIVE/OVERALL analysis request. You MUST:\n"
+                "a) INTEGRATE ALL 20 DATA SOURCES — cite evidence from multiple databases for each claim.\n"
+                "b) Discuss EVERY gene that has data, not just the top 3-5.\n"
+                "c) Structure by BIOLOGICAL THEME (pathways, disease, drugs, tissue specificity).\n"
+                "d) Provide QUANTITATIVE data: fold changes, scores, p-values, expression values.\n"
+                "e) End with a DATA COVERAGE SUMMARY showing which databases provided data.\n"
+                "f) Write a THOROUGH multi-section report — this is NOT a brief summary.\n"
+            )
+            return base_rules + comprehensive_rules
 
         # Focused/direct question (找/哪些/列出): answer specifically
         if is_targeted and not is_module_net:
@@ -435,13 +454,13 @@ class SynthesizerAgent:
             key=lambda x: x[2], reverse=True
         )
 
-        # Priority: drug targets > disease associations > others (take top 30)
+        # Priority: drug targets > disease associations > others (take top 100 for comprehensive analysis)
         def has_priority_data(info: dict) -> bool:
             return bool(info.get("drug_targets") or info.get("ot_diseases"))
 
         priority_genes = [(g, i) for g, i, _ in scored if has_priority_data(i)]
         remaining = [(g, i) for g, i, _ in scored if not has_priority_data(i)]
-        top_genes = (priority_genes + remaining)[:60]
+        top_genes = (priority_genes + remaining)[:100]
 
         lines = [f"=== GENE KNOWLEDGE (top {len(top_genes)} / {len(genes_info)} genes) ===\n"]
 

@@ -89,6 +89,34 @@ Graph RAG Query Results:
 
 Similar Past Analyses:
 {similar_cases}
+
+## MANDATORY INSTRUCTIONS FOR SYNTHESIS:
+
+When the user asks for a COMPREHENSIVE analysis (综合解读/全面分析/整体分析), you MUST:
+
+1. INTEGRATE ALL 20 DATA SOURCES — do NOT selectively ignore any database:
+   - Online APIs: UniProt, MyGene, QuickGO, Ensembl, ChEMBL, Open Targets, ClinVar, CIViC, 
+     GWAS Catalog, Reactome, GTEx, HumanBase, BioGRID, Alliance, PubMed, EuropePMC
+   - Local Databases: STRING (PPI), HMDB (metabolites), TRRUST (TF regulation), GUTMGENE (microbiome)
+
+2. For EACH gene mentioned, cite data from MULTIPLE sources (not just one):
+   - Example: "TP53 is frequently mutated in cancer [ClinVar] and encodes a tumor suppressor that 
+     regulates cell cycle arrest [UniProt]. It interacts with BCL2 in apoptosis pathways [STRING]."
+
+3. Structure the response by BIOLOGICAL THEME, not by database source:
+   - Group genes by: signaling pathways, disease mechanisms, drug targets, tissue specificity, etc.
+   - For each theme, cite evidence from 3+ different databases
+
+4. Provide QUANTITATIVE data when available:
+   - Expression values, fold changes, interaction scores, p-values
+   - Example: "IL6 showed 8.5-fold higher expression in Tumor vs Normal [data]"
+
+5. End with a SUMMARY TABLE of data coverage:
+   - List which databases provided data for each gene
+   - This helps the user understand the completeness of the analysis
+
+DO NOT write a brief 2-3 paragraph summary. Write a COMPREHENSIVE multi-section report
+that demonstrates thorough analysis across ALL available data sources.
 """
 
 TOOL_DESCRIPTION_PROMPT = """Describe what this tool does and when to use it.
