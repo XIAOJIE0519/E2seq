@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 class LLMProvider(ABC):
     """Base class for LLM providers."""
 
-    def __init__(self, api_key: str, model: str, temperature: float = 0.7, max_tokens: int = 163840):  # 163840 = max for most frontier models
+    def __init__(self, api_key: str, model: str, temperature: float = 0.7, max_tokens: int = 81920):  # 81920 = half of 163840
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
@@ -418,7 +418,7 @@ def create_llm_provider(
     api_key: str = "",
     model: Optional[str] = None,
     temperature: float = 0.7,
-    max_tokens: int = 163840,
+    max_tokens: int = 81920,
 ) -> LLMProvider:
     """Factory function to create LLM provider.
 

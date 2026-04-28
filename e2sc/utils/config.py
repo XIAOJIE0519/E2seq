@@ -68,7 +68,7 @@ class LLMConfig(BaseSettings):
     api_key: str = Field(default="")
     model: str = Field(default="gpt-4")
     temperature: float = Field(default=0.7)
-    max_tokens: int = Field(default=163840)
+    max_tokens: int = Field(default=81920)
     
     class Config:
         env_prefix = "E2SC_"
