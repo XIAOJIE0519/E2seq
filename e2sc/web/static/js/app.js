@@ -1653,6 +1653,14 @@ STAT3,IL6,regulation,0.88`;
                 this.displayPlots(plotsData);
             }
 
+            // Render source statistics if available
+            if (sourceStats) {
+                const msgContent = messageEl?.querySelector('.message-content');
+                if (msgContent) {
+                    this._renderSourceStats(msgContent, sourceStats);
+                }
+            }
+
             // Refresh history after new message
             this.loadChatHistory();
 
