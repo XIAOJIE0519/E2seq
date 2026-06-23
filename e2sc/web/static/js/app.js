@@ -1181,11 +1181,11 @@ STAT3,IL6,regulation,0.88`;
         if (statusEl) statusEl.innerHTML = `<span style="color:#9aa0ac;font-size:.8rem">${window.t('settings.fetchingModels')}</span>`;
         const CURATED = {
             openai: ['gpt-5.5','gpt-5.5-pro','gpt-5.1','gpt-5.2','gpt-5.3-chat-latest','gpt-4o'],
-            anthropic: ['claude-sonnet-4-6','claude-opus-4-7','claude-haiku-4-5'],
+            anthropic: ['claude-opus-4-8','claude-opus-4-7','claude-sonnet-4-6','claude-haiku-4-5'],
             gemini: ['gemini-3.1-pro-preview','gemini-3-flash-preview','gemini-3.1-flash-lite-preview','gemini-2.5-pro','gemini-2.5-flash'],
             deepseek: ['deepseek-v4-flash','deepseek-v4-pro'],
             siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct'],
-            glm: ['glm-5.1','glm-4-Plus','glm-4'],
+            glm: ['glm-5.2','glm-5.1','glm-4-Plus','glm-4'],
             kimi: ['kimi-k2.6','moonshot-v2.5-250415'],
         };
         const curated = CURATED[provider] || [];

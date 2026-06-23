@@ -1649,7 +1649,20 @@ async def chat(request: Request):
             raise HTTPException(status_code=500, detail=f"Agent 初始化失败: {str(e)}")
     else:
         logger.info(f"Reusing existing agent for session: {chat_id} (memory preserved)")
-        # Do NOT auto-inject data — only load data when user explicitly uploads
+
+    # P0 FIX: Restore SQLite conversation history into agent's WorkingMemory
+    # This fixes the critical断层 where switching to an existing chat left the
+    # LLM with empty conversation_history even though the frontend showed messages.
+    try:
+        _sqlite_msgs = _get_chat_messages(chat_id)
+        if _sqlite_msgs:
+            agent = agents[chat_id]
+            if hasattr(agent, "memory") and hasattr(agent.memory, "restore_session"):
+                agent.memory.restore_session(chat_id, _sqlite_msgs)
+                logger.info(f"[Memory] Restored {len(_sqlite_msgs)} messages from SQLite for session {chat_id}")
+    except Exception as _mem_e:
+        logger.warning(f"[Memory] Failed to restore session history: {_mem_e}")
+
     try:
         agent = agents[chat_id]
 

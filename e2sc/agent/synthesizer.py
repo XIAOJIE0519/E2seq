@@ -1,5 +1,6 @@
 """Synthesizer agent for generating final reports."""
 
+import json
 import re as _re
 from typing import Any, Dict, List
 
@@ -84,16 +85,28 @@ class SynthesizerAgent:
         _t0 = _time.time()
         logger.info(f"[Synthesizer] Starting synthesis. question={question[:80]!r}, has_knowledge={'genes' in knowledge}, text_queue={text_queue is not None}")
 
-        # Pass knowledge so _format_results can access cross_gene_analysis injected by orchestrator
+        # P3: Extract cross-session context injected by orchestrator
+        cross_session = knowledge.pop("cross_session_context", {})
+        similar_sessions = cross_session.get("similar_sessions", [])
+        relevant_patterns = cross_session.get("relevant_patterns", {})
+        current_context = cross_session.get("current_context", "")
+        # P3: Also support legacy direct injection of similar_cases via knowledge dict
+        if not similar_sessions:
+            similar_sessions = knowledge.get("similar_cases", [])
+
+        # P2: Use dynamic token budgets based on estimated context
         _t1 = _time.time()
         results_summary = self._format_results(results, knowledge=knowledge)
         results_summary = self._truncate_to_token_budget(results_summary, max_chars=15000)
         knowledge_summary = self._format_knowledge(knowledge)
         knowledge_summary = self._truncate_to_token_budget(knowledge_summary, max_chars=40000)
-        similar_cases_summary = self._format_similar_cases(knowledge.get("similar_cases", []))
-        similar_cases_summary = self._truncate_to_token_budget(similar_cases_summary, max_chars=2000)
-        logger.info(f"[Synthesizer] Formatting done in {_time.time()-_t1:.1f}s. results_len={len(results_summary)}, knowledge_len={len(knowledge_summary)}, history_len={len(history) if history else 0}")
-        has_knowledge = bool(knowledge.get("genes")) or bool(knowledge.get("similar_cases"))
+        # P3: Use enriched similar_cases from cross_session_context
+        similar_cases_summary = self._format_similar_cases(similar_sessions, relevant_patterns)
+        similar_cases_summary = self._truncate_to_token_budget(similar_cases_summary, max_chars=3000)
+        # P3: Format current context summary
+        ctx_summary = self._format_current_context(current_context)
+        logger.info(f"[Synthesizer] Formatting done in {_time.time()-_t1:.1f}s. results_len={len(results_summary)}, knowledge_len={len(knowledge_summary)}, history_len={len(history) if history else 0}, similar_cases={len(similar_sessions)}")
+        has_knowledge = bool(knowledge.get("genes")) or bool(similar_sessions)
 
         prompt = SYNTHESIZER_PROMPT.format(
             question=question,
@@ -105,9 +118,6 @@ class SynthesizerAgent:
         # Prepend RAG vector-store context chunks (highest evidence priority)
         rag_context = knowledge.get("rag_context", "")
         if rag_context:
-            # Cap RAG context to fit within the model's context window (32768 tokens)
-            # Total budget: system(~2500) + history(~2000) + template(~800)
-            #   + results(8000) + knowledge(15000) + rag(6000) ≈ 34300 chars ≤ 32768 tokens
             rag_context = self._truncate_to_token_budget(rag_context, max_chars=6000)
             prompt = (
                 "=== RAG Retrieved Knowledge (highest priority — primary evidence source) ===\n"
@@ -115,6 +125,16 @@ class SynthesizerAgent:
                 + "\n\n=== Additional Aggregated Knowledge ===\n"
                 + prompt
             )
+
+        # P3: Prepend cross-session memory context if available
+        if ctx_summary or similar_cases_summary:
+            cross_parts = []
+            if ctx_summary:
+                cross_parts.append(ctx_summary)
+            if similar_cases_summary:
+                cross_parts.append(similar_cases_summary)
+            cross_section = "\n".join(cross_parts)
+            prompt = cross_section + "\n\n" + prompt
 
         system_message = self._build_system_message(question, is_comprehensive, output_mode, knowledge=knowledge)
 
@@ -157,7 +177,8 @@ class SynthesizerAgent:
 
         retrieval_status = {
             "genes_retrieved": len(knowledge.get("genes", {})),
-            "similar_cases_found": len(knowledge.get("similar_cases", [])),
+            "similar_cases_found": len(similar_sessions),
+            "relevant_patterns_found": len(relevant_patterns),
             "has_sufficient_knowledge": has_knowledge,
         }
 
@@ -177,7 +198,8 @@ class SynthesizerAgent:
         logger.info(
             f"Report synthesis completed. "
             f"{retrieval_status['genes_retrieved']} genes, "
-            f"{retrieval_status['similar_cases_found']} similar cases"
+            f"{retrieval_status['similar_cases_found']} similar cases, "
+            f"{retrieval_status['relevant_patterns_found']} patterns"
         )
         return response
 
@@ -666,11 +688,40 @@ class SynthesizerAgent:
             truncated = truncated[:last_nl]
         return truncated + "\n\n[... knowledge truncated to fit context window ...]"
 
-    def _format_similar_cases(self, similar_cases: list) -> str:
+    def _format_similar_cases(self, similar_cases: list, relevant_patterns: dict = None) -> str:
+        """P3: Enhanced to include full cross-session memory context.
+        
+        Formats similar past sessions and relevant learned patterns as a readable
+        context section. Falls back to original knowledge.similar_cases if provided.
+        """
         if not similar_cases:
-            return ""   # empty — synthesizer prompt section will be omitted
-        lines = [f"Found {len(similar_cases)} similar cases:"]
+            return ""
+        lines = [f"=== SIMILAR PAST SESSIONS ({len(similar_cases)} found) ===\n"]
         for i, case in enumerate(similar_cases, 1):
             meta = case.get("metadata", {})
-            lines.append(f"  Case {i}: {meta.get('question','Unknown')} | type={meta.get('analysis_type','Unknown')} | sim={1-case.get('distance',1):.3f}")
+            q = meta.get("question", case.get("question", "Unknown"))
+            at = meta.get("analysis_type", case.get("analysis_type", "Unknown"))
+            sim = 1 - case.get("distance", 1)
+            sim_str = f"{sim:.2f}" if isinstance(sim, float) else "?"
+            conv = case.get("conv_text", "")[:300]
+            lines.append(f"[Case {i}] Q: {q} | Type: {at} | Similarity: {sim_str}")
+            if conv:
+                lines.append(f"  Context: {conv}")
+            if i >= 5:
+                lines.append(f"  ... and {len(similar_cases) - 5} more")
+                break
+        
+        # P3: Include relevant learned patterns
+        if relevant_patterns:
+            lines.append(f"\n=== RELEVANT LEARNED PATTERNS ({len(relevant_patterns)}) ===")
+            for name, pat in list(relevant_patterns.items())[:5]:
+                pat_str = json.dumps(pat.get("data", {}), ensure_ascii=False)[:200]
+                lines.append(f"  [{name}]: {pat_str}")
+        
         return "\n".join(lines)
+
+    def _format_current_context(self, current_context: str) -> str:
+        """P3: Format the current session context (dataset info, analysis state)."""
+        if not current_context:
+            return ""
+        return f"=== CURRENT SESSION CONTEXT ===\n{current_context}\n"

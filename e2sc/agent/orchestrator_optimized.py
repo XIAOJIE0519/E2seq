@@ -119,6 +119,8 @@ class E2scAgentOptimized:
         # OPTIMIZATION 4: Integrate MemoryManager
         logger.info("[OK] Integrating MemoryManager (short-term + long-term)")
         self.memory = get_memory_manager()
+        # P0/P1: inject LLM so MemoryManager can run auto-summarization
+        self.memory.set_llm(self.llm)
         
         # OPTIMIZATION 5: Integrate StateManager
         logger.info("[OK] Integrating StateManager (state tracking + checkpoints)")
@@ -371,13 +373,16 @@ class E2scAgentOptimized:
 
         # ── Pure conversational mode (no data uploaded) ──────────────────
         if self.adata is None:
-            return self._chat_no_data(message, thinking_steps)
-
-        # ── Agentic RAG loop (LLM auto-detects intent and data structure) ──
-        return self._chat_agentic_rag(message, thinking_steps,
-                                      progress_callback=progress_callback,
-                                      text_queue=text_queue,
-                                      abort_flag=abort_flag)
+            resp = self._chat_no_data(message, thinking_steps)
+        else:
+            # ── Agentic RAG loop (LLM auto-detects intent and data structure) ──
+            resp = self._chat_agentic_rag(message, thinking_steps,
+                                          progress_callback=progress_callback,
+                                          text_queue=text_queue,
+                                          abort_flag=abort_flag)
+        # P1: auto-summarize after each exchange (checks threshold internally)
+        self.memory.maybe_summarize()
+        return resp
 
 
 
@@ -659,7 +664,10 @@ class E2scAgentOptimized:
         cross_gene = self._build_cross_gene_analysis(knowledge)
         if cross_gene and cross_gene.get("modules"):
             knowledge["cross_gene_analysis"] = cross_gene
-        history = self.memory.get_conversation_history()
+        # P0/P1: token-aware history + P3: cross-session context
+        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
+        mem_ctx = self.memory.get_relevant_context(message)
+        knowledge["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info("[CsvRAG] Starting synthesizer.synthesize... text_queue={}".format(text_queue is not None))
         if progress_callback:
@@ -1338,7 +1346,10 @@ class E2scAgentOptimized:
         cross_gene = self._build_cross_gene_analysis(knowledge)
         if cross_gene and cross_gene.get("modules"):
             knowledge["cross_gene_analysis"] = cross_gene
-        history = self.memory.get_conversation_history()
+        # P0/P1: token-aware history + P3: cross-session context
+        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
+        mem_ctx = self.memory.get_relevant_context(message)
+        knowledge["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info(f"[AgenticRAG] Starting synthesize. has_knowledge={bool(knowledge.get('genes'))}, text_queue={text_queue is not None}")
         if progress_callback:
@@ -1481,7 +1492,10 @@ class E2scAgentOptimized:
         cross_gene = self._build_cross_gene_analysis(cached_k)
         if cross_gene and cross_gene.get("modules"):
             cached_k["cross_gene_analysis"] = cross_gene
-        history = self.memory.get_conversation_history()
+        # P0/P1: token-aware history + P3: cross-session context
+        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
+        mem_ctx = self.memory.get_relevant_context(message)
+        cached_k["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
@@ -2984,7 +2998,10 @@ class E2scAgentOptimized:
         cross_gene = self._build_cross_gene_analysis(knowledge)
         if cross_gene and cross_gene.get("modules"):
             knowledge["cross_gene_analysis"] = cross_gene
-        history = self.memory.get_conversation_history()
+        # P0/P1: token-aware history + P3: cross-session context
+        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
+        mem_ctx = self.memory.get_relevant_context(message)
+        knowledge["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         success, response, error = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,

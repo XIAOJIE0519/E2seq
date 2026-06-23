@@ -308,7 +308,7 @@ class GLMProvider(LLMProvider):
 
     官方文档: https://docs.bigmodel.cn
     API endpoint: https://open.bigmodel.cn/api/paas/v4/chat/completions
-    支持模型: GLM-5, GLM-5.1, GLM-4-Plus, GLM-4, GLM-Z1 (推理) 等
+    支持模型: GLM-5.2, GLM-5.1, GLM-4-Plus, GLM-4, GLM-Z1 (推理) 等
     """
 
     def _initialize_llm(self):
@@ -353,14 +353,14 @@ _PROVIDERS: Dict[str, type] = {
     "ollama": OllamaProvider,
 }
 
-# 各 provider 的默认模型 + 推荐模型列表（2026-04 最新）
+# 各 provider 的默认模型 + 推荐模型列表（2026-06 最新）
 _DEFAULT_MODELS: Dict[str, str] = {
     "openai":      "gpt-5.5",
-    "anthropic":   "claude-sonnet-4-6",
+    "anthropic":   "claude-opus-4-8",
     "deepseek":    "deepseek-v4-flash",
     "gemini":      "gemini-3.1-pro-preview",
     "siliconflow": "deepseek-ai/DeepSeek-V3",
-    "glm":         "glm-5.1",
+    "glm":         "glm-5.2",
     "kimi":        "kimi-k2.6",
     "ollama":      "llama3.2",
 }
@@ -376,8 +376,9 @@ _RECOMMENDED_MODELS: Dict[str, list] = {
         "gpt-4o",
     ],
     "anthropic": [
-        "claude-sonnet-4-6",
+        "claude-opus-4-8",
         "claude-opus-4-7",
+        "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
     "deepseek": [
@@ -397,6 +398,7 @@ _RECOMMENDED_MODELS: Dict[str, list] = {
         "Qwen/Qwen2.5-72B-Instruct",
     ],
     "glm": [
+        "glm-5.2",
         "glm-5.1",
         "glm-4-Plus",
         "glm-4",
