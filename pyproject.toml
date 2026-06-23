@@ -76,10 +76,10 @@ dev = [
 e2sc = "e2sc.cli.app:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/e2sc"
-Documentation = "https://e2sc.readthedocs.io"
-Repository = "https://github.com/your-org/e2sc"
-Issues = "https://github.com/your-org/e2sc/issues"
+Homepage = "https://github.com/XIAOJIE0519/E2seq"
+Documentation = "https://github.com/XIAOJIE0519/E2seq#readme"
+Repository = "https://github.com/XIAOJIE0519/E2seq"
+Issues = "https://github.com/XIAOJIE0519/E2seq/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

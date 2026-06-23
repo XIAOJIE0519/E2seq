@@ -82,11 +82,11 @@ E2seq 支持 **7个大模型服务商**，共 **30+模型**（截至2026年4月�
 | 服务商 | 默认模型 | 推荐模型 |
 |--------|----------|----------|
 | **OpenAI** | gpt-5.5 | gpt-5.5-pro, gpt-5.1, gpt-5.2, gpt-4o |
-| **Anthropic** | claude-sonnet-4-6 | claude-opus-4-7, claude-haiku-4-5 |
+| **Anthropic** | claude-opus-4-8 | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 |
 | **DeepSeek** | deepseek-v4-flash | deepseek-v4-pro |
 | **Google Gemini** | gemini-3.1-pro-preview | gemini-3-flash-preview, gemini-2.5-pro |
 | **硅基流动** | deepseek-ai/DeepSeek-V3 | deepseek-ai/DeepSeek-R1, Qwen/Qwen2.5-72B |
-| **智谱AI (GLM)** | glm-5.1 | glm-4-Plus, glm-4 |
+| **智谱AI (GLM)** | glm-5.2 | glm-5.1, glm-4-Plus, glm-4 |
 | **Moonshot AI (Kimi)** | kimi-k2.6 | moonshot-v2.5-250415 |
 | **Ollama**（本地部署）| - | llama3.2, qwen2.5, deepseek-r1 |
 
@@ -111,7 +111,7 @@ E2seq 支持 **7个大模型服务商**，共 **30+模型**（截至2026年4月�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/XIAOJIE0519/E2seq.git
+git clone git@github.com:XIAOJIE0519/E2seq.git
 cd E2seq
 
 # 安装依赖

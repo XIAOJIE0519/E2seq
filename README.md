@@ -82,11 +82,11 @@ E2seq supports **7 LLM providers** with **30+ models** (as of April 2026):
 | Provider | Default Model | Recommended Models |
 |----------|--------------|-------------------|
 | **OpenAI** | gpt-5.5 | gpt-5.5-pro, gpt-5.1, gpt-5.2, gpt-4o |
-| **Anthropic** | claude-sonnet-4-6 | claude-opus-4-7, claude-haiku-4-5 |
+| **Anthropic** | claude-opus-4-8 | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 |
 | **DeepSeek** | deepseek-v4-flash | deepseek-v4-pro |
 | **Google Gemini** | gemini-3.1-pro-preview | gemini-3-flash-preview, gemini-2.5-pro |
 | **SiliconFlow** | deepseek-ai/DeepSeek-V3 | deepseek-ai/DeepSeek-R1, Qwen/Qwen2.5-72B |
-| **Zhipu AI (GLM)** | glm-5.1 | glm-4-Plus, glm-4 |
+| **Zhipu AI (GLM)** | glm-5.2 | glm-5.1, glm-4-Plus, glm-4 |
 | **Moonshot AI (Kimi)** | kimi-k2.6 | moonshot-v2.5-250415 |
 | **Ollama** (local) | - | llama3.2, qwen2.5, deepseek-r1 |
 
@@ -111,7 +111,7 @@ E2seq supports **7 LLM providers** with **30+ models** (as of April 2026):
 
 ```bash
 # Clone the repository
-git clone https://github.com/XIAOJIE0519/E2seq.git
+git clone git@github.com:XIAOJIE0519/E2seq.git
 cd E2seq
 
 # Install dependencies
