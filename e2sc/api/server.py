@@ -103,15 +103,23 @@ def _save_dataset(session_id: str, adata) -> None:
 def _reload_datasets() -> None:
     """On startup, scan persisted datasets but do NOT auto-load into memory.
     Data is only loaded when the user explicitly uploads or opens a previous session.
+
+    Note: Aggregated log only (one INFO line) to keep startup output clean,
+    since users with many saved sessions would otherwise see 30+ lines of
+    "Found persisted dataset..." noise. Enable verbose mode by passing
+    verbose=True to log each dataset individually.
     """
     import anndata
-    for h5 in _DATASET_DIR.glob("*.h5ad"):
+    h5_files = list(_DATASET_DIR.glob("*.h5ad"))
+    for h5 in h5_files:
         sid = h5.stem
         try:
             # Only log existence; do not load into datasets dict
-            logger.info(f"Found persisted dataset for session {sid} (not auto-loaded)")
+            logger.debug(f"Found persisted dataset for session {sid} (not auto-loaded)")
         except Exception as _e:
             logger.warning(f"Failed to scan {h5}: {_e}")
+    if h5_files:
+        logger.info(f"Found {len(h5_files)} persisted dataset(s) in _datasets/ (not auto-loaded)")
 
 # Scan persisted datasets at import time (do NOT load into memory)
 _reload_datasets()

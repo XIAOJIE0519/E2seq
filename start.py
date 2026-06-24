@@ -6,9 +6,18 @@ Easy to Chat with Sequencing - 快速启动脚本
 import os
 import sys
 import subprocess
-import platform
 import socket
 from pathlib import Path
+
+# Avoid `import platform` — on some Windows/PowerShell combos it spawns a
+# subprocess (`cmd /c ver`) that hangs. Use OS env var instead (zero-cost).
+IS_WINDOWS = os.environ.get("OS", "").startswith("Windows") or sys.platform == "win32"
+IS_POSIX = not IS_WINDOWS
+
+
+def _is_windows() -> bool:
+    return IS_WINDOWS
+
 
 # 强制使用 UTF-8 输出，避免 Windows GBK 编码错误
 import sys
@@ -22,14 +31,6 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
         sys.stderr.reconfigure(encoding='utf-8')
     except Exception:
         pass
-# Windows PowerShell: 设置控制台代码页为 UTF-8 (65001)
-try:
-    import ctypes
-    kernel32 = ctypes.windll.kernel32
-    kernel32.SetConsoleCP(65001)
-    kernel32.SetConsoleOutputCP(65001)
-except Exception:
-    pass
 
 # HuggingFace 镜像配置（加速模型下载）
 if not os.environ.get("HF_ENDPOINT"):
@@ -54,7 +55,7 @@ class Colors:
     @staticmethod
     def disable():
         """在Windows上禁用颜色"""
-        if platform.system() == 'Windows':
+        if _is_windows():
             Colors.PURPLE = ''
             Colors.CYAN = ''
             Colors.GREEN = ''
@@ -85,7 +86,7 @@ def check_directory():
 
 def get_venv_info():
     """获取虚拟环境信息，返回 (python_exe, activate_cmd, is_venv_active)"""
-    if platform.system() == 'Windows':
+    if _is_windows():
         python_exe = VENV_DIR / "Scripts" / "python.exe"
         activate_cmd = str(VENV_DIR / "Scripts" / "activate.bat")
     else:
@@ -148,7 +149,7 @@ def check_venv():
 
 def create_venv(base_path: Path):
     """创建虚拟环境"""
-    if platform.system() == 'Windows':
+    if _is_windows():
         subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
     else:
         subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
@@ -161,7 +162,7 @@ def activate_venv_and_run(python_exe: str, func, *args, **kwargs):
     os.environ['VIRTUAL_ENV'] = str(venv_path.resolve())
 
     # 添加虚拟环境的Scripts/Lib到PATH
-    if platform.system() == 'Windows':
+    if _is_windows():
         os.environ['PATH'] = f"{venv_path / 'Scripts'};{os.environ.get('PATH', '')}"
     else:
         os.environ['PATH'] = f"{venv_path / 'bin'}:{os.environ.get('PATH', '')}"
@@ -169,11 +170,60 @@ def activate_venv_and_run(python_exe: str, func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def _check_one_package(python_exe: str, import_name: str, timeout: int = 15) -> tuple[bool, str]:
+    """Check if a package is installed WITHOUT actually importing it.
+
+    Uses importlib.util.find_spec in a subprocess so we don't pay the cost of
+    torch/transformers initialization (which can take 10-20s on first import).
+    find_spec only inspects sys.path metadata, so it returns instantly.
+    """
+    code = (
+        "import importlib.util as u, sys; "
+        "spec = u.find_spec(sys.argv[1]); "
+        "sys.exit(0 if spec is not None else 1)"
+    )
+    try:
+        result = subprocess.run(
+            [python_exe, "-c", code, import_name],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode == 0:
+            return (True, "")
+        return (False, (result.stderr or "not found").strip()[:200])
+    except subprocess.TimeoutExpired:
+        return (False, "timeout")
+    except Exception as e:
+        return (False, str(e)[:200])
+
+
+def _pip_check(python_exe: str, timeout: int = 60) -> tuple[bool, str]:
+    """Run `pip check` to verify all installed deps have consistent versions.
+
+    Returns (ok, detail). pip check exits 0 when everything is consistent.
+    This is advisory only — a slow/failed pip check will NOT block startup,
+    since on a large venv (torch, transformers, etc.) it can be slow.
+    """
+    try:
+        result = subprocess.run(
+            [python_exe, "-m", "pip", "check"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return (result.returncode == 0, (result.stdout or result.stderr or "").strip()[:500])
+    except subprocess.TimeoutExpired:
+        # Treat as advisory: don't fail startup on slow pip check
+        return (True, "pip check timed out (skipped)")
+    except Exception as e:
+        return (True, f"pip check unavailable: {e}")
+
+
 def check_dependencies(python_exe):
-    """检查依赖包"""
+    """检查依赖包 — 仅在确实缺失时安装"""
     print(f"{Colors.CYAN}[2/5]{Colors.NC} 检查依赖包...")
 
-    # 核心依赖列表
     required_packages = [
         "fastapi", "uvicorn", "python-multipart",
         "scanpy", "anndata", "pandas", "numpy",
@@ -182,52 +232,74 @@ def check_dependencies(python_exe):
         "rich", "typer", "pydantic"
     ]
 
-    # sentence-transformers 依赖 torch + transformers，首次 import 较慢（~20s）。
-    # 用其子依赖做检查：torch 和 transformers 加载快（1-3s），无需长 timeout。
-    # 如果 torch/transformers 能导入，说明 sentence-transformers 所需的底层环境完整。
-    _st_imports = ["torch", "transformers"]
+    # sentence-transformers depends on torch/transformers; we check the
+    # top-level spec without actually importing torch (which is slow).
+    # If sentence-transformers is installed, its deps must be too.
+    package_to_import = {
+        "python-multipart": "multipart",
+    }
 
-    missing_packages = []
-    installed_packages = []
+    print(f"  -> 检查 {len(required_packages)} 个依赖是否已安装...")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results: dict[str, tuple[bool, str]] = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(required_packages))) as pool:
+        futures = {}
+        for pkg in required_packages:
+            import_name = package_to_import.get(pkg, pkg.replace("-", "_"))
+            futures[pool.submit(_check_one_package, python_exe, import_name, 15)] = pkg
+        done = 0
+        total = len(futures)
+        for fut in as_completed(futures):
+            pkg = futures[fut]
+            ok, err = fut.result()
+            results[pkg] = (ok, err)
+            done += 1
+            mark = f"{Colors.GREEN}OK  {Colors.NC}" if ok else f"{Colors.RED}MISS{Colors.NC}"
+            sys.stdout.write(f"\r  -> [{done}/{total}] {mark} {pkg}    ")
+            sys.stdout.flush()
+        print()
 
-    for package in required_packages:
-        import_name = package.replace("-", "_")
-        # 对于 sentence-transformers，改为检查其快速加载的核心子依赖
-        check_imports = _st_imports if package == "sentence-transformers" else [import_name]
-        all_ok = True
-        for check_name in check_imports:
-            try:
-                result = subprocess.run(
-                    [python_exe, "-c", f"import {check_name}"],
-                    capture_output=True,
-                    timeout=30
-                )
-                if result.returncode != 0:
-                    all_ok = False
-                    break
-            except Exception:
-                all_ok = False
-                break
-        if all_ok:
-            installed_packages.append(package)
-        else:
-            missing_packages.append(package)
+    missing = [p for p, (ok, _) in results.items() if not ok]
+    installed = [p for p, (ok, _) in results.items() if ok]
 
-    if missing_packages:
-        print(f"{Colors.YELLOW}[警告]{Colors.NC} 缺少以下依赖包，正在安装: {', '.join(missing_packages)}")
-        try:
-            subprocess.run(
-                [python_exe, "-m", "pip", "install"] + missing_packages,
-                check=True,
-                timeout=300
-            )
-            print(f"{Colors.GREEN}[✓]{Colors.NC} 依赖包安装完成")
-        except Exception as e:
-            print(f"{Colors.RED}[错误]{Colors.NC} 安装依赖失败: {e}")
-            print(f"{Colors.YELLOW}[提示]{Colors.NC} 请手动安装: pip install {' '.join(missing_packages)}")
-            sys.exit(1)
+    # Also verify dependency graph is internally consistent
+    print(f"  -> 验证依赖图完整性 (pip check)...")
+    consistent, detail = _pip_check(python_exe, timeout=30)
+    if consistent:
+        print(f"  {Colors.GREEN}[OK]{Colors.NC} 依赖图完整")
     else:
-        print(f"{Colors.GREEN}[✓]{Colors.NC} 所有依赖包已安装 ({len(installed_packages)} 个)")
+        print(f"  {Colors.YELLOW}[WARN]{Colors.NC} pip check 报告: {detail}")
+
+    if not missing and consistent:
+        print(f"  {Colors.GREEN}[OK]{Colors.NC} 所有依赖包已安装且完整 ({len(installed)} 个)")
+        print()
+        return
+
+    # Missing OR inconsistent — install only what's missing
+    to_install = missing[:]
+    if missing:
+        print(f"  {Colors.YELLOW}[WARN]{Colors.NC} 缺少依赖包: {', '.join(missing)}")
+    if missing:
+        try:
+            print(f"  -> 正在安装缺失的依赖 (这可能需要 1-5 分钟)...")
+            subprocess.run(
+                [python_exe, "-m", "pip", "install", "--quiet"] + missing,
+                check=True,
+                timeout=600,
+            )
+            print(f"  {Colors.GREEN}[OK]{Colors.NC} 依赖安装完成")
+        except subprocess.TimeoutExpired:
+            print(f"  {Colors.RED}[ERR]{Colors.NC} 安装超时 (>10 分钟)")
+            print(f"  {Colors.YELLOW}[HINT]{Colors.NC} 请手动安装: {python_exe} -m pip install {' '.join(missing)}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"  {Colors.RED}[ERR]{Colors.NC} 安装失败: {e}")
+            print(f"  {Colors.YELLOW}[HINT]{Colors.NC} 请手动安装: {python_exe} -m pip install {' '.join(missing)}")
+            sys.exit(1)
+    elif not consistent:
+        # Everything installed but inconsistent — show a warning, do not reinstall.
+        print(f"  {Colors.YELLOW}[WARN]{Colors.NC} 依赖完整但 pip check 报告不一致。请运行:")
+        print(f"           {python_exe} -m pip install --upgrade {' '.join(required_packages)}")
 
     print()
 
@@ -365,24 +437,74 @@ def start_server(python_exe: str, port: int):
 
     print(f"{Colors.CYAN}[5/5]{Colors.NC} 启动服务器...")
 
+    # Quick post-start probe so user sees the server come up immediately
+    # (uvicorn imports / model loads can take 20-60s; without this the user
+    # would see no output between [5/5] and the first INFO line).
+    import threading
+    import time
+    import urllib.request
+    import urllib.error
+
+    ready_event = threading.Event()
+
+    def _probe_ready():
+        for i in range(120):  # up to 120s
+            if not ready_event.is_set():
+                time.sleep(1.0)
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/health", timeout=1
+                ) as r:
+                    if r.status == 200:
+                        ready_event.set()
+                        return
+            except (urllib.error.URLError, ConnectionRefusedError, OSError):
+                continue
+            except Exception:
+                continue
+
+    t = threading.Thread(target=_probe_ready, daemon=True)
+    t.start()
+
+    # Launch uvicorn via Popen so we can stream output AND monitor readiness.
+    proc = subprocess.Popen(
+        [
+            str(python_path), "-m", "uvicorn",
+            "e2sc.api.server:app",
+            "--host", "127.0.0.1",
+            "--port", str(port),
+        ],
+        env=env,
+        cwd=str(Path.cwd()),
+    )
+
+    # Print "Server ready" as soon as /api/health responds
     try:
-        subprocess.run(
-            [
-                str(python_path), "-m", "uvicorn",
-                "e2sc.api.server:app",
-                "--host", "127.0.0.1",
-                "--port", str(port),
-            ],
-            check=True,
-            env=env,
-            cwd=str(Path.cwd())
-        )
+        t.join(timeout=120)
+        if ready_event.is_set():
+            print(f"  {Colors.GREEN}[READY]{Colors.NC} Server responding on http://127.0.0.1:{port}")
+        else:
+            print(f"  {Colors.YELLOW}[WARN]{Colors.NC} Server not ready in 120s, check logs above")
+    except KeyboardInterrupt:
+        pass
+
+    # Now just wait for the uvicorn process (Ctrl+C interrupts this)
+    try:
+        proc.wait()
     except KeyboardInterrupt:
         print()
         print(f"{Colors.PURPLE}════════════════════════════════════════════════════════════{Colors.NC}")
         print()
         print(f"{Colors.CYAN}[信息]{Colors.NC} 服务器已停止")
         print()
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
     except subprocess.CalledProcessError as e:
         print()
         print(f"{Colors.RED}[错误]{Colors.NC} 服务器启动失败: {e}")
@@ -427,7 +549,7 @@ def check_database():
 def main():
     """主函数"""
     # 在Windows上禁用颜色（可选）
-    if platform.system() == 'Windows':
+    if _is_windows():
         # 尝试启用Windows终端颜色支持
         try:
             import ctypes
