@@ -54,10 +54,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Timeout middleware: limit SSE / long-poll chat requests to 600s so a hung LLM
-# call cannot leave the frontend stuck on "thinking" forever.
-# The abort button sends /api/chat/abort so users can cancel long runs.
-_SSE_TIMEOUT = 600  # seconds
+# Timeout middleware: limit SSE / long-poll chat requests so a hung LLM
+# call cannot leave the frontend stuck on "thinking" forever. LLM providers
+# already have their own 120s httpx timeouts (see llm/provider.py); this
+# outer cap is a safety net for calls that hang at a higher level (e.g.
+# network proxy buffering). 4 minutes gives large GLM/DeepSeek syntheses
+# enough time while still surfacing a clear error before users give up.
+_SSE_TIMEOUT = 240  # seconds
 
 
 @app.middleware("http")
@@ -70,7 +73,7 @@ async def _chat_timeout_middleware(request: Request, call_next):
             logger.error(f"[Timeout] {request.url.path} exceeded {_SSE_TIMEOUT}s — returning error response")
             return JSONResponse(
                 status_code=504,
-                content={"detail": "请求超时（超过10分钟），请尝试更简单的问题或使用中止按钮取消当前请求。"}
+                content={"detail": f"请求超时（超过{_SSE_TIMEOUT // 60}分钟），可能是 LLM 接口响应过慢，请点击「中止」并重试，或更换为更快的模型。"}
             )
     return await call_next(request)
 

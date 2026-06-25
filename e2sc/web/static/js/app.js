@@ -1630,9 +1630,15 @@ STAT3,IL6,regulation,0.88`;
             clearInterval(progressTimer);
 
             if (!response.ok) {
-                const errText = await response.text();
-                console.error('Chat API error:', response.status, errText);
-                throw new Error(this.t('error.chatFailed'));
+                let errMsg = this.t('error.chatFailed');
+                try {
+                    const errJson = JSON.parse(await response.text());
+                    if (errJson && errJson.detail) {
+                        errMsg = errJson.detail;
+                    }
+                } catch (_) { /* keep generic message */ }
+                console.error('Chat API error:', response.status, errMsg);
+                throw new Error(errMsg);
             }
 
             const data = await response.json();
