@@ -114,8 +114,6 @@ class OpenAIProvider(LLMProvider):
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            timeout=120,
-            max_retries=0,
         )
 
 
@@ -134,8 +132,6 @@ class AnthropicProvider(LLMProvider):
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            timeout=120,
-            max_retries=0,
         )
 
 
@@ -159,8 +155,6 @@ class DeepSeekProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.deepseek.com",
-            timeout=120,
-            max_retries=0,
         )
 
     def chat(self, messages, **kwargs):
@@ -221,8 +215,6 @@ class GeminiProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            timeout=120,
-            max_retries=0,
         )
 
 
@@ -246,8 +238,6 @@ class SiliconFlowProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.siliconflow.cn/v1",
-            timeout=120,
-            max_retries=0,
         )
 
     def chat(self, messages, **kwargs):
@@ -323,17 +313,18 @@ class GLMProvider(LLMProvider):
 
     def _initialize_llm(self):
         from langchain_openai import ChatOpenAI
+        # NOTE: do NOT set a httpx `timeout` here. GLM / DeepSeek synthesis on
+        # 25-60k-char prompts routinely takes 3-5 minutes end-to-end (network +
+        # model inference + stream decode). A 120s read timeout was killing the
+        # call before any token arrived. The HTTP layer in server.py already
+        # caps the entire chat request at 240s (middleware) and 10 minutes
+        # (uvicorn keep-alive), which is the right place for a hard cap.
         return ChatOpenAI(
             model=self.model,
             openai_api_key=self.api_key,
             openai_api_base="https://open.bigmodel.cn/api/paas/v4/",
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            # Explicit timeout: GLM synthesis with large knowledge prompts can be
-            # slow; cap at 120s so a hung connection returns a clean error rather
-            # than blocking the chat endpoint indefinitely.
-            timeout=120,
-            max_retries=0,
         )
 
 
@@ -354,8 +345,6 @@ class KimiProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.moonshot.cn/v1",
-            timeout=120,
-            max_retries=0,
         )
 
 
