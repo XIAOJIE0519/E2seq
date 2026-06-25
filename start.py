@@ -473,6 +473,8 @@ def start_server(python_exe: str, port: int):
             "e2sc.api.server:app",
             "--host", "127.0.0.1",
             "--port", str(port),
+            "--no-access-log",
+            "--log-level", "warning",
         ],
         env=env,
         cwd=str(Path.cwd()),

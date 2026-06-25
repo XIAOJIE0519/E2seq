@@ -54,6 +54,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Timeout middleware: limit SSE / long-poll chat requests to 600s so a hung LLM
+# call cannot leave the frontend stuck on "thinking" forever.
+# The abort button sends /api/chat/abort so users can cancel long runs.
+_SSE_TIMEOUT = 600  # seconds
+
+
+@app.middleware("http")
+async def _chat_timeout_middleware(request: Request, call_next):
+    if request.url.path in ("/api/chat", "/api/chat/stream"):
+        try:
+            response = await asyncio.wait_for(call_next(request), timeout=_SSE_TIMEOUT)
+            return response
+        except asyncio.TimeoutError:
+            logger.error(f"[Timeout] {request.url.path} exceeded {_SSE_TIMEOUT}s — returning error response")
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "请求超时（超过10分钟），请尝试更简单的问题或使用中止按钮取消当前请求。"}
+            )
+    return await call_next(request)
+
 # Mount static files
 static_path = Path(__file__).parent.parent / "web" / "static"
 templates_path = Path(__file__).parent.parent / "web" / "templates"
@@ -1257,7 +1277,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     break
 
         # Run agent in executor so we can interleave SSE yields with progress
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         agent_result_holder = {}
 
         def run_agent():
@@ -1703,10 +1723,9 @@ async def chat(request: Request):
         try:
             # Run blocking agent.chat in a thread pool to avoid blocking the
             # async event loop (agent makes many synchronous HTTP + DB calls)
-            import asyncio
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
-                None, 
+                None,
                 lambda: agent.chat(message, progress_callback=_progress_callback, text_queue=None)
             )
         finally:
