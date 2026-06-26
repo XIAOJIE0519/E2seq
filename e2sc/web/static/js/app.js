@@ -1649,88 +1649,68 @@ STAT3,IL6,regulation,0.88`;
                 throw new Error(errMsg);
             }
 
-            // Parse the SSE stream. Each event line looks like:
-            //   event: text
-            //   data: {"content":"..."}
+            // Parse the SSE stream. Each record is "event: <name>\ndata: <json>\n\n".
+            // Server emits: text, thinking, plots, source_stats, aborted, error, done.
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
             let buf = '';
-            let currentEvent = '';
-            let currentData = '';
-            const flushEvent = () => {
-                if (!currentEvent || !currentData) {
-                    currentEvent = ''; currentData = '';
-                    return;
-                }
-                try {
-                    const payload = JSON.parse(currentData);
-                    if (currentEvent === 'text') {
-                        streamedText += (payload.content || '');
-                    } else if (currentEvent === 'plot') {
-                        streamedPlots.push(payload);
-                    } else if (currentEvent === 'thinking') {
-                        streamedThinking.push(payload);
-                    } else if (currentEvent === 'data') {
-                        streamedData = payload.content || streamedData;
-                    } else if (currentEvent === 'aborted') {
-                        aborted = true;
-                    } else if (currentEvent === 'error') {
-                        errored = true;
-                        console.error('[SSE] error event:', payload);
-                    } else if (currentEvent === 'done') {
-                        // server signals end of stream
-                    }
-                } catch (e) {
-                    // ignore malformed payload
-                }
-                currentEvent = '';
-                currentData = '';
-            };
-
             while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
+                const { value, done: rdone } = await reader.read();
+                if (rdone) break;
                 buf += decoder.decode(value, { stream: true });
-                // SSE records are separated by blank lines (\n\n)
                 let sep;
                 while ((sep = buf.indexOf('\n\n')) !== -1) {
                     const record = buf.slice(0, sep);
                     buf = buf.slice(sep + 2);
-                    // Parse lines within the record
-                    currentEvent = ''; currentData = '';
+                    let ev = '';
+                    let dataStr = '';
                     for (const line of record.split(/\r?\n/)) {
-                        if (line.startsWith(':')) continue; // comment / keepalive
+                        if (!line || line.startsWith(':')) continue;
                         const colon = line.indexOf(':');
                         if (colon === -1) continue;
                         const field = line.slice(0, colon).trim();
                         let val = line.slice(colon + 1);
                         if (val.startsWith(' ')) val = val.slice(1);
-                        if (field === 'event') currentEvent = val;
-                        else if (field === 'data') currentData = currentData ? currentEvent ? currentData + '\n' + val : currentData + val : val;
+                        if (field === 'event') ev = val;
+                        else if (field === 'data') dataStr = dataStr ? dataStr + '\n' + val : val;
                     }
-                    // data may accumulate across multiple "data:" lines per spec,
-                    // but our server only emits one per event. Just normalize.
-                    if (currentData) {
-                        try {
-                            const payload = JSON.parse(currentData);
-                            if (currentEvent === 'text') {
-                                streamedText += (payload.content || '');
-                            } else if (currentEvent === 'plot') {
-                                streamedPlots.push(payload);
-                            } else if (currentEvent === 'thinking') {
-                                streamedThinking.push(payload);
-                            } else if (currentEvent === 'data') {
-                                streamedData = payload.content || streamedData;
-                            } else if (currentEvent === 'aborted') {
-                                aborted = true;
-                            } else if (currentEvent === 'error') {
-                                errored = true;
-                                console.error('[SSE] error event:', payload);
-                            } else if (currentEvent === 'done') {
-                                // end of stream marker
-                            }
-                        } catch (_) { /* ignore malformed */ }
-                        currentEvent = ''; currentData = '';
+                    if (!ev || !dataStr) continue;
+                    let payload;
+                    try { payload = JSON.parse(dataStr); }
+                    catch (_) { continue; }
+                    if (ev === 'text') {
+                        streamedText += (payload.content || '');
+                    } else if (ev === 'plot' || ev === 'plots') {
+                        // server emits 'plots' (plural) with an array
+                        if (Array.isArray(payload)) streamedPlots.push(...payload);
+                        else streamedPlots.push(payload);
+                    } else if (ev === 'thinking') {
+                        streamedThinking.push(payload);
+                    } else if (ev === 'data') {
+                        streamedData = payload.content || streamedData;
+                    } else if (ev === 'source_stats') {
+                        streamedData = { ...(streamedData || {}), source_stats: payload };
+                    } else if (ev === 'aborted') {
+                        aborted = true;
+                    } else if (ev === 'error') {
+                        errored = true;
+                        console.error('[SSE] error event:', payload);
+                    } else if (ev === 'done') {
+                        // CRITICAL: in non-streaming LLM mode, the server emits the full
+                        // response text ONLY in the 'done' event, not in incremental
+                        // 'text' events. Without this branch, the assistant bubble would
+                        // be empty whenever text_queue=None (which happens on /api/chat
+                        // non-streaming fallback or any code path that passes
+                        // text_queue=None to the synthesizer).
+                        if (typeof payload.response === 'string' && !streamedText) {
+                            streamedText = payload.response;
+                        }
+                        if (Array.isArray(payload.plots) && payload.plots.length && !streamedPlots.length) {
+                            streamedPlots = payload.plots;
+                        }
+                        if (payload.data) {
+                            streamedData = { ...(streamedData || {}), ...payload.data };
+                        }
                     }
                 }
             }

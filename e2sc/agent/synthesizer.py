@@ -2,6 +2,7 @@
 
 import json
 import re as _re
+import threading as _threading
 from typing import Any, Dict, List
 
 from e2sc.llm import SYNTHESIZER_PROMPT
@@ -198,33 +199,75 @@ class SynthesizerAgent:
                 if abort_flag is not None and abort_flag.is_set():
                     raise AbortChat("User requested abort")
                 _maybe_report("[进度] 流式失败，切换非流式重试...")
-                response_text = self.llm.chat(messages)
+                # Use the same daemon-thread + abort-poll pattern as the
+                # non-streaming path so abort works during the fallback too.
+                _result_holder = {}
+                _llm_done = _threading.Event()
+                def _llm_call():
+                    try:
+                        _result_holder["text"] = self.llm.chat(messages)
+                        _result_holder["error"] = None
+                    except Exception as _e:
+                        _result_holder["error"] = _e
+                    finally:
+                        _llm_done.set()
+                _llm_thread = _threading.Thread(target=_llm_call, daemon=True)
+                _llm_thread.start()
+                while not _llm_done.is_set():
+                    if abort_flag is not None and abort_flag.is_set():
+                        raise AbortChat("User requested abort during fallback")
+                    _llm_done.wait(timeout=1.0)
+                if _result_holder.get("error"):
+                    raise _result_holder["error"]
+                response_text = _result_holder.get("text", "")
                 logger.info(f"[Synthesizer] Non-streaming fallback response_len={len(response_text)}")
         else:
-            # Non-streaming LLM call — periodically check abort and report progress
+            # Non-streaming LLM call — run in a daemon thread so we can poll
+            # abort_flag every second and abandon the call when the user aborts.
+            # We CANNOT interrupt a blocking httpx call in Python, so when abort
+            # fires we detach from the LLM thread (it will finish in the
+            # background and its result will be discarded). This is the only
+            # way to honour abort when the LLM is hung in a long blocking call.
             _maybe_report("[进度] 大模型综合解读中（首次响应可能需要 2-5 分钟）...")
-            _abort_checked = [0]  # mutable counter for closure
             import threading as _threading
-            _stop_watch = _threading.Event()
+            _result_holder: dict = {}
+            _llm_done = _threading.Event()
 
-            def _watch():
-                import time as _wt
-                while not _stop_watch.is_set():
-                    _wt.sleep(3.0)
-                    if _stop_watch.is_set():
-                        break
-                    if abort_flag is not None and abort_flag.is_set():
-                        return
-                    _maybe_report(f"[进度] 大模型综合解读中...（已等待 {int(_wt.time() - _t0)} 秒）")
-                    _abort_checked[0] += 1
+            def _llm_call():
+                try:
+                    _result_holder["text"] = self.llm.chat(messages)
+                    _result_holder["error"] = None
+                except Exception as _e:
+                    _result_holder["error"] = _e
+                finally:
+                    _llm_done.set()
 
-            _watcher = _threading.Thread(target=_watch, daemon=True)
-            _watcher.start()
+            _llm_thread = _threading.Thread(target=_llm_call, daemon=True)
+            _llm_thread.start()
+
+            # Poll abort and progress while LLM is running
+            _last_progress = _time.time()
             try:
-                response_text = self.llm.chat(messages)
-                logger.info(f"[Synthesizer] Non-streaming response_len={len(response_text)}")
-            finally:
-                _stop_watch.set()
+                while not _llm_done.is_set():
+                    # Check abort every 1s — exit immediately on user request
+                    if abort_flag is not None and abort_flag.is_set():
+                        logger.info("[Synthesizer] Abort detected during non-streaming LLM call — abandoning")
+                        _maybe_report("[进度] 已收到中止请求，正在中断...")
+                        # Don't wait for the daemon thread; just abandon it.
+                        # Daemon thread will die with the interpreter.
+                        raise AbortChat("User requested abort during non-streaming LLM call")
+                    # Periodic progress (every 10s)
+                    if progress_callback and (_time.time() - _last_progress) >= 10.0:
+                        _maybe_report(f"[进度] 大模型综合解读中...（已等待 {int(_time.time() - _t0)} 秒）")
+                        _last_progress = _time.time()
+                    _llm_done.wait(timeout=1.0)
+            except AbortChat:
+                raise
+
+            if _result_holder.get("error"):
+                raise _result_holder["error"]
+            response_text = _result_holder.get("text", "")
+            logger.info(f"[Synthesizer] Non-streaming response_len={len(response_text)}")
 
         # Strip forbidden "No data" / outlook phrases the LLM may have emitted
         for pat in _NO_DATA_PATTERNS:
