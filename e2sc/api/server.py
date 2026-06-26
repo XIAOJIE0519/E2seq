@@ -54,26 +54,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Timeout middleware: limit SSE / long-poll chat requests so a hung LLM
-# call cannot leave the frontend stuck on "thinking" forever. LLM providers
-# already have their own 120s httpx timeouts (see llm/provider.py); this
-# outer cap is a safety net for calls that hang at a higher level (e.g.
-# network proxy buffering). 4 minutes gives large GLM/DeepSeek syntheses
-# enough time while still surfacing a clear error before users give up.
-_SSE_TIMEOUT = 240  # seconds
+# Timeout middleware: limit ONLY the streaming chat endpoint so a hung LLM
+# call cannot leave the frontend stuck on "thinking" forever. The non-streaming
+# /api/chat endpoint is intentionally uncapped — it is the fallback when the
+# user does NOT want streaming (e.g. agent mode, batch analyses), and it must
+# be allowed to wait as long as the LLM needs (large GLM/DeepSeek synthesis
+# routinely takes 3-5 minutes). The SSE stream's per-chunk keepalive pings
+# already prevent the browser from hanging on it.
+_STREAM_TIMEOUT = 480  # seconds — only applied to /api/chat/stream
 
 
 @app.middleware("http")
 async def _chat_timeout_middleware(request: Request, call_next):
-    if request.url.path in ("/api/chat", "/api/chat/stream"):
+    if request.url.path in ("/api/chat/stream",):
         try:
-            response = await asyncio.wait_for(call_next(request), timeout=_SSE_TIMEOUT)
+            response = await asyncio.wait_for(call_next(request), timeout=_STREAM_TIMEOUT)
             return response
         except asyncio.TimeoutError:
-            logger.error(f"[Timeout] {request.url.path} exceeded {_SSE_TIMEOUT}s — returning error response")
+            logger.error(f"[Timeout] {request.url.path} exceeded {_STREAM_TIMEOUT}s — returning error response")
             return JSONResponse(
                 status_code=504,
-                content={"detail": f"请求超时（超过{_SSE_TIMEOUT // 60}分钟），可能是 LLM 接口响应过慢，请点击「中止」并重试，或更换为更快的模型。"}
+                content={"detail": f"请求超时（超过{_STREAM_TIMEOUT // 60}分钟），可能是 LLM 接口响应过慢，请点击「中止」并重试，或更换为更快的模型。"}
             )
     return await call_next(request)
 

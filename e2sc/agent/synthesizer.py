@@ -7,6 +7,15 @@ from typing import Any, Dict, List
 from e2sc.llm import SYNTHESIZER_PROMPT
 from e2sc.utils import get_logger
 
+# AbortChat is defined in e2sc.api.server to avoid circular import.
+# Import it lazily inside synthesize() so that the synthesizer module
+# remains importable in non-server contexts (e.g. tests).
+try:
+    from e2sc.api.server import AbortChat
+except Exception:
+    class AbortChat(Exception):
+        pass
+
 logger = get_logger(__name__)
 
 # Patterns to strip from LLM output — any "no data" / empty-result language
@@ -72,6 +81,8 @@ class SynthesizerAgent:
         output_mode: str = "detailed",
         is_comprehensive: bool = False,
         text_queue=None,
+        progress_callback=None,
+        abort_flag=None,
     ) -> Dict[str, Any]:
         """Synthesize Graph-RAG knowledge into a Nature/Cell-level response.
 
@@ -84,6 +95,16 @@ class SynthesizerAgent:
         import time as _time
         _t0 = _time.time()
         logger.info(f"[Synthesizer] Starting synthesis. question={question[:80]!r}, has_knowledge={'genes' in knowledge}, text_queue={text_queue is not None}")
+
+        def _maybe_report(msg: str):
+            """Send progress message if a callback is registered."""
+            if progress_callback:
+                try:
+                    progress_callback(msg)
+                except Exception:
+                    pass
+
+        _maybe_report("[进度] 正在调用大模型生成综合报告...")
 
         # P3: Extract cross-session context injected by orchestrator
         cross_session = knowledge.pop("cross_session_context", {})
@@ -151,8 +172,16 @@ class SynthesizerAgent:
         if text_queue is not None:
             full_text_parts = []
             _chunk_count = 0
+            _last_progress = _time.time()
             try:
                 for chunk in self.llm.stream_chat(messages):
+                    # Periodic progress + abort check (LLM may take several minutes)
+                    if abort_flag is not None and abort_flag.is_set():
+                        logger.info("[Synthesizer] Abort detected during streaming")
+                        raise AbortChat("User requested abort during synthesizer streaming")
+                    if progress_callback and (_time.time() - _last_progress) >= 10.0:
+                        _maybe_report(f"[进度] 大模型综合解读中...已生成 {_chunk_count} 个文本块")
+                        _last_progress = _time.time()
                     full_text_parts.append(chunk)
                     _chunk_count += 1
                     # Send chunk to SSE stream
@@ -162,13 +191,40 @@ class SynthesizerAgent:
                         logger.debug(f"[Synthesizer] text_queue.put_nowait failed: {_qe}")
                 response_text = "".join(full_text_parts)
                 logger.info(f"[Synthesizer] Streaming done: {_chunk_count} chunks, total_len={len(response_text)}")
+            except AbortChat:
+                raise
             except Exception as stream_err:
                 logger.warning(f"[Synthesizer] Streaming failed, falling back to non-streaming: {stream_err}")
+                if abort_flag is not None and abort_flag.is_set():
+                    raise AbortChat("User requested abort")
+                _maybe_report("[进度] 流式失败，切换非流式重试...")
                 response_text = self.llm.chat(messages)
                 logger.info(f"[Synthesizer] Non-streaming fallback response_len={len(response_text)}")
         else:
-            response_text = self.llm.chat(messages)
-            logger.info(f"[Synthesizer] Non-streaming response_len={len(response_text)}")
+            # Non-streaming LLM call — periodically check abort and report progress
+            _maybe_report("[进度] 大模型综合解读中（首次响应可能需要 2-5 分钟）...")
+            _abort_checked = [0]  # mutable counter for closure
+            import threading as _threading
+            _stop_watch = _threading.Event()
+
+            def _watch():
+                import time as _wt
+                while not _stop_watch.is_set():
+                    _wt.sleep(3.0)
+                    if _stop_watch.is_set():
+                        break
+                    if abort_flag is not None and abort_flag.is_set():
+                        return
+                    _maybe_report(f"[进度] 大模型综合解读中...（已等待 {int(_wt.time() - _t0)} 秒）")
+                    _abort_checked[0] += 1
+
+            _watcher = _threading.Thread(target=_watch, daemon=True)
+            _watcher.start()
+            try:
+                response_text = self.llm.chat(messages)
+                logger.info(f"[Synthesizer] Non-streaming response_len={len(response_text)}")
+            finally:
+                _stop_watch.set()
 
         # Strip forbidden "No data" / outlook phrases the LLM may have emitted
         for pat in _NO_DATA_PATTERNS:

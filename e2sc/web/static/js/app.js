@@ -1586,8 +1586,19 @@ STAT3,IL6,regulation,0.88`;
         // Add loading bubble with progress display
         const loadingId = this.addMessage('assistant', '', true);
         const sessionId = this.currentChatId || 'default';
+        const streamUrl = '/api/chat/stream';
 
-        // Start progress polling
+        // State for assembling the streamed response
+        let streamedText = '';
+        let streamedPlots = [];
+        let streamedThinking = [];
+        let streamedData = {};
+        let aborted = false;
+        let errored = false;
+
+        // Start progress polling — reads the in-memory buffer updated by the
+        // orchestrator's logger handler. This runs in parallel with the SSE
+        // stream so the user sees progress even if LLM is still generating.
         let lastProgressCount = 0;
         const progressEl = document.getElementById(loadingId)?.querySelector('.progress-log');
         const pollProgress = async () => {
@@ -1615,11 +1626,11 @@ STAT3,IL6,regulation,0.88`;
         const progressTimer = setInterval(pollProgress, 800);
 
         try {
-            // Use regular JSON API call (not SSE streaming) for simplicity and reliability
-            const response = await fetch('/api/chat', {
+            const response = await fetch(streamUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
                 },
                 body: JSON.stringify({
                     message: message,
@@ -1629,37 +1640,130 @@ STAT3,IL6,regulation,0.88`;
 
             clearInterval(progressTimer);
 
-            if (!response.ok) {
+            if (!response.ok || !response.body) {
                 let errMsg = this.t('error.chatFailed');
                 try {
                     const errJson = JSON.parse(await response.text());
-                    if (errJson && errJson.detail) {
-                        errMsg = errJson.detail;
-                    }
-                } catch (_) { /* keep generic message */ }
-                console.error('Chat API error:', response.status, errMsg);
+                    if (errJson && errJson.detail) errMsg = errJson.detail;
+                } catch (_) {}
                 throw new Error(errMsg);
             }
 
-            const data = await response.json();
+            // Parse the SSE stream. Each event line looks like:
+            //   event: text
+            //   data: {"content":"..."}
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buf = '';
+            let currentEvent = '';
+            let currentData = '';
+            const flushEvent = () => {
+                if (!currentEvent || !currentData) {
+                    currentEvent = ''; currentData = '';
+                    return;
+                }
+                try {
+                    const payload = JSON.parse(currentData);
+                    if (currentEvent === 'text') {
+                        streamedText += (payload.content || '');
+                    } else if (currentEvent === 'plot') {
+                        streamedPlots.push(payload);
+                    } else if (currentEvent === 'thinking') {
+                        streamedThinking.push(payload);
+                    } else if (currentEvent === 'data') {
+                        streamedData = payload.content || streamedData;
+                    } else if (currentEvent === 'aborted') {
+                        aborted = true;
+                    } else if (currentEvent === 'error') {
+                        errored = true;
+                        console.error('[SSE] error event:', payload);
+                    } else if (currentEvent === 'done') {
+                        // server signals end of stream
+                    }
+                } catch (e) {
+                    // ignore malformed payload
+                }
+                currentEvent = '';
+                currentData = '';
+            };
 
-            // Extract response data
-            const resultText = data.response || '';
-            const plotsData = data.plots || [];
-            const thinkingSteps = data.thinking || [];
-            const sourceStats = data.data?.source_stats || null;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                // SSE records are separated by blank lines (\n\n)
+                let sep;
+                while ((sep = buf.indexOf('\n\n')) !== -1) {
+                    const record = buf.slice(0, sep);
+                    buf = buf.slice(sep + 2);
+                    // Parse lines within the record
+                    currentEvent = ''; currentData = '';
+                    for (const line of record.split(/\r?\n/)) {
+                        if (line.startsWith(':')) continue; // comment / keepalive
+                        const colon = line.indexOf(':');
+                        if (colon === -1) continue;
+                        const field = line.slice(0, colon).trim();
+                        let val = line.slice(colon + 1);
+                        if (val.startsWith(' ')) val = val.slice(1);
+                        if (field === 'event') currentEvent = val;
+                        else if (field === 'data') currentData = currentData ? currentEvent ? currentData + '\n' + val : currentData + val : val;
+                    }
+                    // data may accumulate across multiple "data:" lines per spec,
+                    // but our server only emits one per event. Just normalize.
+                    if (currentData) {
+                        try {
+                            const payload = JSON.parse(currentData);
+                            if (currentEvent === 'text') {
+                                streamedText += (payload.content || '');
+                            } else if (currentEvent === 'plot') {
+                                streamedPlots.push(payload);
+                            } else if (currentEvent === 'thinking') {
+                                streamedThinking.push(payload);
+                            } else if (currentEvent === 'data') {
+                                streamedData = payload.content || streamedData;
+                            } else if (currentEvent === 'aborted') {
+                                aborted = true;
+                            } else if (currentEvent === 'error') {
+                                errored = true;
+                                console.error('[SSE] error event:', payload);
+                            } else if (currentEvent === 'done') {
+                                // end of stream marker
+                            }
+                        } catch (_) { /* ignore malformed */ }
+                        currentEvent = ''; currentData = '';
+                    }
+                }
+            }
+
+            if (aborted) {
+                // User-triggered abort — show what was streamed so far, mark as aborted.
+                this.removeMessage(loadingId);
+                const abortText = streamedText
+                    ? streamedText + '\n\n_[回复已被用户中止]_'
+                    : '_[回复已被用户中止]_';
+                this.addMessage('assistant', abortText);
+                this.loadChatHistory();
+                return;
+            }
+
+            if (errored) {
+                throw new Error('LLM 调用失败，请查看控制台');
+            }
+
+            const resultText = streamedText;
+            const plotsData = streamedPlots;
+            const thinkingSteps = streamedThinking;
+            const sourceStats = streamedData?.source_stats || null;
 
             // Remove loading bubble and create assistant message with full response
             this.removeMessage(loadingId);
             const messageId = this.addMessage('assistant', resultText);
             const messageEl = document.getElementById(messageId);
 
-            // Render plots if any
             if (plotsData.length > 0) {
                 this.displayPlots(plotsData);
             }
 
-            // Render source statistics if available
             if (sourceStats) {
                 const msgContent = messageEl?.querySelector('.message-content');
                 if (msgContent) {
@@ -1667,7 +1771,6 @@ STAT3,IL6,regulation,0.88`;
                 }
             }
 
-            // Refresh history after new message
             this.loadChatHistory();
 
         } catch (error) {

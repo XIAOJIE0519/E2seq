@@ -676,8 +676,14 @@ class E2scAgentOptimized:
             self.synthesizer.synthesize,
             message, fake_results, knowledge, history,
             error_context="synthesize_csv_rag", is_comprehensive=True,
-            text_queue=text_queue)
+            text_queue=text_queue,
+            progress_callback=progress_callback,
+            abort_flag=abort_flag,
+        )
         if not ok:
+            if err and "abort" in err.lower():
+                from e2sc.api.server import AbortChat as _AbortChat
+                raise _AbortChat(err)
             resp = {"text": "合成失败: {}".format(err), "plots": [], "data": {}}
         if not isinstance(resp, dict):
             resp = {"text": str(resp), "plots": [], "data": {}}
@@ -1358,9 +1364,15 @@ class E2scAgentOptimized:
             self.synthesizer.synthesize,
             message, fake_results, knowledge, history,
             error_context="synthesize_agentic_rag", is_comprehensive=True,
-            text_queue=text_queue)
+            text_queue=text_queue,
+            progress_callback=progress_callback,
+            abort_flag=abort_flag,
+        )
         if not ok:
             logger.error(f"[AgenticRAG] Synthesize failed: {err}")
+            if err and "abort" in err.lower():
+                from e2sc.api.server import AbortChat as _AbortChat
+                raise _AbortChat(err)
             resp = {"text":"合成失败: {}".format(err),"plots":[],"data":{}}
         else:
             logger.info(f"[AgenticRAG] Synthesize OK: response_len={len(resp.get('text',''))}")
