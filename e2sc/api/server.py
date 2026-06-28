@@ -1558,16 +1558,31 @@ async def _stream_agent_chat(chat_id: str, message: str):
         except Exception as _pe:
             logger.warning(f"Failed to persist chat message: {_pe}")
 
-        # Yield the full response text
+        # Yield the full response text.
+        # CRITICAL: use a default=str serializer to avoid crashing on
+        # non-JSON-serializable objects (numpy arrays, sets, bytes) inside
+        # response.data.knowledge — those objects come from adata and would
+        # otherwise raise TypeError in json.dumps, terminating the SSE stream
+        # before the 'done' event reaches the frontend.
         resp_body = {
             "response": response.get("text", ""),
             "plots": plots_data,
             "chat_id": chat_id,
             "data": response.get("data", {}),
         }
+        try:
+            done_payload = json.dumps(resp_body, default=str, ensure_ascii=False)
+        except Exception as _je:
+            logger.error(f"[SSE] Failed to serialize done payload: {_je}")
+            done_payload = json.dumps({
+                "response": response.get("text", ""),
+                "plots": plots_data,
+                "chat_id": chat_id,
+                "data": {},
+            }, ensure_ascii=False)
         logger.info(f"[SSE] Yielding done event for chat_id={chat_id}, response_len={len(resp_body.get('response', ''))}, plots={len(plots_data)}")
         try:
-            yield f"event: done\ndata: {json.dumps(resp_body)}\n\n"
+            yield f"event: done\ndata: {done_payload}\n\n"
         except CLIENT_DISCONNECT_EXCEPTIONS:
             raise
         logger.info(f"[SSE] Done event sent for chat_id={chat_id}")

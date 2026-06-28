@@ -1638,8 +1638,6 @@ STAT3,IL6,regulation,0.88`;
                 }),
             });
 
-            clearInterval(progressTimer);
-
             if (!response.ok || !response.body) {
                 let errMsg = this.t('error.chatFailed');
                 try {
@@ -1678,6 +1676,7 @@ STAT3,IL6,regulation,0.88`;
                     let payload;
                     try { payload = JSON.parse(dataStr); }
                     catch (_) { continue; }
+                    console.log('[SSE]', ev, payload);
                     if (ev === 'text') {
                         streamedText += (payload.content || '');
                     } else if (ev === 'plot' || ev === 'plots') {
@@ -1686,6 +1685,24 @@ STAT3,IL6,regulation,0.88`;
                         else streamedPlots.push(payload);
                     } else if (ev === 'thinking') {
                         streamedThinking.push(payload);
+                        // Also push progress messages into the visible progress log
+                        // so the user sees something happening even when /api/progress
+                        // polling is unavailable.
+                        if (payload && payload.step === 'progress' && payload.content) {
+                            try {
+                                const bubble = document.getElementById(loadingId);
+                                if (bubble) {
+                                    const pl = bubble.querySelector('.progress-log');
+                                    if (pl) {
+                                        const step = document.createElement('div');
+                                        step.className = 'progress-step';
+                                        step.textContent = payload.content;
+                                        pl.appendChild(step);
+                                        pl.scrollTop = pl.scrollHeight;
+                                    }
+                                }
+                            } catch (_) {}
+                        }
                     } else if (ev === 'data') {
                         streamedData = payload.content || streamedData;
                     } else if (ev === 'source_stats') {
@@ -1694,16 +1711,17 @@ STAT3,IL6,regulation,0.88`;
                         aborted = true;
                     } else if (ev === 'error') {
                         errored = true;
+                        streamedText = (payload && payload.detail) || payload || 'LLM 调用失败';
                         console.error('[SSE] error event:', payload);
                     } else if (ev === 'done') {
                         // CRITICAL: in non-streaming LLM mode, the server emits the full
                         // response text ONLY in the 'done' event, not in incremental
-                        // 'text' events. Without this branch, the assistant bubble would
-                        // be empty whenever text_queue=None (which happens on /api/chat
-                        // non-streaming fallback or any code path that passes
-                        // text_queue=None to the synthesizer).
-                        if (typeof payload.response === 'string' && !streamedText) {
-                            streamedText = payload.response;
+                        // 'text' events. Always populate streamedText from done — even
+                        // if we already got some text — so we have a single source of truth.
+                        if (typeof payload.response === 'string') {
+                            if (!streamedText || payload.response.length > streamedText.length) {
+                                streamedText = payload.response;
+                            }
                         }
                         if (Array.isArray(payload.plots) && payload.plots.length && !streamedPlots.length) {
                             streamedPlots = payload.plots;
@@ -1714,6 +1732,9 @@ STAT3,IL6,regulation,0.88`;
                     }
                 }
             }
+
+            // Stop progress polling now that the SSE stream is done.
+            clearInterval(progressTimer);
 
             if (aborted) {
                 // User-triggered abort — show what was streamed so far, mark as aborted.
@@ -1737,7 +1758,8 @@ STAT3,IL6,regulation,0.88`;
 
             // Remove loading bubble and create assistant message with full response
             this.removeMessage(loadingId);
-            const messageId = this.addMessage('assistant', resultText);
+            const finalText = resultText || '_(服务器未返回内容，请稍后重试或检查后端日志)_';
+            const messageId = this.addMessage('assistant', finalText);
             const messageEl = document.getElementById(messageId);
 
             if (plotsData.length > 0) {
