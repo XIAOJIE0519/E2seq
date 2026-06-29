@@ -1561,9 +1561,8 @@ async def chat(request: Request):
         _adata_chat = datasets.get(chat_id)
         if _adata_chat is not None:
             _reasoner = _adata_chat.uns.get("e2sc_reasoner_mode", False)
-            if _reasoner and hasattr(agent, "llm") and hasattr(agent.llm, "reasoner_mode"):
-                agent.llm.reasoner_mode = True
-                # Reasoner models have no output token limit - remove max_tokens constraint
+            if _reasoner and hasattr(agent, "llm") and hasattr(agent.llm, "set_thinking"):
+                agent.llm.set_thinking(True, agent.llm.thinking_effort or "high")
                 if hasattr(agent.llm, "max_tokens"):
                     agent.llm.max_tokens = 65536
             else:
@@ -1690,10 +1689,101 @@ async def get_settings():
         "siliconflow_model": current_model if current_provider == "siliconflow" else "",
         "glm_model": current_model if current_provider == "glm" else "",
         "kimi_model": current_model if current_provider == "kimi" else "",
+        # Thinking / chain-of-thought settings
+        "thinking_enabled": bool(config.llm.thinking_enabled),
+        "thinking_effort": config.llm.thinking_effort or "high",
         # Embedding 配置
         "embedding_model": config.embedding.model_name,
         "embedding_models": embed_models,
     }
+
+
+@app.get("/api/settings/thinking")
+async def get_thinking_capabilities():
+    """Return thinking-mode capability info for the active provider/model.
+
+    Used by the settings UI to decide whether to show the Thinking toggle
+    and which effort levels to put in the dropdown. Returns:
+      {
+        "provider": ...,  "model": ...,
+        "supports_thinking": bool,  "always_on": bool, "model_supported": bool,
+        "thinking_enabled": bool,  "thinking_effort": str,
+        "effort_levels": [...],
+      }
+    """
+    try:
+        from e2sc.llm.provider import provider_supports_thinking
+        config = get_config()
+        caps = provider_supports_thinking(config.llm.provider, config.llm.model)
+        return {
+            "provider": config.llm.provider,
+            "model": config.llm.model,
+            **caps,
+            "thinking_enabled": bool(config.llm.thinking_enabled),
+            "thinking_effort": config.llm.thinking_effort or "high",
+        }
+    except Exception as e:
+        logger.error(f"get_thinking_capabilities failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/settings/thinking")
+async def save_thinking(body: Dict[str, Any]):
+    """Persist thinking_enabled + thinking_effort and re-init active agents.
+
+    Body: { "enabled": bool, "effort": "high"|"medium"|"low"|... }
+    Reuses the encrypted API key from config so we don't ask for it again.
+    """
+    try:
+        enabled = bool(body.get("enabled", False))
+        effort = (body.get("effort", "") or "high").strip().lower()
+
+        config = get_config()
+        security = get_security_manager()
+
+        if not config.llm.api_key:
+            raise HTTPException(status_code=400, detail="请先配置 API Key")
+
+        # Persist to config
+        config.update_llm(
+            provider=config.llm.provider,
+            api_key=config.llm.api_key,
+            model=config.llm.model,
+            thinking_enabled=enabled,
+            thinking_effort=effort,
+        )
+
+        # Reinitialize all active agents so the new thinking setting takes
+        # effect immediately for the next chat request.
+        decrypted_key = security.decrypt(config.llm.api_key)
+        reinitialized = 0
+        for session_id, adata in datasets.items():
+            try:
+                agents[session_id] = E2scAgent(
+                    adata=adata,
+                    llm_provider=config.llm.provider,
+                    api_key=decrypted_key,
+                    model=config.llm.model,
+                )
+                reinitialized += 1
+            except Exception as e:
+                logger.warning(f"Failed to reinitialize agent for {session_id}: {e}")
+
+        logger.info(
+            f"[Settings] thinking updated: enabled={enabled}, effort={effort}, "
+            f"reinitialized={reinitialized} agents"
+        )
+        return {
+            "success": True,
+            "thinking_enabled": enabled,
+            "thinking_effort": effort,
+            "agents_reinitialized": reinitialized,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"save_thinking failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/settings")

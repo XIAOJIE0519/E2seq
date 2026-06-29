@@ -69,7 +69,12 @@ class LLMConfig(BaseSettings):
     model: str = Field(default="gpt-4")
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=81920)
-    
+    # Chain-of-thought / reasoning mode. Persisted to YAML so a server
+    # restart keeps the user's preference. Frontend toggles these via
+    # /api/settings/thinking and the agent init code reads them.
+    thinking_enabled: bool = Field(default=False)
+    thinking_effort: str = Field(default="high")
+
     class Config:
         env_prefix = "E2SC_"
 
@@ -211,6 +216,8 @@ class E2scConfig:
                 "model": self.llm.model,
                 "temperature": self.llm.temperature,
                 "max_tokens": self.llm.max_tokens,
+                "thinking_enabled": bool(self.llm.thinking_enabled),
+                "thinking_effort": self.llm.thinking_effort or "high",
             },
             "database": {
                 "db_path": db_path_for_save,  # 保存为相对路径
@@ -237,11 +244,28 @@ class E2scConfig:
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(config_dict, f, default_flow_style=False)
 
-    def update_llm(self, provider: str, api_key: str, model: str) -> None:
-        """Update LLM configuration."""
+    def update_llm(
+        self,
+        provider: str,
+        api_key: str,
+        model: str,
+        thinking_enabled: Optional[bool] = None,
+        thinking_effort: Optional[str] = None,
+    ) -> None:
+        """Update LLM configuration.
+
+        ``thinking_enabled`` and ``thinking_effort`` are optional; pass them
+        only when the caller wants to change thinking (so a model-only change
+        like ``switch_model`` doesn't accidentally reset thinking back to the
+        config default).
+        """
         self.llm.provider = provider
         self.llm.api_key = api_key
         self.llm.model = model
+        if thinking_enabled is not None:
+            self.llm.thinking_enabled = bool(thinking_enabled)
+        if thinking_effort is not None:
+            self.llm.thinking_effort = thinking_effort
         self.save()
 
     def update_embedding(self, model_name: str, model_dimension: int = None,

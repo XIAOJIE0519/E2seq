@@ -67,7 +67,9 @@ class E2scAgentOptimized:
             api_key=key,
             model=model or self.config.llm.model,
             temperature=self.config.llm.temperature,
-            max_tokens=self.config.llm.max_tokens
+            max_tokens=self.config.llm.max_tokens,
+            thinking_enabled=self.config.llm.thinking_enabled,
+            thinking_effort=self.config.llm.thinking_effort or "high",
         )
         
         self.adata = adata

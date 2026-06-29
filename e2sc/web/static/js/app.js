@@ -288,6 +288,9 @@ class E2seqApp {
                             }
                             if (statusEl) statusEl.innerHTML = '<span style="color:#34d399;font-size:.8rem">✓ 已切换至 ' + selectedModel + '</span>';
                             this._updateModelBadge(provider, selectedModel);
+                            // Refresh Thinking toggle state for the newly
+                            // selected provider/model.
+                            this.loadThinkingCapabilities();
                         } else {
                             this.showConnectionStatus('error', d.detail || '切换失败');
                             if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-size:.8rem">' + (d.detail||'切换失败') + '</span>';
@@ -1024,8 +1027,126 @@ STAT3,IL6,regulation,0.88`;
             this.loadEmbeddingSettings(data);
             // Update model badge in chat header
             this._updateModelBadge(data.provider, data.model);
+            // Refresh Thinking toggle state for the active provider/model
+            this.loadThinkingCapabilities();
         } catch (error) {
             console.error('Failed to load settings:', error);
+        }
+    }
+
+    /**
+     * Load thinking-mode capability info for the active provider/model and
+     * populate the Thinking toggle + Effort dropdown in the settings panel.
+     * Called from loadSettings() and after any model switch.
+     */
+    async loadThinkingCapabilities() {
+        const toggle = document.getElementById('thinkingEnabledToggle');
+        const effort = document.getElementById('thinkingEffortSelect');
+        const statusBadge = document.getElementById('thinkingStatusBadge');
+        const hint = document.getElementById('thinkingUnsupportedHint');
+        if (!toggle || !effort) return;
+
+        try {
+            const r = await fetch('/api/settings/thinking');
+            if (!r.ok) {
+                this._setThinkingUiState({ supports_thinking: false }, toggle, effort, statusBadge, hint);
+                return;
+            }
+            const caps = await r.json();
+            this._setThinkingUiState(caps, toggle, effort, statusBadge, hint);
+        } catch (e) {
+            console.warn('loadThinkingCapabilities failed:', e);
+            this._setThinkingUiState({ supports_thinking: false }, toggle, effort, statusBadge, hint);
+        }
+    }
+
+    _setThinkingUiState(caps, toggle, effort, statusBadge, hint) {
+        const supports = !!caps.supports_thinking;
+        const modelOk = !!caps.model_supported;
+        const alwaysOn = !!caps.always_on;
+        const enabled = !!caps.thinking_enabled;
+        const currentEffort = (caps.thinking_effort || 'high').toLowerCase();
+        const levels = Array.isArray(caps.effort_levels) ? caps.effort_levels : [];
+
+        // Repopulate effort options to only what this provider/model supports
+        const knownLevels = ['low', 'medium', 'high', 'xhigh', 'max'];
+        const effectiveLevels = levels.length ? levels : knownLevels;
+        effort.innerHTML = effectiveLevels.map(l =>
+            `<option value="${l}"${l === currentEffort ? ' selected' : ''}>${l}</option>`
+        ).join('');
+
+        toggle.checked = enabled;
+
+        if (!supports) {
+            // Provider fundamentally doesn't support thinking (e.g. Ollama)
+            toggle.disabled = true;
+            effort.disabled = true;
+            if (statusBadge) statusBadge.innerHTML = '<span style="color:#9aa0ac">当前 provider 不支持 Thinking</span>';
+            if (hint) { hint.style.display = 'block'; hint.textContent = '该 provider 无 thinking 接口（Ollama 由本地模型决定）。'; }
+            return;
+        }
+        if (!modelOk) {
+            // Provider supports thinking but the specific model doesn't (e.g. gpt-4o)
+            toggle.disabled = true;
+            effort.disabled = true;
+            if (statusBadge) statusBadge.innerHTML = '<span style="color:#f59e0b">当前模型不支持 Thinking</span>';
+            if (hint) {
+                hint.style.display = 'block';
+                hint.textContent = `模型 ${caps.model || ''} 不在 thinking 模型列表中 — 切换至支持 thinking 的模型后再开启。`;
+            }
+            return;
+        }
+        if (alwaysOn) {
+            toggle.disabled = true;
+            effort.disabled = false;
+            toggle.checked = true;
+            if (statusBadge) statusBadge.innerHTML = '<span style="color:#8ab4f8">该模型强制开启 Thinking</span>';
+            if (hint) {
+                hint.style.display = 'block';
+                hint.textContent = '此 provider 的此系列模型强制启用 thinking，无法关闭（仅可调节强度）。';
+            }
+            return;
+        }
+        // All good — provider + model support thinking and user can toggle freely
+        toggle.disabled = false;
+        effort.disabled = !toggle.checked;
+        if (statusBadge) statusBadge.innerHTML = enabled
+            ? '<span style="color:#34d399">✓ 已启用</span>'
+            : '<span style="color:#9aa0ac">未启用</span>';
+        if (hint) hint.style.display = 'none';
+
+        // Wire up change handlers (idempotent — remove first)
+        toggle.onchange = async () => {
+            effort.disabled = !toggle.checked;
+            await this._saveThinkingSettings(toggle.checked, effort.value);
+        };
+        effort.onchange = async () => {
+            if (toggle.checked) {
+                await this._saveThinkingSettings(toggle.checked, effort.value);
+            }
+        };
+    }
+
+    async _saveThinkingSettings(enabled, effort) {
+        try {
+            const r = await fetch('/api/settings/thinking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: !!enabled, effort: effort || 'high' }),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) {
+                this.showNotification(d.detail || '保存失败', 'error');
+                return;
+            }
+            this.showNotification(
+                `Thinking ${enabled ? '已启用' : '已关闭'}（${d.agents_reinitialized || 0} 个 agent 已重载）`,
+                enabled ? 'success' : 'info'
+            );
+            // Refresh UI to reflect saved state (effort may have been clamped)
+            await this.loadThinkingCapabilities();
+        } catch (e) {
+            this.showNotification('保存失败: ' + e.message, 'error');
         }
     }
 

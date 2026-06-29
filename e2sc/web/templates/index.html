@@ -436,6 +436,65 @@
                         </div>
                     </section>
 
+                    <!-- 推理模式 (Thinking / Chain-of-thought) -->
+                    <section class="settings-section-block" id="thinking-section">
+                        <div class="section-label-row">
+                            <h2 class="section-title">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px">
+                                    <path d="M12 2a7 7 0 0 0-7 7c0 3 2 5 3 6 1 1 1 2 1 3v1h6v-1c0-1 0-2 1-3 1-1 3-3 3-6a7 7 0 0 0-7-7z"></path>
+                                    <line x1="10" y1="22" x2="14" y2="22"></line>
+                                </svg>
+                                <span data-i18n="settings.thinkingTitle">推理模式 (Thinking)</span>
+                            </h2>
+                            <p class="section-desc" data-i18n="settings.thinkingDesc">
+                                启用模型的链式思考推理（DeepSeek-R1、GPT-5/4o thinking、Claude Sonnet 4.6+、GLM-5.2、Gemini 3.x 等支持）。
+                            </p>
+                        </div>
+                        <div class="pref-grid">
+                            <div class="pref-item">
+                                <label class="pref-label" data-i18n="settings.thinkingToggle">启用 Thinking</label>
+                                <div style="display:flex;align-items:center;gap:12px;">
+                                    <label class="local-mode-toggle" style="margin:0">
+                                        <input type="checkbox" id="thinkingEnabledToggle">
+                                        <span class="toggle-track"></span>
+                                    </label>
+                                    <span id="thinkingStatusBadge" class="model-status" style="font-size:.8rem;"></span>
+                                </div>
+                                <p id="thinkingUnsupportedHint" class="section-desc" style="display:none;margin-top:8px;color:#f59e0b;"></p>
+                            </div>
+                            <div class="pref-item">
+                                <label class="pref-label" data-i18n="settings.thinkingEffort">推理强度 (Effort)</label>
+                                <select id="thinkingEffortSelect" class="form-control" style="max-width:240px">
+                                    <option value="low">low</option>
+                                    <option value="medium">medium</option>
+                                    <option value="high" selected>high</option>
+                                    <option value="xhigh">xhigh</option>
+                                    <option value="max">max</option>
+                                </select>
+                                <p class="section-desc" style="margin-top:6px" data-i18n="settings.thinkingEffortHint">
+                                    各 provider 支持的强度不同，详情见下方说明。
+                                </p>
+                            </div>
+                        </div>
+                        <details style="margin-top:12px">
+                            <summary style="cursor:pointer;color:#8ab4f8;font-size:.85rem" data-i18n="settings.thinkingHelpTitle">
+                                各 provider 的 thinking 支持说明
+                            </summary>
+                            <div style="margin-top:8px;font-size:.82rem;line-height:1.6;color:#9aa0ac">
+                                <ul style="padding-left:20px;margin:0">
+                                    <li><b>OpenAI</b> o1/o3/o4/gpt-5.x 系列：<code>reasoning_effort</code>，可选 low/medium/high/xhigh</li>
+                                    <li><b>Anthropic</b> Claude Opus 4.7/4.8/Sonnet 4.6+：<code>thinking.type: adaptive</code> + <code>output_config.effort</code>，可选 low/medium/high/max；Opus 4.7/4.8/Fable 5/Mythos 5 强制开启</li>
+                                    <li><b>DeepSeek</b> V4 (deepseek-v4-pro/flash)：<code>extra_body.thinking</code> + <code>reasoning_effort</code>，可选 high/max</li>
+                                    <li><b>GLM</b> glm-5.x 系列：<code>thinking.type</code> + <code>reasoning_effort</code>，可选 low/medium/high/xhigh/max</li>
+                                    <li><b>Gemini</b> 3.x：<code>thinking_level</code>（OpenAI 兼容层自动映射 reasoning_effort）；2.5 系列使用 <code>thinkingBudget</code></li>
+                                    <li><b>Kimi</b> k2.6/k2.7-code：<code>thinking.type</code> 二值开关 + <code>keep: all</code>（Preserved Thinking）</li>
+                                    <li><b>SiliconFlow</b> DeepSeek-R1 等：<code>reasoning_effort</code></li>
+                                    <li><b>Ollama</b>：由各本地模型决定，不在客户端做 thinking 切换</li>
+                                </ul>
+                            </div>
+                        </details>
+                    </section>
+
                     <!-- 偏好设置 -->
                     <section class="settings-section-block">
                         <div class="section-label-row">
