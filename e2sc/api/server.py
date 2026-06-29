@@ -171,23 +171,6 @@ def _push_progress(session_id: str, msg: str) -> None:
 class _ProgressHandler(logging.Handler):
     """Logging handler that mirrors INFO records to the progress buffer."""
 
-
-async def _drain_text_queue(text_queue, asyncio_queue: asyncio.Queue, poll_interval: float = 0.1):
-    """Continuously drain chunks from the thread-safe text_queue into an asyncio.Queue.
-
-    Runs as a coroutine in the event loop. Polls the thread-safe stdlib queue
-    every `poll_interval` seconds and forwards each chunk to the asyncio.Queue
-    where the SSE generator picks it up. Sentinel value ``None`` signals end of
-    stream. Catches all exceptions so a transient queue error can't kill the
-    drainer.
-    """
-    while True:
-        try:
-            chunk = text_queue.get_nowait()
-            await asyncio_queue.put(chunk)
-        except Exception:
-            await asyncio.sleep(poll_interval)
-
     def __init__(self, session_id: str):
         super().__init__(level=logging.INFO)
         self.session_id = session_id
@@ -1323,79 +1306,51 @@ async def _stream_agent_chat(chat_id: str, message: str):
         progress_gen = None
         cancelled = False
         _PING_INTERVAL = 2  # seconds between keepalive pings (shorter for faster disconnect detection)
-        _TEXT_DRAIN_INTERVAL = 0.1  # seconds — how often the drainer polls text_queue
-        _TEXT_QUEUE_BRIDGE_POLL = 0.05  # seconds — how often the SSE generator polls the bridge
-        _PING_INTERVAL = 2
-        # Bridge queue: text_queue is a thread-safe stdlib queue written to by the
-        # LLM thread; the drainer task moves chunks into this asyncio.Queue which
-        # the async SSE generator can read concurrently with progress_queue.
-        text_bridge: asyncio.Queue = asyncio.Queue()
-        drainer_task = asyncio.create_task(
-            _drain_text_queue(text_queue, text_bridge, _TEXT_DRAIN_INTERVAL)
-        )
         try:
             async def stream_progress():
                 pending_tasks = []  # Track all created tasks for cleanup
                 try:
                     while not executor_future.done():
-                        # Three concurrent sources to watch:
-                        #   1. progress_queue — thinking/progress messages
-                        #   2. text_bridge    — LLM streaming text chunks
-                        #   3. abort_event    — user cancellation
-                        # The text_bridge is fed by a dedicated drainer task that
-                        # polls the thread-safe stdlib queue every ~100ms, so
-                        # streaming text reaches the browser incrementally instead
-                        # of being held until the next progress_queue event or
-                        # keepalive ping (every 2s).
+                        # Build task list: progress queue + abort event
+                        # CRITICAL: progress_queue.get() MUST have a timeout to prevent infinite blocking.
+                        # Without timeout, if no progress arrives, the entire SSE stream hangs and
+                        # the browser's fetch times out (30s default), leaving the UI stuck on
+                        # "thinking" state while the backend has already completed.
                         try:
-                            task_progress = asyncio.create_task(
-                                asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL)
-                            )
-                            task_text = asyncio.create_task(
-                                asyncio.wait_for(text_bridge.get(), timeout=_TEXT_QUEUE_BRIDGE_POLL * 10)
-                            )
-                            task_abort = asyncio.create_task(abort_event.wait())
-                            pending_tasks.extend([task_progress, task_text, task_abort])
-                            done, _ = await asyncio.wait(
-                                [task_progress, task_text, task_abort],
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
+                            task1 = asyncio.create_task(asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL))
+                            task2 = asyncio.create_task(abort_event.wait())
+                            pending_tasks.extend([task1, task2])
+                            done, _ = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
                         except asyncio.TimeoutError:
+                            # No progress message within _PING_INTERVAL seconds.
+                            # Send a keepalive ping to prevent browser fetch timeout.
                             try:
                                 yield ": keepalive\n\n"
                             except CLIENT_DISCONNECT_EXCEPTIONS:
+                                # Client disconnected - cancel pending tasks and exit
                                 for t in pending_tasks:
                                     t.cancel()
                                 return
+                            # Clean up completed tasks from the list
                             pending_tasks = [t for t in pending_tasks if not t.done()]
                             continue
 
                         if abort_event.is_set():
+                            # Signal the agent thread to abort and cancel the executor
                             abort_flag.set()
                             nonlocal cancelled
                             cancelled = True
                             executor_future.cancel()
                             logger.info(f"[SSE] Abort triggered for chat_id={chat_id}")
+                            # Cancel pending tasks before return
                             for t in pending_tasks:
                                 t.cancel()
                             return
 
-                        # Process completed tasks this cycle
-                        _text_drained = 0
+                        # Check which task completed
                         for d in done:
-                            if d is task_text:
-                                try:
-                                    chunk = d.result()
-                                    text_payload = json.dumps({"content": chunk})
-                                    yield f"event: text\ndata: {text_payload}\n\n"
-                                    _text_drained += 1
-                                except CLIENT_DISCONNECT_EXCEPTIONS:
-                                    for t in pending_tasks:
-                                        t.cancel()
-                                    return
-                                except Exception as _te:
-                                    logger.debug(f"[SSE] text drain cycle ended: {_te}")
-                            elif d is task_progress:
+                            if d == task1:
+                                # Progress message arrived
                                 try:
                                     msg = d.result()
                                     _push_progress(chat_id, msg)
@@ -1403,32 +1358,35 @@ async def _stream_agent_chat(chat_id: str, message: str):
                                     logger.info(f"[SSE] yield thinking: {msg[:80]}")
                                     yield f"event: thinking\ndata: {payload}\n\n"
                                 except CLIENT_DISCONNECT_EXCEPTIONS:
+                                    # Client disconnected - cancel pending tasks and exit
                                     for t in pending_tasks:
                                         t.cancel()
                                     return
                                 except Exception as _te:
                                     logger.warning(f"[SSE] yield thinking failed: {_te}")
 
-                        # Drain any remaining text chunks that arrived in this cycle
-                        # so we don't keep falling behind when LLM is streaming fast.
-                        while True:
-                            try:
-                                chunk = text_bridge.get_nowait()
-                                text_payload = json.dumps({"content": chunk})
-                                yield f"event: text\ndata: {text_payload}\n\n"
-                                _text_drained += 1
-                            except asyncio.QueueEmpty:
-                                break
-                            except Exception:
-                                break
-                        if _text_drained > 0:
-                            logger.info(f"[SSE] Streamed {_text_drained} text chunks this cycle")
-
-                        # Cancel uncompleted tasks before next iteration
+                        # Cancel uncompleted tasks before draining text queue
                         for t in pending_tasks:
                             if not t.done():
                                 t.cancel()
                         pending_tasks.clear()
+
+                        # Drain LLM text chunks from queue while executor is running
+                        _drained = 0
+                        while True:
+                            try:
+                                chunk = text_queue.get_nowait()
+                                text_payload = json.dumps({"content": chunk})
+                                logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
+                                yield f"event: text\ndata: {text_payload}\n\n"
+                                _drained += 1
+                            except CLIENT_DISCONNECT_EXCEPTIONS:
+                                # Client disconnected - exit gracefully
+                                return
+                            except Exception:
+                                break
+                        if _drained > 0:
+                            logger.info(f"[SSE] Drained {_drained} text chunks from queue")
                 finally:
                     # CRITICAL: Cancel all pending tasks when exiting the generator
                     # This prevents "Task was destroyed but it is pending!" errors
@@ -1463,14 +1421,6 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 try:
                     await progress_gen.aclose()
                 except Exception:
-                    pass
-            # Cancel the text-queue drainer task. It will exit cleanly via the
-            # CancelledError it receives from asyncio.CancelledError.
-            if not drainer_task.done():
-                drainer_task.cancel()
-                try:
-                    await drainer_task
-                except (asyncio.CancelledError, Exception):
                     pass
 
         # Drain any remaining LLM text chunks AND progress messages from queues
