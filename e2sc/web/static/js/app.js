@@ -1676,8 +1676,12 @@ STAT3,IL6,regulation,0.88`;
                     let payload;
                     try { payload = JSON.parse(dataStr); }
                     catch (_) { continue; }
-                    console.log('[SSE]', ev, payload);
                     if (ev === 'text') {
+                        // Server used to stream chunks here, but the agent
+                        // now uses the non-streaming LLM path which delivers
+                        // the full response only in the `done` event. If we
+                        // somehow receive a `text` event (shouldn't happen),
+                        // accumulate it as a safety net.
                         streamedText += (payload.content || '');
                     } else if (ev === 'plot' || ev === 'plots') {
                         // server emits 'plots' (plural) with an array

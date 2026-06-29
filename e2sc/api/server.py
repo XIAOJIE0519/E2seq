@@ -1178,11 +1178,16 @@ async def get_progress(session_id: str):
 
 
 async def _stream_agent_chat(chat_id: str, message: str):
-    """Generator that yields SSE events for streaming agent chat.
+    """Generator that yields SSE events for agent chat.
 
-    Runs the agent in a thread executor and streams progress events via an async
-    queue as they are produced, so the frontend sees real-time updates instead of
-    waiting for the full response.
+    NON-STREAMING design: progress events (`event: thinking`) are streamed in
+    real-time so the UI can show what backend is doing, but the LLM text
+    itself is delivered in a single `event: done` event after the agent
+    finishes. This used to stream per-token chunks too, but that path was
+    fragile (text-queue drainer tasks, "dictionary changed size during
+    iteration" errors, run-time interleaving bugs). The user explicitly
+    asked to stop experimenting with streaming — only progress events stream,
+    final response is delivered in one shot.
 
     Supports cancellation via _abort_events[chat_id].set().
     """
@@ -1199,11 +1204,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
     abort_flag = _threading.Event()
 
     try:
-        # Yield abort check at start
         if abort_event.is_set():
             yield "event: aborted\ndata: {}\n\n"
             return
-
 
         # Persist user message immediately so it's never lost even if agent crashes
         _save_chat_message(chat_id, "user", message)
@@ -1237,59 +1240,43 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 yield f"event: error\ndata: Agent\u521d\u59cb\u5316\u5931\u8d25: {str(e)}\n\n"
                 return
 
-        # Install progress handler
+        # Install progress handler that mirrors orchestrator INFO logs to the
+        # progress_queue (and via _push_progress to /api/progress/{chat_id}).
         _prog_handler = _ProgressHandler(chat_id)
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
         logger.info(f"[SSE] Handler added for chat_id={chat_id}")
 
-        # Progress queue for real-time streaming (async-safe via call_soon_threadsafe)
-        progress_queue = asyncio.Queue()
-        # Text chunk queue for streaming LLM response in real-time (thread-safe)
-        import queue
-        text_queue = queue.Queue()
-
-        # Capture the running loop for thread-safe access from the executor thread
+        # Progress queue for real-time progress streaming
+        progress_queue: asyncio.Queue = asyncio.Queue()
         _running_loop = asyncio.get_running_loop()
-        # Flag to track if event loop is still running (for cleanup on disconnect)
         _loop_closed = False
 
         def progress_callback(msg: str):
-            """Thread-safe callback: put progress message into the async queue."""
-            # Skip if event loop has been closed (client disconnected)
+            """Thread-safe callback: schedule a put_nowait on the event loop."""
             if _loop_closed:
                 return
             try:
-                _running_loop.call_soon_threadsafe(
-                    progress_queue.put_nowait, msg
-                )
-            except RuntimeError as _e:
-                # Event loop is closed - this can happen after client disconnect
+                _running_loop.call_soon_threadsafe(progress_queue.put_nowait, msg)
+            except RuntimeError:
+                # Event loop closed (client disconnected)
                 pass
             except Exception as _pcb_e:
                 logger.debug(f"[SSE] progress_callback failed: {_pcb_e}")
 
-        async def drain_queue():
-            """Drain all queued progress messages as SSE events."""
-            while not progress_queue.empty():
-                try:
-                    msg = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
-                    _push_progress(chat_id, msg)
-                    payload = json.dumps({"step": "progress", "content": msg})
-                    yield f"event: thinking\ndata: {payload}\n\n"
-                except asyncio.TimeoutError:
-                    break
-
-        # Run agent in executor so we can interleave SSE yields with progress
+        # Run agent in executor — text_queue=None forces the synthesizer down
+        # the non-streaming LLM branch (a single blocking call) so the full
+        # response is available in agent_result_holder["result"] when the
+        # executor_future completes.
         loop = asyncio.get_running_loop()
-        agent_result_holder = {}
+        agent_result_holder: dict = {}
 
         def run_agent():
             try:
                 agent_result_holder["result"] = agent.chat(
                     message,
                     progress_callback=progress_callback,
-                    text_queue=text_queue,
+                    text_queue=None,    # non-streaming path on purpose
                     abort_flag=abort_flag,
                 )
             except AbortChat as e:
@@ -1298,188 +1285,56 @@ async def _stream_agent_chat(chat_id: str, message: str):
             except Exception as e:
                 agent_result_holder["error"] = e
 
-        # Kick off agent in thread pool
         executor_future = loop.run_in_executor(None, run_agent)
 
-        # Interleave progress streaming with agent execution.
-        # Also check abort_event periodically to support cancellation.
-        progress_gen = None
-        cancelled = False
-        _PING_INTERVAL = 2  # seconds between keepalive pings (shorter for faster disconnect detection)
+        # Stream progress events until agent finishes. Emit a keepalive ping
+        # every 2s so the browser's fetch doesn't time out during long LLM
+        # calls (GLM-5 / DeepSeek on 60k-char prompts can take 3-5 minutes).
+        _PING_INTERVAL = 2
         try:
-            async def stream_progress():
-                pending_tasks = []  # Track all created tasks for cleanup
-                try:
-                    while not executor_future.done():
-                        # Build task list: progress queue + abort event
-                        # CRITICAL: progress_queue.get() MUST have a timeout to prevent infinite blocking.
-                        # Without timeout, if no progress arrives, the entire SSE stream hangs and
-                        # the browser's fetch times out (30s default), leaving the UI stuck on
-                        # "thinking" state while the backend has already completed.
+            while True:
+                if executor_future.done():
+                    # Drain any final progress messages the agent emitted in
+                    # the last few hundred ms before finishing.
+                    while not progress_queue.empty():
                         try:
-                            task1 = asyncio.create_task(asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL))
-                            task2 = asyncio.create_task(abort_event.wait())
-                            pending_tasks.extend([task1, task2])
-                            done, _ = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
-                        except asyncio.TimeoutError:
-                            # No progress message within _PING_INTERVAL seconds.
-                            # Send a keepalive ping to prevent browser fetch timeout.
-                            try:
-                                yield ": keepalive\n\n"
-                            except CLIENT_DISCONNECT_EXCEPTIONS:
-                                # Client disconnected - cancel pending tasks and exit
-                                for t in pending_tasks:
-                                    t.cancel()
-                                return
-                            # Clean up completed tasks from the list
-                            pending_tasks = [t for t in pending_tasks if not t.done()]
-                            continue
+                            msg = progress_queue.get_nowait()
+                            _push_progress(chat_id, msg)
+                            payload = json.dumps({"step": "progress", "content": msg})
+                            yield f"event: thinking\ndata: {payload}\n\n"
+                        except Exception:
+                            break
+                    break
 
-                        if abort_event.is_set():
-                            # Signal the agent thread to abort and cancel the executor
-                            abort_flag.set()
-                            nonlocal cancelled
-                            cancelled = True
-                            executor_future.cancel()
-                            logger.info(f"[SSE] Abort triggered for chat_id={chat_id}")
-                            # Cancel pending tasks before return
-                            for t in pending_tasks:
-                                t.cancel()
-                            return
-
-                        # Check which task completed
-                        for d in done:
-                            if d == task1:
-                                # Progress message arrived
-                                try:
-                                    msg = d.result()
-                                    _push_progress(chat_id, msg)
-                                    payload = json.dumps({"step": "progress", "content": msg})
-                                    logger.info(f"[SSE] yield thinking: {msg[:80]}")
-                                    yield f"event: thinking\ndata: {payload}\n\n"
-                                except CLIENT_DISCONNECT_EXCEPTIONS:
-                                    # Client disconnected - cancel pending tasks and exit
-                                    for t in pending_tasks:
-                                        t.cancel()
-                                    return
-                                except Exception as _te:
-                                    logger.warning(f"[SSE] yield thinking failed: {_te}")
-
-                        # Cancel uncompleted tasks before draining text queue
-                        for t in pending_tasks:
-                            if not t.done():
-                                t.cancel()
-                        pending_tasks.clear()
-
-                        # Drain LLM text chunks from queue while executor is running
-                        _drained = 0
-                        while True:
-                            try:
-                                chunk = text_queue.get_nowait()
-                                text_payload = json.dumps({"content": chunk})
-                                logger.debug(f"[SSE] text chunk ({len(chunk)} chars)")
-                                yield f"event: text\ndata: {text_payload}\n\n"
-                                _drained += 1
-                            except CLIENT_DISCONNECT_EXCEPTIONS:
-                                # Client disconnected - exit gracefully
-                                return
-                            except Exception:
-                                break
-                        if _drained > 0:
-                            logger.info(f"[SSE] Drained {_drained} text chunks from queue")
-                finally:
-                    # CRITICAL: Cancel all pending tasks when exiting the generator
-                    # This prevents "Task was destroyed but it is pending!" errors
-                    for t in pending_tasks:
-                        if not t.done():
-                            t.cancel()
-                    # Wait briefly for tasks to be cancelled
-                    if pending_tasks:
-                        await asyncio.gather(*pending_tasks, return_exceptions=True)
-
-                progress_gen = stream_progress()
-            try:
-                async for ev in progress_gen:
-                    try:
-                        yield ev
-                    except asyncio.CancelledError:
-                        # Client disconnected while yielding
-                        logger.info(f"[SSE] Client disconnected during yield for chat_id={chat_id}")
-                        progress_gen.aclose()
-                        raise
-                    except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                        # Uvicorn client disconnect
-                        logger.info(f"[SSE] Client disconnected: {chat_id}")
-                        progress_gen.aclose()
-                        raise asyncio.CancelledError("client disconnected") from _cd
-            except asyncio.CancelledError:
-                # Let it propagate to outer handler
-                raise
-        finally:
-            # Properly await aclose() per Python cpython issue #117536
-            if progress_gen is not None:
                 try:
-                    await progress_gen.aclose()
-                except Exception:
-                    pass
-
-        # Drain any remaining LLM text chunks AND progress messages from queues
-        # (chunks may have been queued right before/during executor completion)
-        while True:
-            try:
-                chunk = text_queue.get_nowait()
-                text_payload = json.dumps({"content": chunk})
-                yield f"event: text\ndata: {text_payload}\n\n"
-            except asyncio.CancelledError:
-                # Client disconnected during drain
-                return
-            except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                logger.debug(f"[SSE] Client disconnected during final drain: {_cd}")
-                return
-            except Exception:
-                break
-        while not progress_queue.empty():
-            try:
-                msg = progress_queue.get_nowait()
-                _push_progress(chat_id, msg)
-                payload = json.dumps({"step": "progress", "content": msg})
-                yield f"event: thinking\ndata: {payload}\n\n"
-            except asyncio.CancelledError:
-                # Client disconnected during drain
-                return
-            except CLIENT_DISCONNECT_EXCEPTIONS as _cd:
-                logger.debug(f"[SSE] Client disconnected during progress drain: {_cd}")
-                return
-            except asyncio.QueueEmpty:
-                break
-            except Exception:
-                break
-
-        # Wait for agent to complete (or be cancelled after abort)
-        try:
-            await loop.run_in_executor(None, lambda: executor_future.result())
+                    msg = await asyncio.wait_for(progress_queue.get(), timeout=_PING_INTERVAL)
+                    _push_progress(chat_id, msg)
+                    payload = json.dumps({"step": "progress", "content": msg})
+                    logger.info(f"[SSE] yield thinking: {msg[:80]}")
+                    yield f"event: thinking\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # No progress in 2s — emit keepalive so browser keeps the
+                    # connection alive. yield is fine inside an async-for;
+                    # StreamingResponse forwards each yielded str.
+                    yield ": keepalive\n\n"
         except asyncio.CancelledError:
-            # CancelledError means abort was triggered or client disconnected
-            _orch_logger.removeHandler(_prog_handler)
-            # Re-raise to propagate the cancellation
+            # Client disconnected. Signal the agent thread to abort and let
+            # the executor_future be cleaned up by the outer finally.
+            abort_flag.set()
+            try:
+                executor_future.cancel()
+            except Exception:
+                pass
             raise
-        except asyncio.InvalidStateError:
-            # Future not completed yet - this can happen if we got CancelledError
-            # from client disconnect before the future completed normally.
-            # Don't raise, just log and continue (result may not be available).
-            logger.warning("[SSE] Future not completed when accessing result, client may have disconnected")
-            _orch_logger.removeHandler(_prog_handler)
-            # Return gracefully instead of crashing
-            return
-        except Exception as e:
-            # Other unexpected errors
-            logger.error(f"[SSE] Error waiting for agent: {e}")
-            _orch_logger.removeHandler(_prog_handler)
-            raise
+
+        # Block until agent actually finishes (executor_future.done() can be
+        # momentarily true while result() is still being set). We don't need
+        # to .result() here because the agent has already populated
+        # agent_result_holder by this point.
 
         _orch_logger.removeHandler(_prog_handler)
 
-        # Check if agent raised AbortChat internally (caught in run_agent)
+        # ── Emit terminal SSE events ────────────────────────────────────
         if agent_result_holder.get("aborted"):
             try:
                 yield f"event: aborted\ndata: {json.dumps({'reason': agent_result_holder.get('abort_reason', 'User requested abort')})}\n\n"
@@ -1487,7 +1342,6 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 raise
             return
 
-        # Check if abort was requested while we were draining queues
         if abort_event.is_set():
             try:
                 yield f"event: aborted\ndata: {json.dumps({'reason': 'User requested abort'})}\n\n"
@@ -1500,7 +1354,6 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if "error" in agent_result_holder:
             _stream_err = agent_result_holder["error"]
             _stream_err_msg = str(_stream_err)
-            # Ensure assistant error message is persisted even when agent raises
             try:
                 _save_chat_message(chat_id, "assistant", f"[Error] {_stream_err_msg}")
             except Exception as _pe:
@@ -1515,36 +1368,33 @@ async def _stream_agent_chat(chat_id: str, message: str):
         if not isinstance(response, dict):
             response = {"text": str(response) if response else "", "plots": [], "data": {}, "thinking": []}
 
-        # Yield thinking steps accumulated during execution
+        # Yield recorded thinking steps (these are steps the agent accumulated
+        # and the frontend uses to render the collapsible "thinking" sections).
         for step in response.get("thinking", []):
             content = json.dumps({"step": step.get("step", ""), "content": step.get("content", "")})
             try:
                 yield f"event: thinking\ndata: {content}\n\n"
             except CLIENT_DISCONNECT_EXCEPTIONS:
                 raise
-            # Allow cancellation check between yields
-            await asyncio.sleep(0)
 
-        # Yield plot data
+        # Serialize plotly figures into JSON strings the frontend can render.
         plots_data = []
-        if response.get("plots"):
-            for item in response["plots"]:
-                if isinstance(item, (list, tuple)) and len(item) == 2:
-                    plot_name, fig = item
-                else:
-                    continue
-                try:
-                    fig_json = plotly.io.to_json(fig)
-                    plots_data.append({"title": plot_name, "figure": fig_json})
-                except Exception:
-                    pass
+        for item in response.get("plots") or []:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                plot_name, fig = item
+            else:
+                continue
+            try:
+                fig_json = plotly.io.to_json(fig)
+                plots_data.append({"title": plot_name, "figure": fig_json})
+            except Exception:
+                pass
         if plots_data:
             try:
                 yield f"event: plots\ndata: {json.dumps(plots_data)}\n\n"
             except CLIENT_DISCONNECT_EXCEPTIONS:
                 raise
 
-        # Yield source_stats
         src_stats = response.get("data", {}).get("source_stats", {})
         if src_stats:
             try:
@@ -1552,18 +1402,15 @@ async def _stream_agent_chat(chat_id: str, message: str):
             except CLIENT_DISCONNECT_EXCEPTIONS:
                 raise
 
-        # Persist assistant response after completion
+        # Persist assistant text for the chat history sidebar.
         try:
             _save_chat_message(chat_id, "assistant", response.get("text", ""))
         except Exception as _pe:
             logger.warning(f"Failed to persist chat message: {_pe}")
 
-        # Yield the full response text.
-        # CRITICAL: use a default=str serializer to avoid crashing on
-        # non-JSON-serializable objects (numpy arrays, sets, bytes) inside
-        # response.data.knowledge — those objects come from adata and would
-        # otherwise raise TypeError in json.dumps, terminating the SSE stream
-        # before the 'done' event reaches the frontend.
+        # Single `done` event with the full response. Use default=str so any
+        # numpy arrays / sets / bytes inside response.data don't crash the
+        # serializer and silently kill the stream.
         resp_body = {
             "response": response.get("text", ""),
             "plots": plots_data,
@@ -1588,11 +1435,9 @@ async def _stream_agent_chat(chat_id: str, message: str):
         logger.info(f"[SSE] Done event sent for chat_id={chat_id}")
 
     except asyncio.CancelledError:
-        # Client disconnected - this is expected behavior, not an error
+        # Client disconnected or abort triggered — this is normal cleanup
         logger.info(f"[SSE] Client disconnected for chat_id={chat_id}, stopping stream")
-        # Clean up abort event registration
         _abort_events.pop(chat_id, None)
-        # Re-raise CancelledError so StreamingResponse can handle it gracefully
         raise
     except Exception as e:
         logger.error(f"SSE stream error: {e}")
@@ -1601,7 +1446,6 @@ async def _stream_agent_chat(chat_id: str, message: str):
         except CLIENT_DISCONNECT_EXCEPTIONS:
             raise
     finally:
-        # Clean up abort event registration
         _abort_events.pop(chat_id, None)
 
 
