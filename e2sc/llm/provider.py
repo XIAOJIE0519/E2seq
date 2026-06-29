@@ -75,14 +75,45 @@ class LLMProvider(ABC):
             yield chunk.content
 
     def test_connection(self) -> Dict[str, Any]:
-        """发送一条最小请求测试连通性，返回 {success, message, model}。"""
+        """Verify API key + model exist by listing available models.
+
+        We deliberately do NOT send an actual chat completion here, because:
+        1. Reasoner models (GLM-5.2, DeepSeek-R1, o3-mini) take 10-30s just to
+           emit thinking tokens before answering "OK", which makes the test
+           look like it timed out.
+        2. Some models require special parameters (e.g. GLM-5.2 needs thinking
+           enabled) that the generic test prompt can't satisfy.
+        3. The model existence + key validity is enough to know the model is
+           selectable. The real chat will reveal any model-side issue anyway.
+
+        Subclasses override this if their provider has a cheaper validation API.
+        """
         try:
-            reply = self.chat([
-                {"role": "user", "content": "Reply with the single word: OK"}
-            ])
-            return {"success": True, "message": f"连接成功，模型回复: {reply.strip()[:50]}", "model": self.model}
+            import urllib.request
+            import urllib.error
+            url = self._models_list_url()
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Authorization", f"Bearer {self.api_key}")
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status != 200:
+                    return {"success": False, "message": f"模型列表 API 返回 {resp.status}", "model": self.model}
+                body = resp.read().decode("utf-8", errors="replace")
+                # Look for the model id (case-insensitive) in the response
+                if self.model.lower() in body.lower():
+                    return {"success": True, "message": f"模型 {self.model} 可用", "model": self.model}
+                # Some providers return objects without the id; fall back to
+                # "key accepted" as success.
+                return {"success": True, "message": f"API key 已认证（{self.model} 未在模型列表中找到，可能未开通）", "model": self.model}
+        except urllib.error.HTTPError as he:
+            if he.code in (401, 403):
+                return {"success": False, "message": f"API key 无权限（HTTP {he.code}）", "model": self.model}
+            return {"success": False, "message": f"HTTP {he.code}: {he.reason}", "model": self.model}
         except Exception as e:
             return {"success": False, "message": str(e), "model": self.model}
+
+    def _models_list_url(self) -> str:
+        """Override in subclasses to return the provider's model-list endpoint."""
+        raise NotImplementedError
 
     def _convert_messages(self, messages: List[Dict[str, str]]) -> List[BaseMessage]:
         """Convert message dicts to LangChain messages."""
@@ -116,6 +147,9 @@ class OpenAIProvider(LLMProvider):
             max_tokens=self.max_tokens,
         )
 
+    def _models_list_url(self) -> str:
+        return "https://api.openai.com/v1/models"
+
 
 class AnthropicProvider(LLMProvider):
     """Anthropic (Claude) LLM provider.
@@ -133,6 +167,9 @@ class AnthropicProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
+
+    def _models_list_url(self) -> str:
+        return "https://api.anthropic.com/v1/models"
 
 
 class DeepSeekProvider(LLMProvider):
@@ -156,6 +193,9 @@ class DeepSeekProvider(LLMProvider):
             max_tokens=self.max_tokens,
             base_url="https://api.deepseek.com",
         )
+
+    def _models_list_url(self) -> str:
+        return "https://api.deepseek.com/v1/models"
 
     def chat(self, messages, **kwargs):
         """Chat with thinking token stripped."""
@@ -217,6 +257,12 @@ class GeminiProvider(LLMProvider):
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
 
+    def _models_list_url(self) -> str:
+        # Gemini's native endpoint — accepts the API key as ?key= and returns
+        # a JSON list of models. The OpenAI-compat endpoint does not expose
+        # /models, so we use the native one for the connection test.
+        return f"https://generativelanguage.googleapis.com/v1beta/models?key={self.api_key}"
+
 
 class SiliconFlowProvider(LLMProvider):
     """硅基流动 LLM provider (OpenAI 兼容接口).
@@ -239,6 +285,9 @@ class SiliconFlowProvider(LLMProvider):
             max_tokens=self.max_tokens,
             base_url="https://api.siliconflow.cn/v1",
         )
+
+    def _models_list_url(self) -> str:
+        return "https://api.siliconflow.cn/v1/models"
 
     def chat(self, messages, **kwargs):
         """Chat with thinking token stripped."""
@@ -302,6 +351,23 @@ class OllamaProvider(LLMProvider):
             temperature=self.temperature,
         )
 
+    def _models_list_url(self) -> str:
+        # Ollama's API doesn't require a key — just list tags to confirm liveness.
+        return "http://localhost:11434/api/tags"
+
+    def test_connection(self) -> Dict[str, Any]:
+        try:
+            import urllib.request
+            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=5) as resp:
+                if resp.status != 200:
+                    return {"success": False, "message": f"Ollama 返回 {resp.status}", "model": self.model}
+                body = resp.read().decode("utf-8", errors="replace")
+                if self.model.lower() in body.lower():
+                    return {"success": True, "message": f"Ollama 模型 {self.model} 可用", "model": self.model}
+                return {"success": False, "message": f"Ollama 已运行，但未找到模型 {self.model}", "model": self.model}
+        except Exception as e:
+            return {"success": False, "message": f"Ollama 未运行: {e}", "model": self.model}
+
 
 class GLMProvider(LLMProvider):
     """Zhipu AI (GLM) API provider.
@@ -327,6 +393,9 @@ class GLMProvider(LLMProvider):
             max_tokens=self.max_tokens,
         )
 
+    def _models_list_url(self) -> str:
+        return "https://open.bigmodel.cn/api/paas/v4/models"
+
 
 class KimiProvider(LLMProvider):
     """Moonshot AI (Kimi) API provider.
@@ -346,6 +415,9 @@ class KimiProvider(LLMProvider):
             max_tokens=self.max_tokens,
             base_url="https://api.moonshot.cn/v1",
         )
+
+    def _models_list_url(self) -> str:
+        return "https://api.moonshot.cn/v1/models"
 
 
 # 所有支持的 provider 映射

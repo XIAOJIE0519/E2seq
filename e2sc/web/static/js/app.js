@@ -258,7 +258,6 @@ class E2seqApp {
                 selEl.addEventListener('change', async () => {
                     const selectedModel = selEl.value;
                     if (!selectedModel) return;
-                    // 获取当前已配置的 provider 和 decrypted key（从 status badge 推断，或用已配置的）
                     // 显示连接中状态
                     const testingOverlay = this.showConnectionStatus('testing', '');
                     try {
@@ -274,9 +273,18 @@ class E2seqApp {
                         testingOverlay.remove();
                         const d = await r.json();
                         if (d.success) {
+                            // Backend saved the model successfully. The
+                            // connection_test is a separate, best-effort check;
+                            // if it failed, the model was still saved — just
+                            // show a warning, not a red error overlay.
                             if (d.connection_test) {
-                                this.showConnectionStatus(d.connection_test.success ? 'success' : 'error', 
-                                    d.connection_test.message || (d.connection_test.success ? '连接成功' : '连接失败'));
+                                if (d.connection_test.success) {
+                                    this.showConnectionStatus('success',
+                                        d.connection_test.message || '连接成功');
+                                } else {
+                                    this.showConnectionStatus('warning',
+                                        `模型已保存，但连接测试失败：${d.connection_test.message || '未知原因'} — 该套餐可能未开通此模型，或 API key 无权限`);
+                                }
                             }
                             if (statusEl) statusEl.innerHTML = '<span style="color:#34d399;font-size:.8rem">✓ 已切换至 ' + selectedModel + '</span>';
                             this._updateModelBadge(provider, selectedModel);
@@ -1185,7 +1193,13 @@ STAT3,IL6,regulation,0.88`;
             gemini: ['gemini-3.1-pro-preview','gemini-3-flash-preview','gemini-3.1-flash-lite-preview','gemini-2.5-pro','gemini-2.5-flash'],
             deepseek: ['deepseek-v4-flash','deepseek-v4-pro'],
             siliconflow: ['deepseek-ai/DeepSeek-V3','deepseek-ai/DeepSeek-R1','Qwen/Qwen2.5-72B-Instruct'],
-            glm: ['glm-5.2','glm-5.1','glm-4-Plus','glm-4'],
+            // glm-5.2 is intentionally NOT in this list. Per the BigModel docs it's the
+            // flagship reasoner, but it's gated behind premium plans that many
+            // users (per the May 2026 feedback thread) don't have. Putting it
+            // first leads to a "切换成功但连接失败" UX. Users on the premium plan
+            // can still pick it from the auto-fetched list returned by
+            // /api/fetch-models.
+            glm: ['glm-5.1','glm-4-Plus','glm-4'],
             kimi: ['kimi-k2.6','moonshot-v2.5-250415'],
         };
         const curated = CURATED[provider] || [];
@@ -1333,8 +1347,8 @@ STAT3,IL6,regulation,0.88`;
         const card = document.createElement('div');
         card.style.cssText = 'background:var(--bg-secondary, #1a1f2e);border:1px solid var(--border-color, #2d3348);border-radius:16px;padding:40px 48px;display:flex;flex-direction:column;align-items:center;gap:20px;box-shadow:0 20px 60px rgba(0,0,0,0.6);min-width:280px;transform:translateY(0)';
 
-        const labels = { testing: '连接中...', success: '连接成功', error: '连接失败' };
-        const colors = { testing: '#3b82f6', success: '#10b981', error: '#ef4444' };
+        const labels = { testing: '连接中...', success: '连接成功', warning: '部分成功', error: '连接失败' };
+        const colors = { testing: '#3b82f6', success: '#10b981', warning: '#f59e0b', error: '#ef4444' };
 
         if (type === 'testing') {
             card.innerHTML =
@@ -1353,6 +1367,17 @@ STAT3,IL6,regulation,0.88`;
                 '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">连接成功</p>' +
                 '<p style="margin:0;font-size:0.82rem;color:#6ee7b7;text-align:center;max-width:240px;word-break:break-all">' + (message || '') + '</p>';
             setTimeout(function() { if (overlay.parentNode) overlay.remove(); }, 1500);
+        } else if (type === 'warning') {
+            // Model was saved but the connection test failed — this is NOT a
+            // hard error. The user can still attempt a real chat; if it really
+            // doesn't work, the chat endpoint will surface the real error.
+            card.innerHTML =
+                '<div style="width:64px;height:64px;border-radius:50%;background:#f59e0b;display:flex;align-items:center;justify-content:center">' +
+                '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+                '</div>' +
+                '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">模型已切换</p>' +
+                '<p style="margin:0;font-size:0.82rem;color:#fcd34d;text-align:center;max-width:320px;word-break:break-all;line-height:1.5">' + (message || '连接测试未通过') + '</p>' +
+                '<button onclick="document.getElementById(\'conn-modal-overlay\').remove()" style="padding:8px 24px;border-radius:8px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;cursor:pointer;font-size:0.875rem">\u5173\u95ed</button>';
         } else {
             card.innerHTML =
                 '<div style="width:64px;height:64px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center">' +
