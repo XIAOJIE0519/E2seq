@@ -1500,12 +1500,19 @@ STAT3,IL6,regulation,0.88`;
                 '<p style="margin:0;font-size:0.82rem;color:#fcd34d;text-align:center;max-width:320px;word-break:break-all;line-height:1.5">' + (message || '连接测试未通过') + '</p>' +
                 '<button onclick="document.getElementById(\'conn-modal-overlay\').remove()" style="padding:8px 24px;border-radius:8px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;cursor:pointer;font-size:0.875rem">\u5173\u95ed</button>';
         } else {
+            const needsApiKeySave = /No API key configured|save the API key first/i.test(message || '');
+            const saveSettingsHint = needsApiKeySave
+                ? '<div style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:10px;background:#fff1f2;border:1px solid #fecdd3;color:#be123c;text-align:left;font-size:0.86rem;line-height:1.6">' +
+                  '<strong>操作提示：</strong>请先关闭此提示框，滚动到设置页面最下方，点击“保存设置”。保存成功后再选择模型。' +
+                  '</div>'
+                : '';
             card.innerHTML =
                 '<div style="width:64px;height:64px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center">' +
                 '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
                 '</div>' +
                 '<p style="margin:0;font-size:1.1rem;font-weight:600;color:#e8eaed">连接失败</p>' +
                 '<p style="margin:0;font-size:0.82rem;color:#fca5a5;text-align:center;max-width:240px;word-break:break-all">' + (message || '') + '</p>' +
+                saveSettingsHint +
                 '<button onclick="document.getElementById(\'conn-modal-overlay\').remove()" style="padding:8px 24px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:0.875rem">\u5173\u95ed</button>';
         }
 
