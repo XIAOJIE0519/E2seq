@@ -255,12 +255,15 @@ class OpenAIProvider(LLMProvider):
         return any(m.startswith(p) for p in cls.REASONING_MODEL_PREFIXES)
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=self.api_key,
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -324,12 +327,14 @@ class AnthropicProvider(LLMProvider):
         return any(m.startswith(p) for p in cls.ALWAYS_THINKING_PREFIXES)
 
     def _initialize_llm(self):
+        import httpx
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
             api_key=self.api_key,
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -374,6 +379,7 @@ class DeepSeekProvider(LLMProvider):
     effort_levels = ("high", "max")
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=self.api_key,
@@ -381,6 +387,8 @@ class DeepSeekProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.deepseek.com",
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -472,6 +480,7 @@ class GeminiProvider(LLMProvider):
         return any(m.startswith(p) for p in cls.REASONING_PREFIXES)
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=self.api_key,
@@ -479,6 +488,8 @@ class GeminiProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -533,6 +544,7 @@ class SiliconFlowProvider(LLMProvider):
         return any(s.lower() in ml for s in cls.REASONING_SUBSTRINGS)
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=self.api_key,
@@ -540,6 +552,8 @@ class SiliconFlowProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.siliconflow.cn/v1",
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -613,6 +627,7 @@ class OllamaProvider(LLMProvider):
         return ChatOllama(
             model=self.model,
             temperature=self.temperature,
+            timeout=600,  # seconds; raises requests.Timeout if exceeded
         )
 
     def _models_list_url(self) -> str:
@@ -668,19 +683,19 @@ class GLMProvider(LLMProvider):
         return "high"
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
-        # NOTE: do NOT set a httpx `timeout` here. GLM / DeepSeek synthesis on
-        # 25-60k-char prompts routinely takes 3-5 minutes end-to-end (network +
-        # model inference + stream decode). A 120s read timeout was killing the
-        # call before any token arrived. The HTTP layer in server.py already
-        # caps the entire chat request at 240s (middleware) and 10 minutes
-        # (uvicorn keep-alive), which is the right place for a hard cap.
+        # NOTE: 600s read timeout for GLM/DeepSeek synthesis on 25-60k-char prompts.
+        # A read timeout causes httpx.ReadTimeout → synthesizer catches it → returns
+        # event:error to frontend instead of hanging indefinitely.
         return ChatOpenAI(
             model=self.model,
             openai_api_key=self.api_key,
             openai_api_base="https://open.bigmodel.cn/api/paas/v4/",
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
@@ -729,6 +744,7 @@ class KimiProvider(LLMProvider):
         return any(m.startswith(p) for p in cls.THINKING_PREFIXES)
 
     def _initialize_llm(self):
+        import httpx
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=self.api_key,
@@ -736,6 +752,8 @@ class KimiProvider(LLMProvider):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             base_url="https://api.moonshot.cn/v1",
+            request_timeout=httpx.Timeout(10.0, read=600.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
 
     def _thinking_kwargs(self) -> Dict[str, Any]:
