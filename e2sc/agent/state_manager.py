@@ -11,6 +11,12 @@ from e2sc.utils import get_config, get_logger
 logger = get_logger(__name__)
 
 
+def _sanitize_scope_id(scope_id: str) -> str:
+    """Return a filesystem-safe identifier for one chat scope."""
+    safe = "".join(c for c in str(scope_id) if c.isalnum() or c in "-_")
+    return safe or "default"
+
+
 class AgentState(Enum):
     """Agent execution states."""
     IDLE = "idle"
@@ -34,10 +40,13 @@ class TaskStatus(Enum):
 class StateManager:
     """Manage agent execution state with persistence."""
     
-    def __init__(self):
+    def __init__(self, session_id: Optional[str] = None):
         """Initialize state manager."""
         config = get_config()
         self.state_dir = Path(config.database.db_path).expanduser() / "state"
+        self.session_id = session_id
+        if session_id:
+            self.state_dir = self.state_dir / _sanitize_scope_id(session_id)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         
         self.state_file = self.state_dir / "current_state.json"

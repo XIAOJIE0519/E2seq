@@ -12,12 +12,18 @@ import re
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from e2sc.data.vector_store import get_vector_store
 from e2sc.utils import get_config, get_logger
 
 logger = get_logger(__name__)
+
+
+def _sanitize_scope_id(scope_id: str) -> str:
+    """Return a filesystem/vector-store safe identifier for one chat scope."""
+    safe = "".join(c for c in str(scope_id) if c.isalnum() or c in "-_")
+    return safe or "default"
 
 # ── Configurable thresholds ────────────────────────────────────────────────────
 
@@ -127,16 +133,20 @@ class LongTermMemory:
     for better vector similarity matching.
     """
     
-    def __init__(self):
+    def __init__(self, scope_id: Optional[str] = None):
         config = get_config()
+        self.scope_id = _sanitize_scope_id(scope_id) if scope_id else None
         self.memory_dir = Path(config.database.db_path).expanduser() / "memory"
+        if self.scope_id:
+            self.memory_dir = self.memory_dir / self.scope_id
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         
         self.session_file = self.memory_dir / "sessions.jsonl"
         self.knowledge_file = self.memory_dir / "knowledge.json"
         
         try:
-            self.vector_store = get_vector_store()
+            vector_scope = f"memory_{self.scope_id}" if self.scope_id else "default"
+            self.vector_store = get_vector_store(vector_scope)
         except Exception as e:
             logger.warning(f"Vector store not available: {e}")
             self.vector_store = None
@@ -315,10 +325,10 @@ class MemoryManager:
     P3 Enhancement: cross_session memory now enriched and used.
     """
     
-    def __init__(self):
+    def __init__(self, session_id: Optional[str] = None):
         self.working_memory = WorkingMemory()
-        self.long_term_memory = LongTermMemory()
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.long_term_memory = LongTermMemory(scope_id=self.session_id if session_id else None)
         self._llm: Optional[Any] = None  # lazily injected by orchestrator
         logger.info(f"Memory manager initialized. Session ID: {self.session_id}")
     

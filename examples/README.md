@@ -14,14 +14,15 @@ python basic_usage.py
 
 Features:
 - Loading single-cell data
-- Finding marker genes
-- GO enrichment analysis
-- Network analysis
-- Multi-step comprehensive analysis
+- Interpreting uploaded gene values
+- Retrieving GO/Reactome annotations
+- Retrieving known interaction evidence
+- Comprehensive text interpretation without new statistical analysis
 
 ### 2. Advanced Usage (`advanced_usage.py`)
 
-Shows how to use individual tools for fine-grained control:
+Shows legacy low-level analysis utilities for explicit manual use. These tools
+are not called by the default Web Agent:
 
 ```bash
 python advanced_usage.py
@@ -42,9 +43,9 @@ Using the command-line interface:
 e2sc chat --data reference.h5ad
 
 # Example questions:
-# - "Find marker genes for Enterocytes"
-# - "Perform GO enrichment on DEGs"
-# - "Build a PPI network"
+# - "Interpret the uploaded gene values for Enterocytes"
+# - "Retrieve GO annotations for those input genes"
+# - "Explain known interaction evidence for those input genes"
 ```
 
 ### 4. Web Interface
@@ -52,17 +53,18 @@ e2sc chat --data reference.h5ad
 Launch the web interface:
 
 ```bash
-e2sc web
+python start.py
 ```
 
-Then open http://localhost:8501 in your browser.
+Then open the local URL printed by the launcher (normally
+http://localhost:8000) in your browser.
 
 ## Data Requirements
 
 All examples expect a file named `reference.h5ad` in the current directory. This should be an AnnData object with:
 
 - `adata.obs['cell_type']` - Cell type annotations
-- `adata.obsm['X_umap']` - UMAP coordinates
+- Optional existing cell-type and group labels in `adata.obs`
 
 You can use your own data by modifying the file path in the examples.
 
@@ -83,7 +85,8 @@ export E2SC_API_KEY=your-api-key
 
 ## Output
 
-Examples generate HTML files with interactive plots:
+`basic_usage.py` returns text and structured RAG evidence. `advanced_usage.py`
+is a separate legacy/manual example that can generate HTML files such as:
 - `*_umap.html` - UMAP scatter plots
 - `*_volcano.html` - Volcano plots for DEGs
 - `*_enrichment.html` - Enrichment bubble plots

@@ -73,12 +73,13 @@ e2sc chat --data your_data.h5ad
 ### Web Interface
 
 ```bash
-# Start web server
-e2sc web
-
-# Custom port
-e2sc web --port 8080
+# Start the supported FastAPI Web launcher
+python start.py
 ```
+
+The launcher checks the environment and asks for an available port before
+starting `e2sc.api.server:app`. The `e2sc web` command is retained only as a
+compatibility alias and delegates to `start.py`.
 
 ### Python API
 
@@ -97,7 +98,7 @@ agent = E2scAgent(
 )
 
 # Ask questions
-response = agent.chat("分析 Enterocytes 细胞的差异基因")
+response = agent.chat("解读 Enterocytes 中上传的基因数值")
 print(response['text'])
 
 # Show plots

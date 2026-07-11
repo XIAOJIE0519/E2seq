@@ -171,12 +171,19 @@ def _push_progress(session_id: str, msg: str) -> None:
 class _ProgressHandler(logging.Handler):
     """Logging handler that mirrors INFO records to the progress buffer."""
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, bind_current_thread: bool = True):
         super().__init__(level=logging.INFO)
         self.session_id = session_id
+        self.thread_id = _threading.get_ident() if bind_current_thread else None
+
+    def bind_to_current_thread(self) -> None:
+        """Restrict captured records to the Agent worker for this session."""
+        self.thread_id = _threading.get_ident()
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if self.thread_id is None or record.thread != self.thread_id:
+                return
             msg = record.getMessage()
             if msg.startswith("["):
                 _push_progress(self.session_id, msg)
@@ -686,7 +693,6 @@ async def upload_data(request: Request, file: UploadFile = File(...)):
             adata.uns["e2sc_source_format"] = "rds"
 
         datasets[session_id] = adata
-        datasets["default"] = adata
         logger.info(f"Data loaded: {adata.n_obs} cells, {adata.n_vars} genes")
         _save_dataset(session_id, adata)
 
@@ -762,6 +768,7 @@ async def configure_dataset(request: Request):
         group_col = ""
 
     # Store config on adata for orchestrator to read
+    adata.uns["e2sc_session_id"] = session_id
     adata.uns["e2sc_celltype_col"] = celltype_col
     adata.uns["e2sc_group_col"] = group_col
     adata.uns["e2sc_enabled_apis"] = enabled_apis
@@ -812,6 +819,7 @@ async def configure_dataset(request: Request):
                 llm_provider=config.llm.provider,
                 api_key=decrypted_key,
                 model=config.llm.model,
+                session_id=session_id,
             )
             agents[session_id]._session_id = session_id
             logger.info(f"Agent initialised for session {session_id} (celltype={celltype_col}, group={group_col}, top_genes={n_top_genes}, min_cells={min_cells})")
@@ -1000,6 +1008,7 @@ async def configure_csv(request: Request):
         )
         # Store CSV-specific metadata in uns
         adata.uns["e2sc_data_mode"] = "csv"
+        adata.uns["e2sc_session_id"] = session_id
         adata.uns["e2sc_dataset_description"] = dataset_description
         adata.uns["e2sc_display_genes"] = n_genes       # 唯一基因数（展示用）
         adata.uns["e2sc_display_rows"] = n_filtered     # 过滤后行数（展示用）
@@ -1026,7 +1035,6 @@ async def configure_csv(request: Request):
         adata.uns["e2sc_csv_records"] = df[record_cols].to_json(orient="records")
 
         datasets[session_id] = adata
-        datasets["default"] = adata
 
         # Initialise agent
         config = get_config()
@@ -1048,6 +1056,7 @@ async def configure_csv(request: Request):
                 llm_provider=config.llm.provider,
                 api_key=decrypted_key,
                 model=config.llm.model,
+                session_id=session_id,
             )
             agents[session_id]._session_id = session_id
 
@@ -1234,6 +1243,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                     llm_provider=config.llm.provider,
                     api_key=decrypted_key,
                     model=config.llm.model,
+                    session_id=chat_id,
                 )
                 agents[chat_id] = agent
             except Exception as e:
@@ -1242,7 +1252,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
 
         # Install progress handler that mirrors orchestrator INFO logs to the
         # progress_queue (and via _push_progress to /api/progress/{chat_id}).
-        _prog_handler = _ProgressHandler(chat_id)
+        _prog_handler = _ProgressHandler(chat_id, bind_current_thread=False)
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
         logger.info(f"[SSE] Handler added for chat_id={chat_id}")
@@ -1273,6 +1283,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
 
         def run_agent():
             try:
+                _prog_handler.bind_to_current_thread()
                 agent_result_holder["result"] = agent.chat(
                     message,
                     progress_callback=progress_callback,
@@ -1349,7 +1360,7 @@ async def _stream_agent_chat(chat_id: str, message: str):
                 raise
             return
 
-        _push_progress(chat_id, "[进度] 分析完成")
+        _push_progress(chat_id, "[进度] 解读完成")
 
         if "error" in agent_result_holder:
             _stream_err = agent_result_holder["error"]
@@ -1530,6 +1541,7 @@ async def chat(request: Request):
                 llm_provider=config.llm.provider,
                 api_key=decrypted_key,
                 model=config.llm.model,
+                session_id=chat_id,
             )
             if adata is not None:
                 logger.info(f"Auto-initialized agent with data for session: {chat_id}")
@@ -1573,7 +1585,7 @@ async def chat(request: Request):
         # Install per-session progress handler so orchestrator logger.info
         # calls are captured and exposed via /api/progress/{chat_id}
         _push_progress(chat_id, f"[进度] 开始处理请求: {message[:60]}")
-        _prog_handler = _ProgressHandler(chat_id)
+        _prog_handler = _ProgressHandler(chat_id, bind_current_thread=False)
         _orch_logger = logging.getLogger("e2sc.agent.orchestrator_optimized")
         _orch_logger.addHandler(_prog_handler)
         
@@ -1586,10 +1598,15 @@ async def chat(request: Request):
             # Run blocking agent.chat in a thread pool to avoid blocking the
             # async event loop (agent makes many synchronous HTTP + DB calls)
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: agent.chat(message, progress_callback=_progress_callback, text_queue=None)
-            )
+            def _run_agent_chat():
+                _prog_handler.bind_to_current_thread()
+                return agent.chat(
+                    message,
+                    progress_callback=_progress_callback,
+                    text_queue=None,
+                )
+
+            response = await loop.run_in_executor(None, _run_agent_chat)
         finally:
             _orch_logger.removeHandler(_prog_handler)
             _push_progress(chat_id, "[进度] 分析完成")

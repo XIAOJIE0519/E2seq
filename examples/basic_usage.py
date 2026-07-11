@@ -17,57 +17,39 @@ agent = E2scAgent(
     api_key="your-api-key-here"
 )
 
-# Example 1: Find marker genes
+# Example 1: interpret uploaded gene values
 print("\n" + "="*50)
-print("Example 1: Finding marker genes")
+print("Example 1: Input-value interpretation")
 print("="*50)
 
-response = agent.chat("Find marker genes for Enterocytes")
+response = agent.chat("Interpret the uploaded gene values for Enterocytes")
 print(response["text"])
 
-# Save plots
-for plot_name, fig in response["plots"]:
-    fig.write_html(f"example1_{plot_name}.html")
-    print(f"Saved: example1_{plot_name}.html")
-
-# Example 2: GO enrichment
+# Example 2: retrieve pathway annotations
 print("\n" + "="*50)
-print("Example 2: GO enrichment analysis")
+print("Example 2: Pathway annotation retrieval")
 print("="*50)
 
-response = agent.chat("Perform GO enrichment on the differentially expressed genes")
+response = agent.chat("Retrieve GO and Reactome annotations for those input genes")
 print(response["text"])
 
-for plot_name, fig in response["plots"]:
-    fig.write_html(f"example2_{plot_name}.html")
-    print(f"Saved: example2_{plot_name}.html")
-
-# Example 3: Network analysis
+# Example 3: retrieve known interaction evidence
 print("\n" + "="*50)
-print("Example 3: Network analysis")
+print("Example 3: Interaction evidence retrieval")
 print("="*50)
 
-response = agent.chat("Build a PPI network and identify hub genes")
+response = agent.chat("Explain known STRING and TRRUST evidence for those input genes")
 print(response["text"])
 
-for plot_name, fig in response["plots"]:
-    fig.write_html(f"example3_{plot_name}.html")
-    print(f"Saved: example3_{plot_name}.html")
-
-# Example 4: Multi-step analysis
+# Example 4: comprehensive interpretation
 print("\n" + "="*50)
-print("Example 4: Comprehensive analysis")
+print("Example 4: Comprehensive interpretation")
 print("="*50)
 
 response = agent.chat(
-    "Compare Enterocytes and Goblet cells, perform GO enrichment, "
-    "and build a network for the top hub genes"
+    "Comprehensively interpret the uploaded values for Enterocytes and Goblet cells"
 )
 print(response["text"])
-
-for plot_name, fig in response["plots"]:
-    fig.write_html(f"example4_{plot_name}.html")
-    print(f"Saved: example4_{plot_name}.html")
 
 print("\n" + "="*50)
 print("All examples completed!")

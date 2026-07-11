@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**An AI-powered single-cell RNA sequencing analysis platform with natural language interface**
+**An Agent RAG interpreter for bulk and single-cell sequencing gene-value results**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
@@ -15,16 +15,18 @@
 
 ## Overview
 
-**E2seq (Easy to Chat with Sequencing)** is an intelligent agent platform designed for single-cell RNA sequencing (scRNA-seq) data analysis. It combines the power of Large Language Models (LLMs) with retrieval-augmented generation (RAG) to enable researchers to interact with their single-cell data through natural language queries.
+**E2seq (Easy to Chat with Sequencing)** reads gene identifiers, numeric values, and existing labels from bulk or single-cell result files, retrieves evidence for those input genes, and returns a source-backed textual interpretation.
 
-Instead of writing complex code or manually executing bioinformatics pipelines, researchers can simply ask questions like:
+The default Web Agent intentionally does **not** compute marker genes, DEGs, fold changes, p-values, enrichment, clustering, dimensionality reduction, networks, hubs, or modules. Reactome, STRING, QuickGO, TRRUST, and similar content is treated as external RAG evidence—not as a result computed from the uploaded file.
 
-- "Analyze marker genes for T cells"
-- "What pathways are enriched in this cell type?"
-- "Give me a comprehensive analysis of all DEGs"
-- "Build a protein interaction network for these DEGs"
+Researchers can ask questions such as:
 
-E2seq handles the complexity behind the scenes, from data processing to visualization.
+- "Interpret the supplied gene values for T cells"
+- "What retrieved pathway annotations help explain these input genes?"
+- "Summarize the evidence for the genes with the supplied values"
+- "Which known interactions are relevant to these uploaded genes?"
+
+The supported Web startup command is `python start.py`.
 
 ---
 
@@ -35,11 +37,11 @@ E2seq handles the complexity behind the scenes, from data processing to visualiz
 | Feature | Description |
 |---------|-------------|
 | **Natural Language Interface** | Query your data using plain English or Chinese |
-| **Differential Expression Analysis** | Identify marker genes and DEGs between cell groups |
-| **Enrichment Analysis** | GO, KEGG, Reactome pathway enrichment |
-| **Network Analysis** | Build and analyze PPI networks from STRING database |
-| **Interactive Visualization** | UMAP, tSNE, volcano plots, heatmaps, network graphs |
-| **Comprehensive Analysis Mode** | Automatically integrates all 20+ data sources when requested |
+| **Input-value interpretation** | Preserve uploaded gene names, values, group labels, and cell-type labels |
+| **Agent RAG retrieval** | Query biological databases and literature for the selected input genes |
+| **Evidence separation** | Clearly distinguish uploaded values from external annotations |
+| **Text-first API** | Return Markdown text through REST/SSE without computing new analysis results |
+| **Session isolation** | Keep datasets, memory, state, caches, and progress scoped to one chat |
 
 ### Knowledge Base Integration
 
@@ -165,15 +167,15 @@ Go to Settings page and add your LLM provider API key. E2seq supports multiple p
 
 Click the upload button to add your single-cell data (.h5ad files).
 
-### 4. Start Analyzing
+### 4. Start Interpreting
 
 Try these example queries:
 
 ```
-"Analyze marker genes for Enterocytes"
-"What pathways are enriched in B cells?"
-"Give me a comprehensive analysis of all DEGs"
-"Build a protein interaction network for these DEGs"
+"Interpret the uploaded Enterocyte gene values"
+"Retrieve pathway annotations for these B-cell input genes"
+"Summarize the evidence for all supplied genes and values"
+"Retrieve known interaction evidence for these input genes"
 ```
 
 ---
@@ -199,7 +201,7 @@ Try these example queries:
 │                    E2scAgent Optimized                     │
 │  ┌─────────────┬─────────────┬─────────────┐              │
 │  │   Planner   │  Retriever  │ Synthesizer │              │
-│  │  (20+ APIs) │  (RAG/DB)   │  (Reports)  │              │
+│  │(input genes)│  (RAG/DB)   │   (Text)    │              │
 │  └─────────────┴─────────────┴─────────────┘              │
 │                                                              │
 │  ┌─────────────────────────────────────────┐                │
@@ -221,9 +223,9 @@ Try these example queries:
 |-----------|------|---------|
 | API Server | `e2sc/api/server.py` | Handles HTTP requests, SSE streaming |
 | Agent | `e2sc/agent/orchestrator_optimized.py` | Main agent orchestration |
-| Planner | `e2sc/agent/planner.py` | Creates analysis plans |
-| Retriever | `e2sc/agent/retriever.py` | Queries databases & APIs |
-| Synthesizer | `e2sc/agent/synthesizer.py` | Generates comprehensive reports |
+| Planner | `e2sc/agent/orchestrator_optimized.py` | Selects genes from uploaded input context |
+| Retriever | `e2sc/agent/orchestrator_optimized.py` | Queries databases & APIs for evidence |
+| Synthesizer | `e2sc/agent/synthesizer.py` | Generates interpretation-only Markdown text |
 | Knowledge Builder | `e2sc/agent/knowledge_builder.py` | Builds multi-source knowledge base |
 | Vector Store | `e2sc/data/vector_store.py` | ChromaDB-based RAG |
 | Local DB | `e2sc/data/local_db.py` | SQLite-based local databases |
@@ -270,19 +272,19 @@ data:
 
 ## Advanced Features
 
-### Comprehensive Analysis Mode
+### Comprehensive Interpretation Mode
 
-When you ask for a comprehensive analysis (综合解读/全面分析), E2seq automatically:
+When you ask for a comprehensive interpretation (综合解读/全面解读), E2seq:
 
 1. Integrates ALL 20+ data sources
 2. Cites evidence from multiple databases for each claim
-3. Organizes response by biological theme
-4. Provides quantitative data (fold changes, scores, p-values)
-5. Ends with a data coverage summary
+3. Organizes the response by biological theme
+4. Preserves quantitative values already present in the uploaded file
+5. Does not authorize any additional statistical or network computation
 
 Example query:
 ```
-"Give me a comprehensive analysis of all differentially expressed genes"
+"Give me a comprehensive interpretation of all uploaded gene values"
 ```
 
 ### Multi-Database Citation

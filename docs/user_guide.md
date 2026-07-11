@@ -2,18 +2,20 @@
 
 ## Introduction
 
-E2seq (Easy to Chat with Sequencing) is an AI-powered tool for single-cell RNA-seq data analysis. It uses agentic RAG (Retrieval-Augmented Generation) to understand your questions and automatically execute appropriate analyses.
+E2seq (Easy to Chat with Sequencing) interprets gene/value results from bulk and single-cell sequencing files. It uses Agent RAG (Retrieval-Augmented Generation) to retrieve biological evidence for genes already present in the uploaded file.
+
+The default Agent does not calculate marker genes, DEGs, fold changes, p-values, enrichment, clustering, dimensionality reduction, networks, hubs, or modules.
 
 ## Core Concepts
 
 ### Agentic Workflow
 
-E2seq uses multiple specialized agents:
+The default Web workflow is:
 
-1. **Planner Agent**: Breaks down your question into analysis steps
-2. **Retriever Agent**: Fetches relevant information from databases
-3. **Analyzer Agent**: Executes computational analyses
-4. **Synthesizer Agent**: Combines results into a comprehensive report
+1. **Input context**: Read supplied genes, numeric values, groups, and cell-type labels
+2. **Planner**: Select only relevant genes from that input
+3. **Retriever**: Fetch database and literature evidence through Agent RAG
+4. **Synthesizer**: Return Markdown text that separates input values from external evidence
 
 ### Knowledge Integration
 
@@ -21,11 +23,11 @@ E2sc integrates multiple data sources:
 
 - **Local Databases**: STRING, HMDB, TRRUST, GUTMGENE
 - **Online APIs**: UniProt, QuickGO, PubMed, MyGene
-- **Your Data**: Single-cell expression matrix
+- **Your Data**: Bulk or single-cell gene/value results
 
 ## Usage Examples
 
-### Example 1: Basic Differential Expression
+### Example 1: Interpret an H5AD matrix
 
 ```python
 from e2sc import E2scAgent
@@ -37,50 +39,36 @@ adata = sc.read_h5ad('data.h5ad')
 # Create agent
 agent = E2scAgent(adata=adata)
 
-# Ask question
-response = agent.chat("Find marker genes for Enterocytes")
+# Ask for interpretation of values already present in the file
+response = agent.chat("Interpret the uploaded gene values for Enterocytes")
 
 # View results
 print(response['text'])
 ```
 
-### Example 2: Enrichment Analysis
+### Example 2: Retrieve pathway annotations
 
 ```python
-response = agent.chat(
-    "Perform GO enrichment analysis on differentially expressed genes"
-)
-
-# Access enrichment results
-enrichment_data = response['data']['enrichment']
+response = agent.chat("Retrieve GO and Reactome annotations for the supplied genes")
+print(response['text'])
 ```
 
-### Example 3: Network Analysis
+### Example 3: Retrieve interaction evidence
 
 ```python
-response = agent.chat(
-    "Build a protein-protein interaction network and identify hub genes"
-)
-
-# Access network
-network = response['data']['network']['graph']
-hubs = response['data']['network']['hubs']
+response = agent.chat("Explain known STRING/TRRUST evidence for these input genes")
+print(response['text'])
 ```
 
-### Example 4: Multi-step Analysis
+### Example 4: Comprehensive interpretation
 
 ```python
 response = agent.chat(
-    "Compare Enterocytes and Goblet cells, perform GO enrichment, "
-    "and build a PPI network for the top 50 DEGs"
+    "Comprehensively interpret the uploaded values for Enterocytes and Goblet cells"
 )
 
-# Agent automatically:
-# 1. Performs differential expression
-# 2. Runs GO enrichment
-# 3. Builds network
-# 4. Generates visualizations
-# 5. Synthesizes comprehensive report
+# The Agent preserves input values, retrieves evidence, and returns text.
+# It does not run new statistical or network analysis.
 ```
 
 ## CLI Usage
@@ -90,19 +78,17 @@ response = agent.chat(
 ```bash
 $ e2sc chat --data data.h5ad
 
-E2sc> 分析 Enterocytes 细胞的差异基因
+E2sc> 解读 Enterocytes 中上传的基因数值
 
-[Analyzing...]
-✓ Found 245 differentially expressed genes
-✓ Top genes: APOA1, APOB, FABP1...
-✓ Generated volcano plot: volcano_plot.html
+[Retrieving evidence...]
+✓ Preserved the supplied gene values and labels
+✓ Retrieved gene annotations and literature evidence
+✓ Returned a source-backed text interpretation
 
-E2sc> 对这些基因进行 GO 富集
+E2sc> 继续解释这些基因的 GO 与 Reactome 注释
 
-[Analyzing...]
-✓ GO enrichment completed
-✓ Top pathways: lipid metabolism, nutrient absorption...
-✓ Generated bubble plot: enrichment_plot.html
+[Retrieving evidence...]
+✓ Returned external pathway annotations without enrichment computation
 ```
 
 ### Commands
@@ -116,7 +102,7 @@ E2sc> 对这些基因进行 GO 富集
 ### Starting the Server
 
 ```bash
-e2sc web --port 8501
+python start.py
 ```
 
 ### Using the Interface
@@ -124,18 +110,22 @@ e2sc web --port 8501
 1. **Configure LLM**: Enter your API key in the sidebar
 2. **Upload Data**: Upload your h5ad file
 3. **Ask Questions**: Type questions in the chat box
-4. **View Results**: See text responses and interactive plots
+4. **View Results**: Read the API/SSE-delivered Markdown interpretation
 
 ### Features
 
-- 📊 Interactive plots (zoom, pan, hover)
-- 💾 Download results
+- 📝 Text-first responses grounded in uploaded values
+- 🔎 Source statistics for retrieved RAG evidence
 - 📝 Chat history
 - 🎨 Beautiful UI with gradient themes
 
 ## Advanced Usage
 
-### Custom Analysis Pipeline
+### Legacy Low-level Analysis Utilities
+
+The following APIs remain available for backward compatibility and explicit
+manual use. They are **not called by the default Web Agent**. Their results must
+not be presented as part of the interpretation-only workflow.
 
 ```python
 from e2sc.tools import ScancpyTools, EnrichmentAnalyzer, NetworkAnalyzer
@@ -190,16 +180,16 @@ fig.write_html("my_volcano.html")
 
 ### 1. Data Preparation
 
-- Ensure cell type annotations are present
-- Run basic QC and normalization with Scanpy
-- Compute UMAP/tSNE before using E2sc
+- Supply clear gene identifiers and numeric values
+- Keep group and cell-type labels in the file when they are relevant
+- Complete any desired QC or statistical analysis upstream; E2seq will not run it
 
 ### 2. Question Formulation
 
 Good questions are:
-- Specific: "Find marker genes for Enterocytes"
-- Clear: "Compare group A vs group B"
-- Actionable: "Perform GO enrichment on DEGs"
+- Specific: "Interpret these supplied Enterocyte gene values"
+- Clear: "Explain the existing values for group A and group B"
+- Evidence-focused: "Retrieve pathway annotations for these input genes"
 
 Avoid vague questions like:
 - "Analyze my data"
@@ -210,14 +200,14 @@ Avoid vague questions like:
 Use conversation history to build on previous results:
 
 ```python
-agent.chat("Find DEGs for Enterocytes")
-agent.chat("Now do GO enrichment on those genes")
-agent.chat("Build a network for the top 10 hub genes")
+agent.chat("Interpret the supplied Enterocyte gene values")
+agent.chat("Now retrieve pathway annotations for those same input genes")
+agent.chat("Explain the known interaction evidence without building a network")
 ```
 
 ### 4. Performance Tips
 
-- Subset large datasets before analysis
+- Subset large datasets before upload when appropriate
 - Use appropriate gene number thresholds
 - Cache results when possible
 

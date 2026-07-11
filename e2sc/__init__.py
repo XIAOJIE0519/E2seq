@@ -1,7 +1,7 @@
 """
 E2seq: Easy to Chat with Sequencing via Agentic RAG
 
-A powerful single-cell data analysis tool powered by AI agents.
+An Agent RAG interpreter for uploaded sequencing gene-value results.
 """
 
 __version__ = "0.2.0"

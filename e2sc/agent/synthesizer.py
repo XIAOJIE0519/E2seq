@@ -1,4 +1,4 @@
-"""Synthesizer agent for generating final reports."""
+"""Synthesizer for source-backed interpretation of uploaded gene values."""
 
 import json
 import re as _re
@@ -65,7 +65,7 @@ _NO_DATA_CTX_MARKERS = [
 
 
 class SynthesizerAgent:
-    """Agent for synthesizing analysis results into Nature-level reports."""
+    """Interpret user-supplied gene values with source-backed Agent RAG evidence."""
 
     def __init__(self, llm):
         self.llm = llm
@@ -85,7 +85,7 @@ class SynthesizerAgent:
         progress_callback=None,
         abort_flag=None,
     ) -> Dict[str, Any]:
-        """Synthesize Graph-RAG knowledge into a Nature/Cell-level response.
+        """Synthesize input gene values and retrieved evidence into plain text.
 
         Args:
             text_queue: a thread-safe queue (e.g. queue.Queue or asyncio.Queue)
@@ -229,7 +229,6 @@ class SynthesizerAgent:
             # background and its result will be discarded). This is the only
             # way to honour abort when the LLM is hung in a long blocking call.
             _maybe_report("[进度] 大模型综合解读中（首次响应可能需要 2-5 分钟）...")
-            import threading as _threading
             _result_holder: dict = {}
             _llm_done = _threading.Event()
 
@@ -287,15 +286,13 @@ class SynthesizerAgent:
             "text": response_text,
             "plots": results.get("plots", []),
             "data": {
-                "deg": results.get("deg"),
-                "enrichment": results.get("enrichment"),
-                "network": results.get("network"),
+                "input_context": results,
                 "knowledge": knowledge,
                 "retrieval_status": retrieval_status,
             },
         }
         logger.info(
-            f"Report synthesis completed. "
+            f"Interpretation synthesis completed. "
             f"{retrieval_status['genes_retrieved']} genes, "
             f"{retrieval_status['similar_cases_found']} similar cases, "
             f"{retrieval_status['relevant_patterns_found']} patterns"
@@ -309,242 +306,94 @@ class SynthesizerAgent:
         self, question: str, is_comprehensive: bool, output_mode: str,
         knowledge: Dict[str, Any] = None
     ) -> str:
-        """Build system message driven by question type, NOT by is_comprehensive flag.
-
-        Key principle: knowledge retrieval = multi-database breadth,
-        but answer writing = question-specific depth.
-        """
+        """Build strict interpretation-only instructions for the LLM."""
         import re
-        q_lower = question.lower()
 
-        # Detect question type from the user's actual question
-        is_targeted = bool(re.search(
-            r'\b(找|哪个|哪些|什么|有无|是否|列出|说出|给我看|identify|which|what|find|list|show|any|给我|找一找)\b',
-            q_lower
+        comprehensive = is_comprehensive or bool(re.search(
+            r"\b(综合|全面|整体|概括|总结|overview|comprehensive|overall|summary|summarize)\b",
+            question.lower(),
         ))
-        is_module_net = bool(re.search(
-            r'\b(模块|模块化|网络|互作|相互作用|ppi|通路|调控|module|network|interaction|pathway|regulat|共调控|协同)\b',
-            q_lower
-        ))
-        # Detect comprehensive/overall analysis request
-        is_comprehensive_q = bool(re.search(
-            r'\b(综合|全面|整体|概括|总结|overview|comprehensive|overall|summary|summarize|综合分析|整体分析|全面解读)\b',
-            q_lower
-        ))
-        has_cross_gene = bool(
-            knowledge and (
-                (knowledge.get("cross_gene_analysis") or {}).get("modules") or
-                (knowledge.get("cross_gene_analysis") or {}).get("all_edges")
-            )
+        rules = (
+            "You are E2sc, an expert interpreter of user-provided bulk and single-cell "
+            "sequencing gene-value results.\n"
+            "The input values came from the user's CSV/H5AD/RDS/XLSX file. "
+            "Database content was retrieved by Agent RAG.\n\n"
+            "MANDATORY RULES:\n"
+            "1. Preserve every quoted input gene name, label, sign, and numeric value.\n"
+            "2. Explain the input through retrieved annotations and literature only.\n"
+            "3. Do NOT perform, simulate, or claim marker detection, DEG testing, "
+            "fold-change calculation, p-value calculation, enrichment, clustering, "
+            "trajectory inference, dimensionality reduction, network/module/hub analysis, "
+            "or any new statistical computation.\n"
+            "4. STRING/Reactome/QuickGO/TRRUST and similar records are external annotations, "
+            "not results computed from the uploaded file.\n"
+            "5. Cite each biological claim with its retrieved source label.\n"
+            "6. Do not turn associations into causality. State missing evidence explicitly.\n"
+            "7. Return normal Markdown text suitable for direct API/SSE delivery.\n"
         )
-
-        # Always: answer the user's specific question. Never default to comprehensive.
-        base_rules = (
-            "You are an expert computational biologist and translational medicine scientist.\n"
-            "You have been given a knowledge base built by querying genes against: "
-            "UniProt, MyGene, QuickGO, Ensembl, ChEMBL, Open Targets, ClinVar, CIViC, "
-            "GWAS Catalog, Reactome, GTEx/HPA, HumanBase, BioGRID, Alliance, "
-            "PubMed, EuropePMC (online); STRING, HMDB, TRRUST, GUTMGENE (local).\n\n"
-            "RULES:\n"
-            "1. ONLY use information explicitly present in the provided knowledge base.\n"
-            "   Do NOT fabricate data or cite papers not in PubMed/EuropePMC sections.\n"
-            "2. Cite every biological claim inline: "
-            "[UniProt], [MyGene], [STRING], [PubMed:PMID], etc.\n"
-            "3. If no evidence for a claim: write '[No evidence in retrieved data - omitted]'.\n"
-            "4. Use EXACT disease group names, cell type names, and expression values "
-            "from the input context.\n"
-            "5. Focus on answering the USER'S QUESTION directly. "
-            "Do NOT default to a template or fixed section order.\n"
-            "6. Never truncate mid-sentence.\n"
-            "7. Write at Nature/Cell journal level — precise, mechanistic, evidence-driven.\n"
-            "8. Do NOT use generic phrases without citing specific values from the data.\n"
-            "9. If the question asks about specific targets, biomarkers, drugs, or pathways — "
-            "discuss ONLY those. Do NOT force a network/interaction analysis.\n"
-        )
-
-        # Comprehensive analysis: MUST integrate ALL data sources
-        if is_comprehensive_q or is_comprehensive:
-            comprehensive_rules = (
-                "\n*** COMPREHENSIVE ANALYSIS MODE ***\n"
-                "This is a COMPREHENSIVE/OVERALL analysis request. You MUST:\n"
-                "a) INTEGRATE ALL 20 DATA SOURCES — cite evidence from multiple databases for each claim.\n"
-                "b) Discuss EVERY gene that has data, not just the top 3-5.\n"
-                "c) Structure by BIOLOGICAL THEME (pathways, disease, drugs, tissue specificity).\n"
-                "d) Provide QUANTITATIVE data: fold changes, scores, p-values, expression values.\n"
-                "e) End with a DATA COVERAGE SUMMARY showing which databases provided data.\n"
-                "f) Write a THOROUGH multi-section report — this is NOT a brief summary.\n"
+        if comprehensive:
+            rules += (
+                "\nCOMPREHENSIVE INTERPRETATION means cover more of the supplied genes and "
+                "retrieved sources. It never authorizes additional analysis or invented values.\n"
             )
-            return base_rules + comprehensive_rules
+        return rules
 
-        # Focused/direct question (找/哪些/列出): answer specifically
-        if is_targeted and not is_module_net:
-            return base_rules + (
-                "\nThis is a DIRECT/FOCUSED question. Answer specifically:\n"
-                "- Identify the specific gene(s), drug(s), pathway(s), or biomarker(s) asked about.\n"
-                "- Provide the key evidence for each.\n"
-                "- Keep it focused — do NOT expand to unrelated genes or modules.\n"
-            )
-
-        # Module/network question AND actual cross-gene data exists: module synthesis
-        if (is_module_net or has_cross_gene) and has_cross_gene:
-            return base_rules + (
-                "\nCROSS-GENE MODULE SYNTHESIS (apply when module/network data is present):\n"
-                "a. LEAD with gene interaction modules — identify dense PPI clusters, shared TF regulators, "
-                "or co-enriched pathways.\n"
-                "b. Characterize each module's collective theme "
-                "(e.g., 'inflammatory signaling module', 'DNA repair hub').\n"
-                "c. Discuss coordinated regulation — shared TF regulators, "
-                "same upstream signal, or pathway cascade.\n"
-                "d. Cross-validate: how do expression patterns align with network knowledge? "
-                "Genes highly expressed AND well-connected are likely key drivers.\n"
-                "e. Weave gene descriptions INTO the module narrative — "
-                "do not describe genes one-by-one in isolation.\n"
-                "f. If modules share pathway enrichment, explain the collective biological process.\n"
-            )
-
-        # Default: straightforward knowledge synthesis, question-driven
-        return base_rules
-
-    # ------------------------------------------------------------------
-    # Formatting helpers
-    # ------------------------------------------------------------------
     def _format_results(self, results: Dict[str, Any], knowledge: Dict[str, Any] = None) -> str:
-        sections = []
+        """Format only values present in the uploaded sequencing result."""
+        sections = [
+            "=== USER-PROVIDED SEQUENCING GENE VALUES ===",
+            "No marker, DEG, enrichment, clustering, or network analysis was run by E2sc.",
+        ]
 
-        # ── CSV / differential expression table mode ──────────────────────
         if results.get("gene_context"):
             sections.append(results["gene_context"])
             return "\n".join(sections)
 
-        # ── Cross-gene network analysis (injected by orchestrator into knowledge dict) ──
-        # Can be in results (orchestrator injects via fake_results) or knowledge (direct inject)
-        cross_gene = results.get("cross_gene_analysis") or (knowledge or {}).get("cross_gene_analysis")
-        if cross_gene:
-            sections.append(self._format_cross_gene_section(results, knowledge))
+        context = results.get("matrix_context")
+        if not context:
+            return "No input gene-value context available."
 
-        # ── scRNA-seq / h5ad mode with matrix_context ──────────────────
-        if results.get("matrix_context"):
-            ctx = results["matrix_context"]
-            genes = ctx.get("genes_queried", [])
-            ct_focus = ctx.get("cell_type_focus", "all cell types")
-            sections.append(f"Cell type focus: {ct_focus}")
-            sections.append(f"ALL genes from this analysis ({len(genes)} total): {', '.join(genes[:50])}")
-            if len(genes) > 50:
-                sections.append(f"... 以及其他 {len(genes) - 50} 个基因")
-            grp_map = ctx.get("top_genes_per_group", {})
-            if grp_map:
-                sections.append("\n=== TOP EXPRESSED GENES PER DISEASE GROUP (gene: mean_expr) ===")
-                for grp, gs in grp_map.items():
-                    if isinstance(gs, dict):
-                        genes_str = ", ".join(f"{g}:{v:.3f}" for g, v in list(gs.items())[:10])
-                    else:
-                        genes_str = ", ".join(str(g) for g in gs[:10])
-                    sections.append(f"  {grp}: {genes_str}")
-            diff_map = ctx.get("diff_genes_per_group", {})
-            if diff_map:
-                sections.append("\n=== DIFFERENTIALLY HIGH GENES PER GROUP VS OTHERS (gene: fold_change) ===")
-                for grp, gene_list in diff_map.items():
-                    if gene_list:
-                        sections.append(f"  {grp}: {', '.join(gene_list[:8])}")
-            ct_map = ctx.get("top_genes_per_celltype", {})
-            if ct_map:
-                sections.append("\n=== TOP EXPRESSED GENES PER CELL TYPE ===")
-                for ct, gs in ct_map.items():
-                    g_list = list(gs.keys())[:6] if isinstance(gs, dict) else gs[:6]
-                    sections.append(f"  {ct}: {', '.join(g_list)}")
-            ct_grp_joint = ctx.get("ct_grp_joint", {})
-            if ct_grp_joint:
-                sections.append("\n=== CELL TYPE x DISEASE GROUP JOINT TOP GENES (gene(expr)) ===")
-                for ct_lbl, grp_dict in ct_grp_joint.items():
-                    parts = []
-                    for grp_lbl, genes_list in grp_dict.items():
-                        parts.append(f"{grp_lbl}=[{','.join(genes_list[:4])}]")
-                    if parts:
-                        sections.append(f"  {ct_lbl}: {' | '.join(parts)}")
-            sections.append("\nCRITICAL: Base your analysis on the expression values and fold changes above. "
-                           "You have access to ALL genes listed — interpret them all, do not limit yourself to only the first few.")
-        elif results.get("deg"):
-            deg_df = results["deg"]["results"]
-            top_genes = deg_df["names"].head(10).tolist() if "names" in deg_df.columns else []
-            sections.append(f"DEG top genes: {', '.join(top_genes)}")
-        return "\n".join(sections) if sections else "No analysis results available."
+        genes = context.get("genes_queried", [])
+        if genes:
+            sections.append(f"Genes selected for RAG ({len(genes)}): {', '.join(genes[:100])}")
 
-    def _format_cross_gene_section(self, results: Dict[str, Any], knowledge: Dict[str, Any] = None) -> str:
-        """Format cross-gene network analysis as the leading section.
+        def append_value_map(title: str, value_map: Dict[str, Any], limit: int) -> None:
+            if not value_map:
+                return
+            sections.append(f"\n=== {title} ===")
+            for label, values in value_map.items():
+                if isinstance(values, dict):
+                    rendered = ", ".join(
+                        f"{gene}:{float(value):.4g}"
+                        for gene, value in list(values.items())[:limit]
+                    )
+                else:
+                    rendered = ", ".join(str(gene) for gene in list(values)[:limit])
+                sections.append(f"  {label}: {rendered}")
 
-        Shows PPI/TF/metabolite/microbiome edges and gene modules first,
-        so the LLM organizes the entire response around module-level patterns
-        rather than describing genes one-by-one in isolation.
-        """
-        cross = results.get("cross_gene_analysis") or (knowledge or {}).get("cross_gene_analysis")
-        if not cross:
-            return ""
+        overall = context.get("overall_gene_values", {})
+        if overall:
+            rendered = ", ".join(
+                f"{gene}:{float(value):.4g}"
+                for gene, value in list(overall.items())[:100]
+            )
+            sections.append(f"\nOverall input mean values: {rendered}")
 
-        lines = ["\n=== CROSS-GENE NETWORK ANALYSIS (ORGANIZE RESPONSE AROUND THESE MODULES) ===\n"]
-
-        all_edges = cross.get("all_edges", [])
-        ppi_lines, tf_lines = [], []
-        for e in all_edges:
-            etype = e.get("type", "")
-            a, b = e.get("a", ""), e.get("b", "")
-            if etype == "PPI":
-                s = e.get("score", 0)
-                ppi_lines.append(f"  {a} --[PPI:{s:.2f}]-- {b}")
-            elif etype == "TF":
-                m = e.get("mode", "")
-                tf_lines.append(f"  {a} --[TF:{m}]--> {b}")
-        if ppi_lines:
-            lines.append("--- PPI NETWORK (protein-protein interactions) ---")
-            lines.extend(ppi_lines[:80])
-            lines.append("")
-        if tf_lines:
-            lines.append("--- TF REGULATION (transcription factor -> target) ---")
-            lines.extend(tf_lines[:40])
-            lines.append("")
-
-        metabolite_edges = cross.get("metabolite_edges", [])
-        if metabolite_edges:
-            lines.append("--- METABOLITE BRIDGES (shared metabolites link genes) ---")
-            seen_met = {}
-            for gene, met in metabolite_edges:
-                if met not in seen_met:
-                    seen_met[met] = []
-                seen_met[met].append(gene)
-            for met, genes in seen_met.items():
-                if len(genes) > 1:
-                    lines.append(f"  {', '.join(genes)} <--[{met}]")
-            lines.append("")
-
-        microbiome_edges = cross.get("microbiome_edges", [])
-        if microbiome_edges:
-            lines.append("--- GUT MICROBIOME AXIS ---")
-            for gene, microbe, cond in microbiome_edges[:20]:
-                cond_str = f" [{cond}]" if cond else ""
-                lines.append(f"  {gene} --[{microbe}{cond_str}]")
-            lines.append("")
-
-        modules = cross.get("modules", [])
-        if modules:
-            lines.append("--- GENE MODULES (connected PPI/TF components) ---")
-            for i, mod in enumerate(modules):
-                lines.append(f"  Module_{i+1} ({len(mod)} genes): {', '.join(mod)}")
-            lines.append("")
-
-        shared_pw = cross.get("shared_pathways", {})
-        if shared_pw:
-            lines.append("--- SHARED PATHWAYS PER MODULE ---")
-            for mod_name, pws in shared_pw.items():
-                if pws:
-                    pw_str = ", ".join(f"{p}({c})" for p, c in pws[:5])
-                    lines.append(f"  {mod_name}: {pw_str}")
-            lines.append("")
-
-        hubs = cross.get("ppi_hubs", [])
-        if hubs:
-            hub_str = ", ".join(f"{g}(degree={d})" for g, d in hubs[:10])
-            lines.append(f"--- PPI HUB GENES (highest interaction degree) ---\n  {hub_str}\n")
-
-        return "\n".join(lines)
+        append_value_map(
+            "INPUT MEAN VALUES BY USER-SUPPLIED GROUP",
+            context.get("top_genes_per_group", {}),
+            50,
+        )
+        append_value_map(
+            "INPUT MEAN VALUES BY USER-SUPPLIED CELL TYPE",
+            context.get("top_genes_per_celltype", {}),
+            50,
+        )
+        sections.append(
+            "\nThese are direct summaries of the uploaded matrix values. "
+            "Use them only as context for RAG interpretation."
+        )
+        return "\n".join(sections)
 
     def _format_knowledge(self, knowledge: Dict[str, Any]) -> str:
         """Compact, high-density gene knowledge formatting to fit within token budget.
@@ -575,7 +424,7 @@ class SynthesizerAgent:
             key=lambda x: x[2], reverse=True
         )
 
-        # Priority: drug targets > disease associations > others (take top 100 for comprehensive analysis)
+        # Prioritize evidence-rich records when compacting retrieved context.
         def has_priority_data(info: dict) -> bool:
             return bool(info.get("drug_targets") or info.get("ot_diseases"))
 

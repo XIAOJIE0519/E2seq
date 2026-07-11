@@ -139,20 +139,20 @@ def web(
     port: int = typer.Option(8501, "--port", "-p", help="Port number"),
     host: str = typer.Option("localhost", "--host", "-h", help="Host address"),
 ):
-    """Start web interface."""
-    console.print(f"[cyan]Starting web interface on http://{host}:{port}[/cyan]")
-    
+    """Compatibility alias for the supported ``python start.py`` launcher."""
     import subprocess
-    
-    web_app_path = Path(__file__).parent.parent / "web" / "app.py"
-    
+
+    project_root = Path(__file__).resolve().parents[2]
+    start_script = project_root / "start.py"
+    if host != "localhost" or port != 8501:
+        console.print(
+            "[yellow]--host/--port are deprecated here; start.py will ask for "
+            "an available port and bind the supported local Web server.[/yellow]"
+        )
+    console.print(f"[cyan]Delegating to: {sys.executable} {start_script}[/cyan]")
+
     try:
-        subprocess.run([
-            sys.executable, "-m", "streamlit", "run",
-            str(web_app_path),
-            "--server.port", str(port),
-            "--server.address", host
-        ])
+        subprocess.run([sys.executable, str(start_script)], cwd=str(project_root), check=False)
     except KeyboardInterrupt:
         console.print("\n[yellow]Shutting down...[/yellow]")
 

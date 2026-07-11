@@ -1,23 +1,21 @@
 """Final optimized Agent orchestrator with full integration of all modules."""
 
 import time
-from datetime import datetime
+import threading
+import uuid
 from io import StringIO
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, List, Optional
 
 from anndata import AnnData
 
-from e2sc.agent.enhanced_planner import EnhancedPlannerAgent
-from e2sc.agent.error_recovery import get_error_recovery
-from e2sc.agent.memory import get_memory_manager
-from e2sc.agent.retriever_enhanced import create_enhanced_retriever
-from e2sc.agent.state_manager import AgentState, get_state_manager
+from e2sc.agent.error_recovery import ErrorRecovery
+from e2sc.agent.memory import MemoryManager
+from e2sc.agent.state_manager import AgentState, StateManager
 from e2sc.agent.synthesizer import SynthesizerAgent
 from e2sc.agent.tool_registry import create_tool_registry
 from e2sc.data.api_client_enhanced import create_api_clients
-from e2sc.data.local_db import GUTMGENEDatabase, HMDBDatabase, STRINGDatabase, TRRUSTDatabase
 from e2sc.llm import create_llm_provider
-from e2sc.tools import EnrichmentAnalyzer, NetworkAnalyzer, ScancpyTools, Visualizer
+from e2sc.tools import ScancpyTools
 from e2sc.utils import get_config, get_logger, get_security_manager
 
 logger = get_logger(__name__)
@@ -30,11 +28,10 @@ class E2scAgentOptimized:
     - [OK] MemoryManager integration (short-term + long-term memory)
     - [OK] StateManager integration (state tracking + checkpoints)
     - [OK] ErrorRecovery integration (auto-retry + fallback)
-    - [OK] EnhancedPlanner (reasoning + context-aware planning)
     - [OK] ToolRegistry (9 API tools registered)
     - [OK] EnhancedAPIClient (multi-layer fallback)
     - [OK] Auto-save to vector database
-    - [OK] Streaming support
+    - [OK] Per-session memory, state, cache, and recovery isolation
     """
     
     def __init__(
@@ -42,7 +39,8 @@ class E2scAgentOptimized:
         adata: Optional[AnnData] = None,
         llm_provider: Optional[str] = None,
         api_key: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        session_id: Optional[str] = None,
     ):
         """Initialize fully optimized E2sc agent."""
         logger.info("=" * 60)
@@ -51,6 +49,8 @@ class E2scAgentOptimized:
         
         self.config = get_config()
         self.security = get_security_manager()
+        data_session_id = adata.uns.get("e2sc_session_id") if adata is not None else None
+        self._session_id = str(session_id or data_session_id or uuid.uuid4())
 
         provider = llm_provider or self.config.llm.provider
 
@@ -74,15 +74,6 @@ class E2scAgentOptimized:
         
         self.adata = adata
         self.scanpy_tools = ScancpyTools(adata) if adata else None
-        self.enrichment = EnrichmentAnalyzer()
-        self.network = NetworkAnalyzer()
-        self.visualizer = Visualizer()
-        
-        # Database connections
-        self.string_db = STRINGDatabase()
-        self.hmdb_db = HMDBDatabase()
-        self.trrust_db = TRRUSTDatabase()
-        self.gutmgene_db = GUTMGENEDatabase()
         
         # OPTIMIZATION 1: Use enhanced API clients with fallback
         logger.info("[OK] Loading enhanced API clients with fallback mechanisms")
@@ -93,7 +84,7 @@ class E2scAgentOptimized:
         from e2sc.agent.code_executor import get_executor
         from e2sc.agent.api_tools import register_api_tools
         self.code_executor = get_executor(
-            session_id=id(self),
+            session_id=self._session_id,
             adata=adata,
         )
         self.tool_registry = create_tool_registry(self.api_clients, code_executor=self.code_executor)
@@ -101,49 +92,29 @@ class E2scAgentOptimized:
         register_api_tools(self.tool_registry)
         logger.info(f"  - Registered tools: {', '.join(self.tool_registry.get_tool_names())}")
         
-        # OPTIMIZATION 3: Use EnhancedPlanner with reasoning
-        logger.info("[OK] Initializing EnhancedPlanner with reasoning capabilities")
-        self.planner = EnhancedPlannerAgent(self.llm)
-        
-        # OPTIMIZATION 3.5: Use EnhancedRetriever with strategy learning
-        logger.info("[OK] Initializing EnhancedRetriever with strategy learning")
-        self.retriever = create_enhanced_retriever(
-            self.llm, self.string_db, self.hmdb_db,
-            self.trrust_db, self.gutmgene_db, self.api_clients
-        )
-        
         self.synthesizer = SynthesizerAgent(self.llm)
 
         # Per-session vector store for RAG (populated during offline knowledge build)
-        self._session_id: str = ""
         self._vector_store = None
+
+        # Per-instance cache: API results and its lock must never be shared by chats.
+        self._gene_cache: dict = {}
+        self._gene_cache_lock: threading.Lock = threading.Lock()
         
         # OPTIMIZATION 4: Integrate MemoryManager
         logger.info("[OK] Integrating MemoryManager (short-term + long-term)")
-        self.memory = get_memory_manager()
+        self.memory = MemoryManager(session_id=self._session_id)
         # P0/P1: inject LLM so MemoryManager can run auto-summarization
         self.memory.set_llm(self.llm)
         
         # OPTIMIZATION 5: Integrate StateManager
         logger.info("[OK] Integrating StateManager (state tracking + checkpoints)")
-        self.state_manager = get_state_manager()
+        self.state_manager = StateManager(session_id=self._session_id)
         self.state_manager.set_state(AgentState.IDLE)
         
         # OPTIMIZATION 6: Integrate ErrorRecovery
         logger.info("[OK] Integrating ErrorRecovery (auto-retry + fallback)")
-        self.error_recovery = get_error_recovery()
-        
-        # OPTIMIZATION 7: Initialize Agent Executor for autonomous tool calling
-        logger.info("[OK] Initializing LangChain Agent Executor")
-        try:
-            from e2sc.agent.agent_executor import create_agent_executor
-            self.agent_executor = create_agent_executor(self.llm.llm, self.tool_registry)
-            self.agent_mode_enabled = True
-            logger.info("  - Agent mode: ENABLED (AI can autonomously call tools)")
-        except Exception as e:
-            logger.warning(f"  - Agent mode: DISABLED ({e})")
-            self.agent_executor = None
-            self.agent_mode_enabled = False
+        self.error_recovery = ErrorRecovery()
         
         logger.info("=" * 60)
         logger.info("[OK] E2sc Agent fully initialized with all optimizations")
@@ -198,7 +169,6 @@ class E2scAgentOptimized:
             # ── CSV mode: build knowledge directly from pre-filtered CSV records ──
             if self.adata.uns.get("e2sc_data_mode") == "csv":
                 uns = self.adata.uns
-                gene_col   = uns.get("e2sc_gene_col", "name")
                 grp_col    = uns.get("e2sc_group_col", "")
                 groups     = uns.get("e2sc_groups", [])
                 all_genes  = uns.get("e2sc_all_genes", [])
@@ -367,7 +337,6 @@ class E2scAgentOptimized:
                         which is consumed by the SSE handler for real-time text display.
             abort_flag: threading.Event set by the server when the user clicks abort.
         """
-        import re
         logger.info(f"User message: {message}")
         self.state_manager.set_state(AgentState.PLANNING)
         self.memory.working_memory.add_message("user", message)
@@ -386,17 +355,13 @@ class E2scAgentOptimized:
         self.memory.maybe_summarize()
         return resp
 
-
-
-    # Module-level gene knowledge cache
-    _gene_cache: dict = {}
-
     def _chat_csv_rag(self, message: str, thinking_steps: list,
                       abort_flag=None, text_queue=None,
                       progress_callback=None) -> dict:
-        """Agentic RAG for CSV/TSV differential expression or expression tables.
-        Builds gene context directly from the pre-filtered CSV records stored in uns,
-        then follows the same Plan → Retrieve → Synthesise pipeline as scRNA-seq mode.
+        """Interpret gene/value rows from an uploaded CSV/TSV through RAG.
+
+        Existing values such as log2FC or p-values are preserved as input fields;
+        this path does not calculate new markers, DEGs, enrichment, or networks.
         """
 
         def _check_abort():
@@ -405,8 +370,8 @@ class E2scAgentOptimized:
             if abort_flag is not None and abort_flag.is_set():
                 raise _AbortChat("User requested abort")
 
-        import json, re as _re_ar
-        from collections import OrderedDict
+        import json
+        import re as _re_ar
 
         uns = self.adata.uns
         group_col  = uns.get("e2sc_group_col", "group")
@@ -483,7 +448,7 @@ class E2scAgentOptimized:
         _all_apis = sorted(enabled_apis)
         _all_dbs  = sorted(enabled_dbs)
         planning_prompt = (
-            "You are a proteomics/transcriptomics expert analyzing a SPECIFIC dataset.\n"
+            "You interpret gene/value rows from a SPECIFIC uploaded dataset.\n"
             "User question: {q}\n\n"
             "=== DATA FROM THIS DATASET ===\n"
             "{ctx}\n"
@@ -503,24 +468,25 @@ class E2scAgentOptimized:
             "  clinvar     : Pathogenic/benign variant classifications, disease associations, inheritance. USE FOR: clinical variant significance.\n"
             "  civic       : Clinical evidence for cancer variants, therapy response/resistance, diagnostic significance. USE FOR: cancer driver genes.\n"
             "  gwas        : GWAS Catalog — trait/disease SNP associations with p-values. USE FOR: genetic risk loci.\n"
-            "  reactome    : Curated biological pathway membership and hierarchy. USE FOR: pathway enrichment.\n"
+            "  reactome    : Curated pathway membership and hierarchy. USE FOR: external pathway annotation only.\n"
             "  gtex        : Tissue-specific RNA-seq expression across 54 human tissues. USE FOR: tissue expression atlas.\n"
             "  humanbase   : Tissue-specific gene co-expression networks and functional interaction predictions. USE FOR: tissue-specific networks.\n"
             "  biogrid     : Experimentally validated PPI and genetic interactions (Y2H, co-IP, etc). USE FOR: physical interactions.\n"
             "  alliance    : Cross-species orthology (human/mouse/zebrafish/fly/worm/yeast). USE FOR: model organism evidence.\n"
             "  pubmed      : PubMed literature — primary research, clinical studies. ALWAYS include.\n"
             "  europepmc   : Europe PMC — preprints + published papers, different index. ALWAYS include alongside pubmed.\n"
-            "  string      : STRING protein interaction network — experimental + predicted + co-expression scores (local). USE FOR: PPI networks.\n"
+            "  string      : STRING known interaction evidence (local). USE FOR: external annotation only.\n"
             "  hmdb        : Human Metabolome Database — metabolite-gene associations, biochemical pathways (local). USE FOR: metabolomics.\n"
             "  trrust      : Transcription factor - target gene regulatory relationships activation/repression (local). USE FOR: transcriptional regulation.\n"
             "  gutmgene    : Gut microbiome-gene associations — microorganism-gene edges in gut disease context (local). USE FOR: microbiome/gut disease.\n"
             "MANDATORY: Always include pubmed and europepmc in apis_to_use.\n"
             "For all other sources: read each description above and select those relevant to the user question.\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Select genes that are DATA-DRIVEN (highest |{expr_type}| in this dataset).\n"
+            "1. Select only genes present in the uploaded rows, preserving their supplied {expr_type} values.\n"
             "2. Mention the actual group names ({grp_names}) in your focus sentence.\n"
             "3. Select APIs and databases based solely on what the user question requires and your own judgment.\n"
-            "4. Output STRICT JSON only - no markdown, no explanation.\n"
+            "4. Do not request or imply marker, DEG, enrichment, clustering, network/module, or new statistical analysis.\n"
+            "5. Output STRICT JSON only - no markdown, no explanation.\n"
             "Output exactly this JSON structure:\n"
             "{{\n"
             "  \"genes_to_retrieve\": [gene symbols with highest |{expr_type}| — as many as needed],\n"
@@ -655,29 +621,25 @@ class E2scAgentOptimized:
 
 
         # --- Step 4: Synthesise ---
-        fake_results = {
+        input_results = {
             "gene_context": gctx,
             "groups": groups,
             "expr_type": expr_type,
             "n_genes": len(all_genes),
-            "analysis_focus": focus,
+            "interpretation_focus": focus,
+            "interpretation_only": True,
         }
-        # Inject cross-gene network analysis for coherent module-level synthesis
-        cross_gene = self._build_cross_gene_analysis(knowledge)
-        if cross_gene and cross_gene.get("modules"):
-            knowledge["cross_gene_analysis"] = cross_gene
-        # P0/P1: token-aware history + P3: cross-session context
+        # Keep only this session's conversation history. Do not mix knowledge
+        # from another uploaded dataset into the current interpretation.
         history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
-        mem_ctx = self.memory.get_relevant_context(message)
-        knowledge["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info("[CsvRAG] Starting synthesizer.synthesize... text_queue={}".format(text_queue is not None))
         if progress_callback:
-            progress_callback("[进度] 正在综合解读分析结果...")
+            progress_callback("[进度] 正在根据输入基因数值和检索证据生成解读...")
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
-            message, fake_results, knowledge, history,
-            error_context="synthesize_csv_rag", is_comprehensive=True,
+            message, input_results, knowledge, history,
+            error_context="synthesize_csv_rag", is_comprehensive=False,
             text_queue=text_queue,
             progress_callback=progress_callback,
             abort_flag=abort_flag,
@@ -691,7 +653,7 @@ class E2scAgentOptimized:
             resp = {"text": str(resp), "plots": [], "data": {}}
         response_text = resp.get("text", "")
         logger.info(f"[CsvRAG] Synthesize OK: response_len={len(response_text)}")
-        thinking_steps.append({"step": "Synthesize", "content": "Report generated"})
+        thinking_steps.append({"step": "Synthesize", "content": "Interpretation generated"})
 
         self.memory.working_memory.add_message("assistant", response_text)
         self.memory.save_current_session(success=True)
@@ -731,15 +693,14 @@ class E2scAgentOptimized:
         return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
     def _chat_agentic_rag(self, message: str, thinking_steps: list,
                           progress_callback=None, text_queue=None, abort_flag=None) -> dict:
-        """Agentic RAG: plan -> retrieve -> evaluate -> re-retrieve -> synthesize.
-        Agent drives the entire flow; no pre-built KB cache is consulted.
-        Cell types and disease phenotypes are considered JOINTLY.
+        """Extract uploaded gene/value context, retrieve evidence, and interpret it.
+
+        The default path does not run marker, differential-expression,
+        enrichment, clustering, or network/module analysis.
 
         Args:
             abort_flag: threading.Event; if set, raises AbortChat to stop execution.
         """
-        import threading as _threading
-
         def _check_abort():
             """Raise AbortChat if the user has clicked the abort button."""
             from e2sc.api import AbortChat as _AbortChat
@@ -748,7 +709,6 @@ class E2scAgentOptimized:
 
         import json
         import re as _re_ar
-        import pandas as pd
         from collections import OrderedDict
 
         # ── CSV mode: data is a pre-filtered differential/expression table ──
@@ -780,17 +740,17 @@ class E2scAgentOptimized:
             _m = self.config.llm.model or "default"
             _company, _default_model = _provider_info.get(_p, ("Unknown", _p))
             _response_text = (
-                "我是 E2sc（Easy to Chat with Sequencing），一个专为单细胞转录组数据分析打造的 AI 助手。\n\n"
+                "我是 E2sc（Easy to Chat with Sequencing），一个用于解读 bulk 和单细胞测序基因数值的 AI 助手。\n\n"
                 f"**当前配置**:\n"
                 f"- 底层模型: {_m}\n"
                 f"- 模型提供商: {_company}\n\n"
                 f"**我的能力**:\n"
-                f"- 上传 h5ad/CSV 数据后，自动识别细胞类型和疾病分组\n"
-                f"- 综合分析: 自动规划 + 16个在线API查询 + 4个本地数据库检索\n"
-                f"- 支持: 基因功能(PUniProt/MyGene) / GO注释(QuickGO) / 通路(Reactome) / PPI网络(STRING) / 转录调控(TRRUST) / 文献检索(PubMed/EuropePMC) 等\n"
-                f"- 生成高质量分析报告和可视化图表\n"
+                f"- 读取 CSV/TSV/H5AD 中已有的基因、数值、分组和细胞类型标签\n"
+                f"- 将输入基因直接送入 Agent RAG，检索功能、通路、相互作用和文献证据\n"
+                f"- 只做基于输入值和外部证据的文字解读，不计算 marker、差异表达、富集或网络模块\n"
+                f"- 通过 Web API 流式返回可直接阅读的 Markdown 文字\n"
                 f"- 支持后续追问，系统会从缓存中快速回答\n\n"
-                f"请上传您的单细胞数据开始分析！"
+                f"请上传 bulk 或单细胞测序结果开始解读！"
             )
             self.memory.working_memory.add_message("assistant", _response_text)
             self.memory.save_current_session(success=True)
@@ -808,185 +768,106 @@ class E2scAgentOptimized:
         enabled_dbs = set(self.adata.uns.get("e2sc_enabled_dbs",
             ["string","hmdb","trrust","gutmgene"]))
 
-        logger.info(f"[AgenticRAG] START. message={message[:60]!r}, data_mode={self.adata.uns.get('e2sc_data_mode','h5ad')}, n_top_genes={_n_ctx}, apis={sorted(enabled_apis)}, dbs={sorted(enabled_dbs)}, text_queue={text_queue is not None}")
-
-        # Step 1: Build rich joint gene context from FULL dataset
-        # Includes: expression values, cross-group differential, cell-type×group joint analysis
+        # Step 1: extract gene/value context from the uploaded matrix only.
+        # No marker, differential, enrichment, or network computation runs here.
         import numpy as np
         import scipy.sparse as sp
         # User-configurable N — stored during configure-dataset, default 30
         _n_ctx = int(self.adata.uns.get("e2sc_n_top_genes", 30))
+        logger.info(f"[AgenticRAG] START. message={message[:60]!r}, data_mode={self.adata.uns.get('e2sc_data_mode','h5ad')}, n_top_genes={_n_ctx}, apis={sorted(enabled_apis)}, dbs={sorted(enabled_dbs)}, text_queue={text_queue is not None}")
         # Planner sees MORE genes so it can make informed selections across all groups
         # Retrieval is expensive (live APIs) so we use the user's capped value
         _n_ctx_planner = max(_n_ctx, 200)
-        ct_matrix  = {}  # {label: {gene: mean_expr}}
-        grp_matrix = {}  # {label: {gene: mean_expr}}
-        _raw_ct_matrix  = {}  # {orig_label: {gene: mean_expr}}
-        _raw_grp_matrix = {}  # {orig_label: {gene: mean_expr}}
+        ct_matrix = {}   # {display_label: {gene: input mean value}}
+        grp_matrix = {}  # {display_label: {gene: input mean value}}
         if self.scanpy_tools:
             if ct_col:
                 _m = self.scanpy_tools.get_top_genes_matrix(n_top_genes=_n_ctx_planner, celltype_col=ct_col)
-                _raw_ct_matrix = _m.get("top_genes_per_celltype", {})
-                ct_matrix = {celltype_labels.get(k,k): v for k,v in _raw_ct_matrix.items()}
+                ct_matrix = {
+                    celltype_labels.get(k, k): dict(v)
+                    for k, v in _m.get("matrix", {}).items()
+                }
                 self.memory.working_memory.update_context("gene_matrix", _m)
             if grp_col:
                 _g = self.scanpy_tools.get_top_genes_by_group(group_col=grp_col, n_top_genes=_n_ctx_planner)
-                _raw_grp_matrix = _g.get("top_genes_per_group", {})
-                grp_matrix = {group_labels.get(k,k): v for k,v in _raw_grp_matrix.items()}
+                grp_matrix = {
+                    group_labels.get(k, k): dict(v)
+                    for k, v in _g.get("matrix", {}).items()
+                }
                 self.memory.working_memory.update_context("group_matrix", _g)
 
-        # Full gene universe
+        # Convert the uploaded cells-by-genes matrix to gene/value pairs. This
+        # deterministic mean is input summarisation, not statistical analysis.
         all_dataset_genes = list(self.adata.var_names)
-        top_ranked_genes = list(OrderedDict.fromkeys(
-            g for gs in list(ct_matrix.values())+list(grp_matrix.values())
-            for g in (gs if isinstance(gs, list) else list(gs.keys()))))
+        X = self.adata.X
+        if sp.issparse(X):
+            overall_vector = np.asarray(X.mean(axis=0)).ravel()
+        else:
+            overall_vector = np.asarray(X).mean(axis=0)
+        overall_gene_values = dict(sorted(
+            ((str(gene), float(overall_vector[i]))
+             for i, gene in enumerate(all_dataset_genes)),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )[:_n_ctx_planner])
 
-        # Fallback: if no celltype/group cols, use top highly variable genes
+        top_ranked_genes = list(OrderedDict.fromkeys(
+            gene
+            for values in list(ct_matrix.values()) + list(grp_matrix.values())
+            for gene in values.keys()
+        ))
+        top_ranked_genes = list(OrderedDict.fromkeys(
+            top_ranked_genes + list(overall_gene_values.keys())
+        ))
+
+        # Fallback to the uploaded gene order if the matrix has no usable values.
         if not top_ranked_genes:
-            _hvg_col = None
-            for _col in ["highly_variable", "highly_variable_rank"]:
-                if _col in self.adata.var.columns:
-                    _hvg_col = _col
-                    break
-            if _hvg_col == "highly_variable":
-                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col]])[:_n_ctx_planner]
-            elif _hvg_col == "highly_variable_rank":
-                top_ranked_genes = list(self.adata.var_names[self.adata.var[_hvg_col].argsort()])[:_n_ctx_planner]
-            else:
-                # Use first n_ctx_planner genes as last resort
-                top_ranked_genes = list(self.adata.var_names[:_n_ctx_planner])
+            top_ranked_genes = list(all_dataset_genes[:_n_ctx_planner])
             logger.info(f"[AgenticRAG] No ct/grp cols — using {len(top_ranked_genes)} fallback genes from var_names")
 
-        # --- Cross-group differential: genes with highest mean expression per group vs others ---
-        # Data is log-normalised: log-fold-change = mean_group - mean_others (subtraction, not division)
-        grp_diff_summary = {}  # {group_label: ["gene(mean=X.XXXX,lfc=Y.YYY)", ...]}
-        if grp_col and len(grp_matrix) >= 2:
-            try:
-                X = self.adata.X
-                if sp.issparse(X): X = X.toarray()
-                gene_names = list(self.adata.var_names)
-                grp_means = {}  # {orig_grp: np.array of mean expr per gene}
-                for orig_grp in _raw_grp_matrix:
-                    mask = (self.adata.obs[grp_col] == orig_grp).values
-                    if mask.sum() > 0:
-                        grp_means[orig_grp] = np.mean(X[mask, :], axis=0)
-                for orig_grp, means in grp_means.items():
-                    other_means = np.mean(
-                        np.stack([m for g2, m in grp_means.items() if g2 != orig_grp], axis=0),
-                        axis=0)
-                    # Log-fold-change: subtraction because data is already log-normalised
-                    lfc = means - other_means
-                    # Rank by mean expression in this group (not LFC) — top _n_ctx_planner genes
-                    top_idx = np.argsort(means)[::-1][:_n_ctx_planner]
-                    lbl = group_labels.get(orig_grp, orig_grp)
-                    grp_diff_summary[lbl] = [
-                        "{gene}(mean={expr:.3f},lfc={lfc:.3f})".format(
-                            gene=gene_names[i], expr=float(means[i]), lfc=float(lfc[i]))
-                        for i in top_idx
-                    ]
-            except Exception as _de:
-                logger.warning("Diff summary failed: {}".format(_de))
+        def _format_value_map(values):
+            return ",".join(
+                "{}(value={:.4g})".format(gene, float(value))
+                for gene, value in list(values.items())[:_n_ctx_planner]
+            )
 
-        # --- Cell type × group joint: per cell type, top mean-expressed genes per group ---
-        ct_grp_joint = {}  # {ct_label: {grp_label: ["gene(mean=X.XXX)", ...]}}
-        if ct_col and grp_col and len(grp_matrix) >= 2:
-            try:
-                X = self.adata.X
-                if sp.issparse(X): X = X.toarray()
-                gene_names = list(self.adata.var_names)
-                obs = self.adata.obs
-                for orig_ct in list(_raw_ct_matrix.keys()):  # all cell types, no arbitrary cap
-                    ct_mask = (obs[ct_col] == orig_ct).values
-                    if ct_mask.sum() < 5: continue
-                    ct_lbl = celltype_labels.get(orig_ct, orig_ct)
-                    ct_grp_joint[ct_lbl] = {}
-                    for orig_grp in list(_raw_grp_matrix.keys()):
-                        grp_mask = (obs[grp_col] == orig_grp).values
-                        joint_mask = ct_mask & grp_mask
-                        if joint_mask.sum() < 3: continue
-                        means = np.mean(X[joint_mask, :], axis=0)
-                        top_idx = np.argsort(means)[::-1][:_n_ctx_planner]
-                        grp_lbl = group_labels.get(orig_grp, orig_grp)
-                        ct_grp_joint[ct_lbl][grp_lbl] = [
-                            "{g}(mean={v:.3f})".format(g=gene_names[i], v=float(means[i]))
-                            for i in top_idx]
-            except Exception as _je:
-                logger.warning("CT×Group joint failed: {}".format(_je))
-
-        # --- Format context strings ---
-        # Group summary: gene(mean=X.XXXX) per group — use n_ctx_planner for richer context
-        grp_sum_parts = []
-        for gr, gs in grp_matrix.items():
-            if isinstance(gs, dict):
-                genes_with_expr = [
-                    "{g}(mean={v:.3f})".format(g=g, v=float(v))
-                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx_planner]
-                ]
-            else:
-                genes_with_expr = [str(g) for g in gs[:_n_ctx_planner]]
-            grp_sum_parts.append("{}:[{}]".format(gr, ",".join(genes_with_expr)))
-        grp_sum = "; ".join(grp_sum_parts)
-
-        # Cell type summary: gene(mean=X.XXXX) per cell type
-        ct_sum_parts = []
-        for ct, gs in ct_matrix.items():
-            if isinstance(gs, dict):
-                genes = [
-                    "{g}(mean={v:.3f})".format(g=g, v=float(v))
-                    for g, v in sorted(gs.items(), key=lambda x: x[1], reverse=True)[:_n_ctx_planner]
-                ]
-            else:
-                genes = [str(g) for g in (gs[:_n_ctx_planner] if isinstance(gs, list) else list(gs)[:_n_ctx_planner])]
-            ct_sum_parts.append("{}:[{}]".format(ct, ",".join(genes)))
-        ct_sum = "; ".join(ct_sum_parts)
-
-        # Differential summary: already formatted as gene(mean=X,fc=Y) in grp_diff_summary
-        diff_lines = []
-        for grp_lbl, genes in grp_diff_summary.items():
-            if genes:
-                diff_lines.append("  {}: {}".format(grp_lbl, ", ".join(genes)))
-        diff_str = "\n".join(diff_lines) if diff_lines else "  (not available — no disease group column configured)"
-
-        # Cell type × group joint: already formatted as gene(mean=X.XXXX)
-        joint_lines = []
-        for ct_lbl, grp_dict in ct_grp_joint.items():
-            parts = []
-            for grp_lbl, genes in grp_dict.items():
-                parts.append("{}=[{}]".format(grp_lbl, ",".join(genes[:_n_ctx_planner])))
-            if parts:
-                joint_lines.append("  {}: {}".format(ct_lbl, " | ".join(parts)))
-        joint_str = "\n".join(joint_lines) if joint_lines else "  (not available — requires both cell type and group columns)"
+        overall_summary = _format_value_map(overall_gene_values)
+        grp_sum = "; ".join(
+            "{}:[{}]".format(label, _format_value_map(values))
+            for label, values in grp_matrix.items()
+        ) or "(no group column configured)"
+        ct_sum = "; ".join(
+            "{}:[{}]".format(label, _format_value_map(values))
+            for label, values in ct_matrix.items()
+        ) or "(no cell-type column configured)"
 
         gctx = (
             "{desc_line}"
             "Dataset: {n_obs} cells, {n_vars} total genes\n"
-            "Disease groups ({n_gr}) — top {n_top_per} mean-expressed genes per group (gene(mean=expr)):\n  {gr}\n"
-            "Top mean-expressed genes per group with log-fold-change vs other groups (gene(mean=expr,lfc=log_ratio)):\n{diff}\n"
-            "Cell types ({n_ct}) — top {n_top_per} mean-expressed genes per cell type (gene(mean=expr)):\n  {ct}\n"
-            "Cell type × Disease group joint top {n_top_per} mean-expressed genes (gene(mean=expr)):\n{joint}\n"
-            "All top-ranked genes union across all cell types and groups ({n_top} genes, sorted by summed mean expression): {top}\n"
-            "IMPORTANT: All expression values are raw mean expression (not log2FC, not normalised rank).\n"
-            "Base your analysis on the ACTUAL mean expression values shown above.\n"
-            "NOTE: You may also request ANY gene from the full {n_vars}-gene dataset if relevant."
+            "Overall input gene values (deterministic mean across uploaded rows/cells): {overall}\n"
+            "Input values by user-provided group ({n_gr}): {gr}\n"
+            "Input values by user-provided cell type ({n_ct}): {ct}\n"
+            "Candidate input genes ({n_top}): {top}\n"
+            "IMPORTANT: These values only summarise the uploaded matrix. No marker detection, "
+            "differential expression, fold-change, p-value, enrichment, clustering, network, "
+            "or module analysis was performed. RAG may retrieve external annotations only."
         ).format(
             desc_line=("Dataset description (provided by user): {}\n".format(self.adata.uns.get("e2sc_dataset_description", "")) if self.adata.uns.get("e2sc_dataset_description", "") else ""),
             n_obs=self.adata.n_obs, n_vars=self.adata.n_vars,
-            n_top_per=_n_ctx_planner,
             n_gr=len(grp_matrix), gr=grp_sum,
-            diff=diff_str,
             n_ct=len(ct_matrix), ct=ct_sum,
-            joint=joint_str,
             n_top=len(top_ranked_genes),
-            top=", ".join(top_ranked_genes[:300])  # show more genes for the planner to select from
+            top=", ".join(top_ranked_genes[:300]),
+            overall=overall_summary,
         )
-        thinking_steps.append({"step":"GeneContext","content":"{} cell types, {} groups, {} top genes, {} total — with expr values and diff analysis".format(
+        thinking_steps.append({"step":"InputGeneValues","content":"{} cell types, {} groups, {} input genes, {} total; no derived differential or enrichment analysis".format(
             len(ct_matrix), len(grp_matrix), len(top_ranked_genes), len(all_dataset_genes))})
 
         # Step 2: Agent planning — data-anchored, question-driven, API-aware
         _all_apis = sorted(enabled_apis)
         _all_dbs  = sorted(enabled_dbs)
         planning_prompt = (
-            "You are a single-cell transcriptomics expert analyzing a SPECIFIC dataset.\n"
+            "You interpret gene/value pairs from a SPECIFIC uploaded bulk or single-cell dataset.\n"
             "User question: {q}\n\n"
             "=== ACTUAL DATA FROM THIS DATASET ===\n"
             "{ctx}\n"
@@ -1002,7 +883,7 @@ class E2scAgentOptimized:
             "  clinvar     : Pathogenic/benign variant classifications, disease associations, inheritance. USE FOR: clinical variant significance.\n"
             "  civic       : Clinical evidence for cancer variants, therapy response/resistance, diagnostic significance. USE FOR: cancer driver genes.\n"
             "  gwas        : GWAS Catalog — trait/disease SNP associations with p-values. USE FOR: genetic risk loci.\n"
-            "  reactome    : Curated biological pathway membership and hierarchy. USE FOR: pathway enrichment.\n"
+            "  reactome    : Curated pathway membership and hierarchy. USE FOR: external pathway annotation only.\n"
             "  gtex        : Tissue-specific RNA-seq expression across 54 human tissues. USE FOR: tissue expression atlas.\n"
             "  humanbase   : Tissue-specific gene co-expression networks and functional interaction predictions. USE FOR: tissue-specific networks.\n"
             "  biogrid     : Experimentally validated PPI and genetic interactions (Y2H, co-IP, etc). USE FOR: physical interactions.\n"
@@ -1010,7 +891,7 @@ class E2scAgentOptimized:
             "  pubmed      : PubMed literature — primary research, clinical studies. ALWAYS include.\n"
             "  europepmc   : Europe PMC — preprints + published papers, different index. ALWAYS include alongside pubmed.\n"
             "── LOCAL DATABASES ──\n"
-            "  string      : STRING protein interaction network — experimental + predicted + co-expression + text-mining scores. USE FOR: PPI networks.\n"
+            "  string      : STRING known interaction evidence. USE FOR: external annotation only.\n"
             "  hmdb        : Human Metabolome Database — metabolite-gene associations, biochemical pathways. USE FOR: metabolomics questions.\n"
             "  trrust      : Transcription factor - target gene regulatory relationships (activation/repression). USE FOR: transcriptional regulation.\n"
             "  gutmgene    : Gut microbiome-gene associations — microorganism-gene edges in gut disease context. USE FOR: microbiome/gut disease.\n"
@@ -1018,22 +899,15 @@ class E2scAgentOptimized:
             "MANDATORY: Always include pubmed and europepmc in apis_to_use.\n"
             "For all other sources: read each description above and select those relevant to the user question.\n\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Your analysis MUST be grounded in the actual expression values and fold changes shown above.\n"
-            "   - Prioritize genes with HIGH fold change in a specific disease group vs others.\n"
-            "   - Note which CELL TYPES drive expression in which DISEASE GROUPS (use the Cell type × Disease group joint data).\n"
-            "   - The group names are the ACTUAL labels from this dataset — use them exactly.\n"
-            "   - The cell type names are the ACTUAL labels — use them exactly as shown.\n"
-            "2. Select genes that are DATA-DRIVEN (high expression or high fold change in this dataset).\n"
-            "   IMPORTANT: For drug-target/therapeutic questions, you MUST select MORE genes (20-50+)\n"
-            "   from the pool above — do NOT limit to only 3-5. The pool contains up to {_n_ctx_planner} genes per group.\n"
-            "   Filtering happens at synthesis time based on retrieved drug/GO evidence.\n"
-            "3. Select APIs and databases based solely on what the user question requires and your own judgment.\n"
-            "4. Your PubMed/EuropePMC keywords MUST include the actual group names combined with genes/cell types.\n"
-            "5. The focus sentence must mention the specific disease groups and cell types in THIS dataset.\n"
-            "6. Output STRICT JSON only — no explanation, no markdown.\n"
+            "1. Use only gene symbols and numeric values present in the input context above.\n"
+            "2. Preserve the actual group and cell-type labels exactly when they exist.\n"
+            "3. Select genes for RAG retrieval from the candidate input genes only.\n"
+            "4. Do not request or imply marker, DEG, enrichment, clustering, network/module, or new statistical analysis.\n"
+            "5. Retrieved pathway or interaction records are external annotations, never computed dataset results.\n"
+            "6. Select APIs/databases only to interpret the user's question, then output STRICT JSON.\n"
             "JSON format:\n"
             "{{\n"
-            "  \"genes_to_retrieve\": [gene symbols — include ALL promising candidates (20-50+ for drug-target questions)],\n"
+            "  \"genes_to_retrieve\": [gene symbols selected only from the uploaded input context],\n"
             "  \"apis_to_use\": [subset of {apis} — choose based on the question and your own judgment],\n"
             "  \"dbs_to_use\": [subset of {dbs} — choose based on the question and your own judgment],\n"
             "  \"pubmed_keywords\": [keyword strings combining gene names + actual disease group names + cell types],\n"
@@ -1094,7 +968,7 @@ class E2scAgentOptimized:
         if len(kws) < 3 and to_ret:
             try:
                 _exp_genes = to_ret[:8]  # cap for prompt length
-                _exp_ctx = context_hint or message[:120]
+                _exp_ctx = focus or message[:120]
                 _exp_prompt = _EXPANSION_PROMPT.format(
                     genes=", ".join(_exp_genes),
                     context=_exp_ctx,
@@ -1336,36 +1210,29 @@ class E2scAgentOptimized:
 
         # Step 5: Synthesize
         all_q = list(knowledge.get("genes", {}).keys())[:100]
-        fake_results = {
-            "deg": {"results": pd.DataFrame({"names": all_q}), "params": {}},
+        input_results = {
             "plots": [],
+            "interpretation_only": True,
             "matrix_context": {
-                "cell_type_focus": "all cell types and disease phenotypes (joint)",
                 "genes_queried": all_q,
+                "overall_gene_values": overall_gene_values,
                 "top_genes_per_celltype": ct_matrix,
                 "top_genes_per_group": grp_matrix,
-                "diff_genes_per_group": grp_diff_summary,
-                "ct_grp_joint": ct_grp_joint,
                 "priority_genes": to_ret,
-                "analysis_focus": focus,
+                "interpretation_focus": focus,
             }
         }
-        # Inject cross-gene network analysis so synthesizer can produce coherent module-level narrative
-        cross_gene = self._build_cross_gene_analysis(knowledge)
-        if cross_gene and cross_gene.get("modules"):
-            knowledge["cross_gene_analysis"] = cross_gene
-        # P0/P1: token-aware history + P3: cross-session context
+        # Keep only this session's conversation history. Do not mix knowledge
+        # from another uploaded dataset into the current interpretation.
         history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
-        mem_ctx = self.memory.get_relevant_context(message)
-        knowledge["cross_session_context"] = mem_ctx
         self.state_manager.set_state(AgentState.SYNTHESIZING)
         logger.info(f"[AgenticRAG] Starting synthesize. has_knowledge={bool(knowledge.get('genes'))}, text_queue={text_queue is not None}")
         if progress_callback:
-            progress_callback("[进度] 正在综合解读分析结果...")
+            progress_callback("[进度] 正在根据输入基因数值和检索证据生成解读...")
         ok, resp, err = self.error_recovery.execute_with_retry(
             self.synthesizer.synthesize,
-            message, fake_results, knowledge, history,
-            error_context="synthesize_agentic_rag", is_comprehensive=True,
+            message, input_results, knowledge, history,
+            error_context="synthesize_agentic_rag", is_comprehensive=False,
             text_queue=text_queue,
             progress_callback=progress_callback,
             abort_flag=abort_flag,
@@ -1401,282 +1268,6 @@ class E2scAgentOptimized:
         self.memory.save_current_session(success=True)
         self.state_manager.set_state(AgentState.COMPLETED)
         return resp
-
-    def _agentic_synthesize_from_cache(
-        self, message: str, comp_cache: dict,
-        ct_matrix: dict, grp_matrix: dict, thinking_steps: list) -> dict:
-        """Answer from cached KB: agent selects relevant genes, then synthesizes.
-        Even in cache mode the agent plans which genes/topics are most relevant
-        so that different questions get different focused answers.
-        """
-        import json, re as _re_sc, pandas as pd
-        ct_know  = comp_cache.get("ct_knowledge", {})
-        grp_know = comp_cache.get("grp_knowledge", {})
-        all_gi, all_pm, all_em = {}, [], []
-        seen: set = set()
-        for _kb in list(ct_know.values()) + list(grp_know.values()):
-            all_gi.update(_kb.get("genes", {}))
-            for a in _kb.get("pubmed", []):
-                if a.get("pmid") not in seen:
-                    seen.add(a.get("pmid")); all_pm.append(a)
-            for a in _kb.get("europepmc", []):
-                if a.get("pmid") not in seen:
-                    seen.add(a.get("pmid")); all_em.append(a)
-
-        all_cached_genes = list(all_gi.keys())
-        gm  = self.memory.working_memory.current_context.get("gene_matrix") or {}
-        gm2 = self.memory.working_memory.current_context.get("group_matrix") or {}
-        ct_top  = ct_matrix  or gm.get("top_genes_per_celltype", {})
-        grp_top = grp_matrix or gm2.get("top_genes_per_group", {})
-
-        # Agent planning: select genes most relevant to THIS question
-        ct_sum  = "; ".join("{}:[{}]".format(ct, ",".join(gs[:6]))
-                            for ct, gs in ct_top.items())
-        grp_sum = "; ".join("{}:[{}]".format(gr, ",".join(gs[:6]))
-                            for gr, gs in grp_top.items())
-        plan_prompt = (
-            "User question: {}\n"
-            "Available genes in knowledge base ({}): {}\n"
-            "Cell types: {}\nDisease groups: {}\n"
-            "Select the most relevant genes to answer this specific question.\n"
-            "Output STRICT JSON only: "
-            "{{\"priority_genes\":[top 20 most relevant genes],\"focus\":\"one sentence\"}}"
-        ).format(
-            message, len(all_cached_genes),
-            ", ".join(all_cached_genes[:60]),
-            ct_sum, grp_sum
-        )
-        try:
-            plan_raw = self.llm.chat([{"role": "user", "content": plan_prompt}])
-            _jm = _re_sc.search(r"\{[\s\S]*\}", plan_raw)
-            plan = json.loads(_jm.group()) if _jm else {}
-            priority_genes = [g for g in plan.get("priority_genes", [])
-                              if g in all_gi][:20]
-            focus = plan.get("focus", message[:80])
-        except Exception as _pe:
-            logger.warning("[CachePlan] fallback: {}".format(_pe))
-            priority_genes = all_cached_genes[:20]
-            focus = message[:80]
-
-        if not priority_genes:
-            priority_genes = all_cached_genes[:20]
-
-        thinking_steps.append({"step": "AgentPlan(cache)",
-            "content": "Focus: {} | Selected {} genes from {} cached".format(
-                focus, len(priority_genes), len(all_cached_genes))})
-
-        # Build focused knowledge: prioritized genes first, rest after
-        focused_gi = {g: all_gi[g] for g in priority_genes if g in all_gi}
-        for g, v in all_gi.items():
-            if g not in focused_gi:
-                focused_gi[g] = v
-
-        cached_k = {"genes": focused_gi, "pubmed": all_pm, "europepmc": all_em}
-
-        # Vector store RAG with question-specific retrieval
-        if self._vector_store is not None and self._vector_store.count() > 0:
-            try:
-                rc = self._vector_store.retrieve_context(message, n_results=15)
-                if rc:
-                    cached_k["rag_context"] = rc
-                    thinking_steps.append({"step": "VectorRAG",
-                        "content": "{} docs; top-15 retrieved for: {}".format(
-                            self._vector_store.count(), message[:40])})
-            except Exception as _ve:
-                logger.warning("[CachePlan] vector failed: {}".format(_ve))
-
-        thinking_steps.append({"step": "CacheReuse",
-            "content": "{} genes ({} prioritized), {} articles".format(
-                len(focused_gi), len(priority_genes), len(all_pm))})
-
-        all_gl = list(focused_gi.keys())[:60]
-        fake_results = {
-            "deg": {"results": pd.DataFrame({"names": all_gl}), "params": {}},
-            "plots": [],
-            "matrix_context": {
-                "cell_type_focus": "all cell types and disease phenotypes (joint)",
-                "genes_queried": all_gl,
-                "top_genes_per_celltype": ct_top,
-                "top_genes_per_group": grp_top,
-                "priority_genes": priority_genes,
-                "analysis_focus": focus,
-            }
-        }
-        # Inject cross-gene network analysis for coherent module-level synthesis
-        cross_gene = self._build_cross_gene_analysis(cached_k)
-        if cross_gene and cross_gene.get("modules"):
-            cached_k["cross_gene_analysis"] = cross_gene
-        # P0/P1: token-aware history + P3: cross-session context
-        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
-        mem_ctx = self.memory.get_relevant_context(message)
-        cached_k["cross_session_context"] = mem_ctx
-        self.state_manager.set_state(AgentState.SYNTHESIZING)
-        ok, resp, err = self.error_recovery.execute_with_retry(
-            self.synthesizer.synthesize,
-            message, fake_results, cached_k, history,
-            error_context="synthesize_cache", is_comprehensive=True)
-        if not ok:
-            resp = {"text": "合成失败: {}".format(err), "plots": [], "data": {}}
-        if not isinstance(resp, dict):
-            resp = {"text": str(resp), "plots": [], "data": {}}
-        resp["thinking"] = thinking_steps
-
-        # Basic source stats for cached knowledge path
-        _ng = len(focused_gi)
-        _npm = len(all_pm)
-        _nem = len(all_em)
-        _sc_note = (
-            f"\n\n---\n**数据来源统计 | Data Source Coverage**\n"
-            f"基因检索 (Genes retrieved): {_ng}\n"
-            f"文献 (Literature): PubMed {_npm} 篇 + Europe PMC {_nem} 篇\n"
-            f"---\n"
-        )
-        resp["text"] = resp.get("text", "") + _sc_note
-        resp.setdefault("data", {})["source_stats"] = {
-            "total_genes_queried": _ng,
-            "pubmed_articles": _npm,
-            "europepmc_articles": _nem,
-            "note": "cached_knowledge",
-        }
-
-        self.memory.working_memory.add_message("assistant", resp.get("text", ""))
-        self.memory.save_current_session(success=True)
-        self.state_manager.set_state(AgentState.COMPLETED)
-        return resp
-
-    # --------------------------------------------------------------------------
-    # Cross-gene module analysis: extract PPI/TF/metabolite/microbiome networks
-    # and identify gene clusters to enable coherent cross-gene synthesis.
-    # --------------------------------------------------------------------------
-    def _build_cross_gene_analysis(self, knowledge: dict) -> dict:
-        """Build structured cross-gene network analysis from retrieved knowledge.
-
-        Extracts:
-        - PPI edges (gene -- partner[score])
-        - TF regulation edges (TF -- target[mode])
-        - Shared-metabolite edges (gene -- metabolite -- gene2)
-        - Shared-microbiome edges (gene -- microbe[condition])
-        - Gene modules (connected components of the above graph)
-        - Shared pathway enrichment per module
-
-        Returns a dict with keys: ppi_edges, tf_edges, metabolite_edges,
-        microbiome_edges, modules, shared_pathways.
-        """
-        genes_info = knowledge.get("genes", {})
-        if not genes_info:
-            return {}
-
-        ppi_edges = []       # [(gene, partner, score)]
-        tf_edges = []        # [(tf, target, mode)]
-        metabolite_edges = [] # [(gene, metabolite)]
-        microbiome_edges = [] # [(gene, microbe, condition)]
-
-        for gene, info in genes_info.items():
-            ppi = info.get("interactions") or []
-            for iact in ppi[:8]:
-                partner = iact.get("partner", "") if isinstance(iact, dict) else str(iact)
-                score = iact.get("score", 0) if isinstance(iact, dict) else 0
-                if partner and partner != gene:
-                    ppi_edges.append((gene, partner, score))
-
-            regs = info.get("regulators") or []
-            for r in regs[:5]:
-                tf = r.get("tf", "") if isinstance(r, dict) else str(r)
-                eff = r.get("effect", "") if isinstance(r, dict) else ""
-                if tf:
-                    tf_edges.append((tf, gene, eff))
-
-            targets = info.get("targets") or []
-            for t in targets[:5]:
-                tg = t.get("target_gene", "") if isinstance(t, dict) else str(t)
-                eff = t.get("effect", "") if isinstance(t, dict) else ""
-                if tg:
-                    tf_edges.append((gene, tg, eff))
-
-            mets = info.get("metabolites") or []
-            for m in mets[:5]:
-                mn = (m.get("name") or m.get("metabolite_name", "")) if isinstance(m, dict) else str(m)
-                if mn:
-                    metabolite_edges.append((gene, mn))
-
-            microbes = info.get("gut_microbes") or []
-            for m in microbes[:3]:
-                mn = (m.get("microbe") or m.get("gut_microbiota", "")) if isinstance(m, dict) else str(m)
-                cond = (m.get("Condition") or m.get("condition", "")) if isinstance(m, dict) else ""
-                if mn:
-                    microbiome_edges.append((gene, mn, cond))
-
-        all_edges = []
-        seen = set()
-        for gene, partner, score in ppi_edges:
-            key = (min(gene, partner), max(gene, partner))
-            if key not in seen:
-                seen.add(key)
-                all_edges.append({"type": "PPI", "a": gene, "b": partner, "score": score})
-
-        seen_tf = set()
-        for tf, target, mode in tf_edges:
-            key = (tf, target)
-            if key not in seen_tf:
-                seen_tf.add(key)
-                all_edges.append({"type": "TF", "a": tf, "b": target, "mode": mode})
-
-        # Build adjacency for module detection
-        adj = {}
-        for gene in genes_info:
-            adj.setdefault(gene, set())
-        for e in all_edges:
-            adj.setdefault(e["a"], set()).add(e["b"])
-            adj.setdefault(e["b"], set()).add(e["a"])
-
-        visited = set()
-        modules = []
-        for start in adj:
-            if start in visited:
-                continue
-            component = set()
-            queue = [start]
-            while queue:
-                node = queue.pop()
-                if node in visited:
-                    continue
-                visited.add(node)
-                component.add(node)
-                queue.extend(adj.get(node, set()) - visited)
-            if len(component) >= 2:
-                modules.append(sorted(component))
-
-        # Shared pathways per module
-        shared_pathways = {}
-        for i, mod in enumerate(modules):
-            pw_count = {}
-            for g in mod:
-                info = genes_info.get(g, {})
-                pws = info.get("pathways") or info.get("reactome_pathways") or []
-                for p in pws:
-                    pw_count[p] = pw_count.get(p, 0) + 1
-            shared = [(p, c) for p, c in pw_count.items() if c >= 2]
-            shared_pathways[f"Module_{i+1}"] = sorted(shared, key=lambda x: -x[1])[:5]
-
-        # PPI hubs (highest degree)
-        ppi_degree = {}
-        for gene, partner, score in ppi_edges:
-            ppi_degree[gene] = ppi_degree.get(gene, 0) + 1
-            ppi_degree[partner] = ppi_degree.get(partner, 0) + 1
-        hubs = sorted(ppi_degree.items(), key=lambda x: -x[1])[:10]
-
-        return {
-            "ppi_edges": ppi_edges,
-            "tf_edges": tf_edges,
-            "metabolite_edges": metabolite_edges,
-            "microbiome_edges": microbiome_edges,
-            "modules": modules,
-            "shared_pathways": shared_pathways,
-            "ppi_hubs": hubs,
-            "all_edges": all_edges,
-        }
-
-    _gene_cache_lock = None  # threading.Lock, lazily initialized
 
     def _get_gene_cache_lock(self):
         import threading
@@ -2738,721 +2329,6 @@ class E2scAgentOptimized:
         return knowledge
 
 
-    def _chat_dataset_info(self, message: str, thinking_steps: list) -> dict:
-        """Directly answer basic dataset info questions without API queries."""
-        adata = self.adata
-        ct_col = adata.uns.get("e2sc_celltype_col") or self.scanpy_tools._find_cell_type_column() or ""
-        grp_col = adata.uns.get("e2sc_group_col", "")
-
-        lines = []
-        lines.append(f"## 数据集基本信息")
-        lines.append(f"- **细胞总数**: {adata.n_obs:,}")
-        lines.append(f"- **基因总数**: {adata.n_vars:,}")
-
-        if ct_col and ct_col in adata.obs.columns:
-            cts = sorted(adata.obs[ct_col].astype(str).unique())
-            lines.append(f"- **细胞类型列**: `{ct_col}`")
-            lines.append(f"- **细胞类型数量**: {len(cts)} 种")
-            lines.append(f"")
-            lines.append(f"### 细胞类型列表")
-            for ct in cts:
-                n = int((adata.obs[ct_col] == ct).sum())
-                pct = n / adata.n_obs * 100
-                lines.append(f"- **{ct}**: {n:,} 个细胞 ({pct:.1f}%)")
-        else:
-            lines.append("- 未找到细胞类型列，请通过配置对话框指定")
-
-        if grp_col and grp_col in adata.obs.columns:
-            grps = sorted(adata.obs[grp_col].astype(str).unique())
-            lines.append(f"")
-            lines.append(f"### 疾病/分组信息 (`{grp_col}`)")
-            for g in grps:
-                n = int((adata.obs[grp_col] == g).sum())
-                lines.append(f"- **{g}**: {n:,} 个细胞")
-
-        lines.append("")
-        lines.append("> 如需深入分析各细胞类型的高表达基因和生物学功能，请发送『综合分析这个数据集』。")
-
-        response_text = "\n".join(lines)
-        self.memory.working_memory.add_message("assistant", response_text)
-        thinking_steps.append({"step": "DatasetInfo", "content": f"{adata.n_obs} cells, {adata.n_vars} genes"})
-        return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
-
-    def _chat_targeted(self, message: str, thinking_steps: list) -> dict:
-        """Targeted query about specific genes or cell type."""
-        import re
-        self.state_manager.set_state(AgentState.RETRIEVING)
-
-        genes_to_query: list = []
-        cell_type_context: str = ""
-        # Top-N for targeted queries: use user-configured value, default 20
-        _n_targeted = int(self.adata.uns.get("e2sc_n_top_genes", 50)) if self.adata is not None else 10
-        # Cap at a reasonable maximum for live API queries to avoid timeouts
-        _n_targeted = min(_n_targeted, 40)
-
-        # ── If comprehensive knowledge already cached, skip ALL API queries ──
-        # Any follow-up question (继续, explain, compare, 靶点, 互作, etc.) is answered
-        # from the session's cached knowledge + vector store. No redundant network calls.
-        _comp_cache = self.memory.working_memory.current_context.get("comprehensive_knowledge")
-        _gene_matrix = self.memory.working_memory.current_context.get("gene_matrix")
-        if _comp_cache is not None and self.adata is not None:
-            import pandas as pd
-            # Merge all cached knowledge into a unified dict
-            _ct_know  = _comp_cache.get("ct_knowledge", {})
-            _grp_know = _comp_cache.get("grp_knowledge", {})
-            _all_gene_info = {}
-            _all_pubmed = []
-            _all_epmc = []
-            _seen_pmids: set = set()
-            for _kb in list(_ct_know.values()) + list(_grp_know.values()):
-                _all_gene_info.update(_kb.get("genes", {}))
-                for _a in _kb.get("pubmed", []):
-                    if _a.get("pmid") not in _seen_pmids:
-                        _seen_pmids.add(_a.get("pmid"))
-                        _all_pubmed.append(_a)
-                for _a in _kb.get("europepmc", []):
-                    if _a.get("pmid") not in _seen_pmids:
-                        _seen_pmids.add(_a.get("pmid"))
-                        _all_epmc.append(_a)
-            _cached_knowledge: dict = {
-                "genes": _all_gene_info,
-                "pubmed": _all_pubmed,
-                "europepmc": _all_epmc,
-            }
-            # Inject vector-store RAG context (highest priority evidence)
-            if self._vector_store is not None and self._vector_store.count() > 0:
-                try:
-                    _rag_ctx = self._vector_store.retrieve_context(message, n_results=12)
-                    if _rag_ctx:
-                        _cached_knowledge["rag_context"] = _rag_ctx
-                        thinking_steps.append({"step": "RAG", "content": f"Vector store ({self._vector_store.count()} docs); top-12 chunks retrieved for follow-up"})
-                        logger.info(f"[进度] [RAG跟进] 向量检索完成: {self._vector_store.count()} 文档")
-                except Exception as _rag_e:
-                    logger.warning(f"RAG retrieval skipped: {_rag_e}")
-            _all_genes = list(_all_gene_info.keys())[:40]
-            _fake_results = {
-                "deg": {"results": pd.DataFrame({"names": _all_genes}), "params": {}},
-                "plots": [],
-                "matrix_context": {
-                    "cell_type_focus": "all cell types and disease phenotypes",
-                    "genes_queried": _all_genes,
-                    "top_genes_per_celltype": _gene_matrix.get("top_genes_per_celltype", {}) if _gene_matrix else {},
-                    "top_genes_per_group": _gene_matrix.get("top_genes_per_group", {}) if _gene_matrix else {},
-                }
-            }
-            logger.info(f"[进度] 使用缓存知识回答后续问题，跳过API查询 ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles)")
-            thinking_steps.append({"step": "CacheReuse", "content": f"Answering from cached knowledge ({len(_all_gene_info)} genes, {len(_all_pubmed)} articles) + RAG vector store"})
-            # NOTE: cross_gene_analysis is NOT injected here — let question type drive synthesis style
-            # The synthesizer's _build_system_message detects question type and adds module rules only when appropriate
-            _output_mode = str(self.adata.uns.get("e2sc_output_mode", "detailed")) if self.adata is not None else "detailed"
-            _history = self.memory.get_conversation_history()
-            _success, _response, _error = self.error_recovery.execute_with_retry(
-                self.synthesizer.synthesize,
-                message, _fake_results, _cached_knowledge, _history,
-                error_context="synthesize_cached_targeted",
-                is_comprehensive=False,
-                output_mode=_output_mode,
-            )
-            if not _success:
-                _response = {"text": f"合成失败: {_error}", "plots": [], "data": {}}
-            if not isinstance(_response, dict):
-                _response = {"text": str(_response), "plots": [], "data": {}}
-            _response["thinking"] = thinking_steps
-            self.memory.working_memory.add_message("assistant", _response.get("text", ""))
-            self.memory.save_current_session(success=True)
-            self.state_manager.set_state(AgentState.COMPLETED)
-            return _response
-
-        # ── No data uploaded: pure conversational mode ──────────────────────
-        if self.adata is None:
-            history = self.memory.get_conversation_history()
-            messages = [{"role": "system", "content": (
-                "你是单细胞转录组学和肠道免疫学专家。"
-                "当前用户尚未上传数据集，请基于对话历史和你的专业知识进行回答。"
-                "如果用户的问题涉及具体数据分析，请提示他们上传 .h5ad 文件。"
-            )}]
-            for h in (history or [])[-12:]:
-                role = h.get("role", "")
-                content = h.get("content", "")
-                if role in ("user", "assistant") and content:
-                    messages.append({"role": role, "content": content})
-            messages.append({"role": "user", "content": message})
-            try:
-                response_text = self.llm.chat(messages)
-            except Exception as e:
-                response_text = f"LLM 调用失败: {e}"
-            self.memory.working_memory.add_message("assistant", response_text)
-            thinking_steps.append({"step": "ConversationalMode", "content": "No data, LLM context chat"})
-            return {"text": response_text, "plots": [], "data": {}, "thinking": thinking_steps}
-        # ────────────────────────────────────────────────────────────────────
-
-        if self.adata is not None and self.scanpy_tools is not None:
-            try:
-                cached = self.memory.working_memory.current_context.get("gene_matrix")
-                if cached is None:
-                    ct_col = self.adata.uns.get("e2sc_celltype_col", None)
-                    cached = self.scanpy_tools.get_top_genes_matrix(n_top_genes=_n_targeted, celltype_col=ct_col)
-                    self.memory.working_memory.update_context("gene_matrix", cached)
-                ct_map = cached.get("top_genes_per_celltype", {})
-                for ct in cached.get("cell_types", []):
-                    if ct.lower() in message.lower():
-                        cell_type_context = ct
-                        genes_to_query = ct_map.get(ct, [])[:_n_targeted]
-                        break
-                if not genes_to_query:
-                    genes_to_query = cached.get("all_top_genes", [])[:_n_targeted]
-            except Exception as e:
-                logger.warning(f"Matrix extraction failed: {e}")
-
-        inline_genes = re.findall(r'\b[A-Z][A-Z0-9]{1,9}\b', message)
-        if inline_genes:
-            genes_to_query = list(dict.fromkeys(inline_genes + genes_to_query))[:_n_targeted]
-        elif not inline_genes and not cell_type_context:
-            # No explicit genes in message.
-            # Priority 1: recover from gene_matrix cache (exact dataset genes, no noise)
-            if not genes_to_query:
-                _cached_gm = self.memory.working_memory.current_context.get("gene_matrix")
-                if _cached_gm:
-                    _last_genes = _cached_gm.get("last_queried_genes") or _cached_gm.get("all_top_genes", [])
-                    if _last_genes:
-                        genes_to_query = list(_last_genes)[:_n_targeted]
-                        logger.info(f"[进度] Recovered {len(genes_to_query)} genes from gene_matrix cache")
-            # Priority 2: fall back to conversation history only if cache empty
-            if not genes_to_query:
-                history = self.memory.get_conversation_history() or []
-                _stopwords = {"UC","CD","HC","IBD","GO","NK","LLM","API","DNA","RNA","OK","ID","OR","AND","IN","THE","FOR","OF","TO","BY","AT","IS","IT","BE","AS","STRING","HMDB","TRRUST","GUTMGENE","CHEMBL","UNIPROT","MYGENE","ENSEMBL","QUICKGO","PUBMED","EUROPEPMC","TIME","IBD","IEL","IGA","IGG","IGA1","IGA2"}
-                for past in reversed(history[-4:]):
-                    past_content = past.get("content", "")
-                    if past.get("role") != "user":  # skip assistant output -- full of API names
-                        continue
-                    past_genes = re.findall(r'\b[A-Z][A-Z0-9]{1,9}\b', past_content)
-                    past_genes = [g for g in past_genes if g not in _stopwords and len(g) >= 3]
-                    if len(past_genes) >= 3:
-                        genes_to_query = list(dict.fromkeys(past_genes + genes_to_query))[:_n_targeted]
-                        logger.info(f"[进度] Recovered {len(past_genes)} genes from user history")
-                        break
-
-        # ------------------------------------------------------------------ #
-        # Online RAG / cache phase: prioritize cache over live API calls.
-        # Comprehensive KB cache provides 15+ API sources for all dataset genes.
-        # Only query live APIs if NO cache exists (first-time analysis).
-        # ------------------------------------------------------------------ #
-        import pandas as pd
-        _comp_cache2 = self.memory.working_memory.current_context.get("comprehensive_knowledge")
-        _vs_ready = (self._vector_store is not None and self._vector_store.count() > 0)
-
-        if _comp_cache2:
-            # Always prefer comprehensive cache over live API calls (fast, no network)
-            _all_gene_info = {}
-            _all_pubmed = []
-            _all_epmc = []
-            for _kb in list(_comp_cache2.get("ct_knowledge",{}).values()) + list(_comp_cache2.get("grp_knowledge",{}).values()):
-                _all_gene_info.update(_kb.get("genes", {}))
-                _all_pubmed.extend(_kb.get("pubmed", []))
-                _all_epmc.extend(_kb.get("europepmc", []))
-            knowledge = {"genes": _all_gene_info, "pubmed": _all_pubmed, "europepmc": _all_epmc}
-            if _vs_ready:
-                try:
-                    knowledge["rag_context"] = self._vector_store.retrieve_context(message, n_results=10)
-                except Exception:
-                    pass
-            thinking_steps.append({"step": "CacheReuse", "content": f"Using cached knowledge ({len(_all_gene_info)} genes) — no live API calls"})
-            logger.info(f"[进度] [快速模式] 使用缓存知识回答 ({len(_all_gene_info)} genes, {len(_all_pubmed)} PM articles)")
-        elif _vs_ready:
-            # Vector store ready but no comprehensive cache: use vector search
-            rag_context = self._vector_store.retrieve_context(message, n_results=10)
-            knowledge = {"genes": {}, "pubmed": [], "europepmc": [], "rag_context": rag_context}
-            thinking_steps.append({"step": "RAG", "content": f"Vector store ready ({self._vector_store.count()} docs); top-10 chunks retrieved"})
-            logger.info(f"[进度] [在线 RAG] 向量库检索完成: {self._vector_store.count()} 文档")
-        else:
-            # Vector store not ready AND no comprehensive cache: last resort is live API query
-            _e_apis = set(self.adata.uns.get("e2sc_enabled_apis",["uniprot","mygene","quickgo","ensembl","chembl","pubmed","europepmc","reactome","gtex","humanbase","gwas","biogrid","civic","alliance","opentargets","clinvar"])) if self.adata is not None else None
-            _e_dbs  = set(self.adata.uns.get("e2sc_enabled_dbs", ["string","hmdb","trrust","gutmgene"])) if self.adata is not None else None
-            knowledge = self._build_group_knowledge(
-                cell_type_context or "targeted",
-                genes_to_query,
-                context_hint=cell_type_context,
-                enabled_apis=_e_apis,
-                enabled_dbs=_e_dbs,
-            )
-            thinking_steps.append({"step": "LiveAPI", "content": f"Vector store not ready; queried {len(genes_to_query)} genes live"})
-        # Store queried genes in cache so follow-up turns recover the same gene set
-        if genes_to_query:
-            _gm_cache = self.memory.working_memory.current_context.get("gene_matrix") or {}
-            _gm_cache["last_queried_genes"] = genes_to_query
-            self.memory.working_memory.update_context("gene_matrix", _gm_cache)
-        pubmed_results = knowledge.get("pubmed", [])
-        thinking_steps.append({"step": "Knowledge", "content": f"{len(knowledge.get('genes', {}))} genes annotated, {len(pubmed_results)} articles"})
-
-        # RAG retrieval: embed user question and retrieve top-k chunks from session vector store
-        # Only if rag_context not already injected from cache branch above
-        if self._vector_store is not None and not knowledge.get("rag_context"):
-            try:
-                rag_context = self._vector_store.retrieve_context(message, n_results=8)
-                if rag_context:
-                    knowledge["rag_context"] = rag_context
-                    thinking_steps.append({"step": "RAG", "content": f"Retrieved {self._vector_store.count()} docs; top-8 chunks injected"})
-                    logger.info(f"[进度] RAG检索完成: {self._vector_store.count()} 文档库，注入上下文")
-            except Exception as _rag_e:
-                logger.warning(f"RAG retrieval skipped: {_rag_e}")
-
-        # Format knowledge for synthesizer
-        fake_results = {
-            "deg": {"results": pd.DataFrame({"names": genes_to_query}), "params": {}},
-            "plots": [],
-        }
-        if cell_type_context:
-            fake_results["matrix_context"] = {
-                "cell_type_focus": cell_type_context,
-                "genes_queried": genes_to_query,
-                "top_genes_per_celltype": {cell_type_context: genes_to_query}
-            }
-
-        # Inject cross-gene network analysis for coherent module-level synthesis
-        cross_gene = self._build_cross_gene_analysis(knowledge)
-        if cross_gene and cross_gene.get("modules"):
-            knowledge["cross_gene_analysis"] = cross_gene
-        # P0/P1: token-aware history + P3: cross-session context
-        history = self.memory.get_conversation_history_for_llm(max_messages=20, max_total_chars=8000)
-        mem_ctx = self.memory.get_relevant_context(message)
-        knowledge["cross_session_context"] = mem_ctx
-        self.state_manager.set_state(AgentState.SYNTHESIZING)
-        success, response, error = self.error_recovery.execute_with_retry(
-            self.synthesizer.synthesize,
-            message, fake_results, knowledge, history,
-            error_context="synthesize_response",
-            is_comprehensive=False,
-        )
-        if not success:
-            response = {"text": f"合成失败: {error}", "plots": [], "data": {}}
-
-        if not isinstance(response, dict):
-            response = {"text": str(response), "plots": [], "data": {}}
-        response["thinking"] = thinking_steps
-        self.memory.working_memory.add_message("assistant", response.get("text", ""))
-        self.memory.save_current_session(success=True)
-        self.state_manager.set_state(AgentState.COMPLETED)
-        return response
-
-    
-    def _chat_complete(self, message: str) -> Dict[str, Any]:
-        """Complete chat response with full optimization and error recovery."""
-        
-        # Create checkpoint before starting
-        checkpoint_name = self.state_manager.create_checkpoint(f"before_{datetime.now().strftime('%H%M%S')}")
-        
-        try:
-            # STATE: Planning
-            self.state_manager.set_state(AgentState.PLANNING)
-            
-            # Get dataset info with error recovery
-            success, dataset_info, error = self.error_recovery.execute_with_retry(
-                self.scanpy_tools.get_dataset_info,
-                error_context="get_dataset_info"
-            )
-            if not success:
-                raise Exception(f"Failed to get dataset info: {error}")
-            
-            # Get relevant context from memory
-            context = self.memory.get_relevant_context(message)
-            logger.info(f"Retrieved {len(context.get('similar_sessions', []))} similar sessions from memory")
-            
-            # Update working memory
-            self.memory.working_memory.update_context("dataset", dataset_info)
-            
-            # Create plan with enhanced planner
-            plan = self.planner.create_plan(message, dataset_info)
-            
-            thinking_steps = [
-                {"step": "Planning", "content": f"Created {len(plan.get('steps', []))} analysis steps"},
-                {"step": "Memory", "content": f"Found {len(context.get('similar_sessions', []))} similar past analyses"}
-            ]
-            
-            # Store plan in memory and state
-            self.memory.working_memory.store_intermediate_result("plan", plan)
-            self.state_manager.update_context({"current_plan": plan})
-            
-            # STATE: Executing
-            self.state_manager.set_state(AgentState.EXECUTING)
-            
-            # Execute analysis with error recovery
-            success, results, error = self.error_recovery.execute_with_retry(
-                self._execute_plan,
-                plan,
-                error_context="execute_plan"
-            )
-            if not success:
-                raise Exception(f"Failed to execute plan: {error}")
-            
-            thinking_steps.append({"step": "Execution", "content": "Completed analysis"})
-            
-            # Store results
-            self.memory.working_memory.store_intermediate_result("results", results)
-            
-            # STATE: Retrieving
-            self.state_manager.set_state(AgentState.RETRIEVING)
-            
-            # Retrieve knowledge with error recovery
-            success, knowledge, error = self.error_recovery.execute_with_retry(
-                self.retriever.retrieve,
-                message,
-                results,
-                error_context="retrieve_knowledge"
-            )
-            if not success:
-                logger.warning(f"Knowledge retrieval failed: {error}")
-                knowledge = {"genes": {}, "similar_cases": [], "retrieval_stats": {}}
-            
-            retrieval_stats = knowledge.get("retrieval_stats", {})
-            thinking_steps.append({
-                "step": "Retrieval", 
-                "content": f"Retrieved info for {retrieval_stats.get('genes_with_info', 0)}/{retrieval_stats.get('genes_queried', 0)} genes. Vector DB: {'[OK]' if retrieval_stats.get('vector_db_success') else '[FAIL]'}"
-            })
-            
-            # STATE: Synthesizing
-            self.state_manager.set_state(AgentState.SYNTHESIZING)
-
-            # Inject cross-gene network analysis for coherent module-level synthesis
-            cross_gene = self._build_cross_gene_analysis(knowledge)
-            if cross_gene and cross_gene.get("modules"):
-                knowledge["cross_gene_analysis"] = cross_gene
-
-            # Synthesize with error recovery
-            success, response, error = self.error_recovery.execute_with_retry(
-                self.synthesizer.synthesize,
-                message,
-                results,
-                knowledge,
-                self.memory.get_conversation_history(),
-                error_context="synthesize_response"
-            )
-            if not success:
-                raise Exception(f"Failed to synthesize response: {error}")
-            
-            response["thinking"] = thinking_steps
-            
-            # Validate response grounding
-            if not knowledge.get("genes") and not knowledge.get("similar_cases"):
-                logger.warning("No knowledge retrieved - response may lack grounding")
-                response["warning"] = "知识库检索结果有限，回答可能不够全面"
-            
-            # Update memory
-            self.memory.add_interaction("", response["text"], {
-                "timestamp": datetime.now().isoformat(),
-                "retrieval_stats": retrieval_stats,
-                "analysis_type": plan.get("analysis_type", "unknown")
-            })
-            
-            # Auto-save to vector database
-            if results and not results.get("error"):
-                self._save_to_vector_db(message, plan, results)
-            
-            # Save session to long-term memory
-            self.memory.save_current_session(success=True)
-            
-            # STATE: Completed
-            self.state_manager.set_state(AgentState.COMPLETED)
-            
-            # Add error recovery stats to response
-            response["error_recovery_stats"] = self.error_recovery.get_error_summary()
-
-            # Append a basic source coverage note for _chat_complete (uses retriever, not _build_group_knowledge)
-            _rs = knowledge.get("retrieval_stats", {})
-            _gs = len(knowledge.get("genes", {}))
-            _pm = len(knowledge.get("pubmed", []))
-            _em = len(knowledge.get("europepmc", []))
-            _sc_note = (
-                f"\n\n---\n**数据来源统计 | Data Source Coverage**\n"
-                f"基因检索 (Genes retrieved): {_gs}/{_rs.get('genes_queried', _gs)}\n"
-                f"文献 (Literature): PubMed {_pm} 篇 + Europe PMC {_em} 篇\n"
-                f"---\n"
-            )
-            response["text"] = response.get("text", "") + _sc_note
-
-            return response
-            
-        except Exception as e:
-            logger.error(f"Critical error: {e}", exc_info=True)
-            
-            # STATE: Error
-            self.state_manager.set_state(AgentState.ERROR)
-            
-            # Save failed session
-            self.memory.save_current_session(success=False, error=str(e))
-            
-            # Offer to restore from checkpoint
-            logger.info(f"Checkpoint available for recovery: {checkpoint_name}")
-            
-            return {
-                "text": f"Error: {str(e)}",
-                "plots": [],
-                "data": {},
-                "thinking": [{"step": "Error", "content": str(e)}],
-                "checkpoint": checkpoint_name,
-                "error_recovery_stats": self.error_recovery.get_error_summary()
-            }
-    
-    def _save_to_vector_db(self, message: str, plan: Dict, results: Dict) -> None:
-        """Save successful analysis to vector database (no-op: case storage not implemented)."""
-        try:
-            # VectorStore does not expose add_case; knowledge base is built via
-            # build_knowledge_base() / reset_and_build().  Skip silently.
-            logger.warning("_save_to_vector_db: skipped (add_case not available)")
-        except Exception as e:
-            logger.warning(f"Failed to save case to vector database: {e}")
-    
-    def _chat_stream(self, message: str) -> Generator[Dict[str, Any], None, None]:
-        """Stream chat response with full optimization."""
-        try:
-            self.state_manager.set_state(AgentState.PLANNING)
-            yield {"type": "thinking", "content": "Planning analysis..."}
-            
-            dataset_info = self.scanpy_tools.get_dataset_info()
-            context = self.memory.get_relevant_context(message)
-            
-            plan = self.planner.create_plan(message, dataset_info)
-            yield {"type": "thinking", "content": f"Created plan with {len(plan.get('steps', []))} steps"}
-            
-            if context.get("similar_sessions"):
-                yield {"type": "thinking", "content": f"Found {len(context['similar_sessions'])} similar past analyses"}
-            
-            self.state_manager.set_state(AgentState.EXECUTING)
-            yield {"type": "thinking", "content": "Executing analysis..."}
-            results = self._execute_plan(plan)
-            
-            self.state_manager.set_state(AgentState.RETRIEVING)
-            yield {"type": "thinking", "content": "Retrieving knowledge..."}
-            knowledge = self.retriever.retrieve(message, results)
-            
-            retrieval_stats = knowledge.get("retrieval_stats", {})
-            yield {"type": "thinking", "content": f"Retrieved {retrieval_stats.get('genes_with_info', 0)} genes"}
-            
-            self.state_manager.set_state(AgentState.SYNTHESIZING)
-            yield {"type": "thinking", "content": "Synthesizing response..."}
-            
-            # Stream text from LLM
-            messages = [
-                {"role": "system", "content": "You are an expert in single-cell analysis."},
-                {"role": "user", "content": self._build_prompt(message, results, knowledge)}
-            ]
-            
-            full_text = ""
-            for chunk in self.llm.stream_chat(messages):
-                full_text += chunk
-                yield {"type": "text", "content": chunk}
-            
-            # Update memory
-            self.memory.add_interaction("", full_text, {"timestamp": datetime.now().isoformat()})
-            
-            # Save to vector DB
-            if results and not results.get("error"):
-                self._save_to_vector_db(message, plan, results)
-            
-            # Send plots
-            if results.get("plots"):
-                yield {"type": "plots", "content": results["plots"]}
-            
-            yield {"type": "data", "content": results.get("data", {})}
-            
-            # Save session
-            self.memory.save_current_session(success=True)
-            self.state_manager.set_state(AgentState.COMPLETED)
-            
-        except Exception as e:
-            logger.error(f"Streaming error: {e}", exc_info=True)
-            self.memory.save_current_session(success=False, error=str(e))
-            self.state_manager.set_state(AgentState.ERROR)
-            yield {"type": "error", "content": str(e)}
-    
-    def _build_prompt(self, message: str, results: Dict, knowledge: Dict) -> str:
-        """Build prompt for synthesis."""
-        from e2sc.llm import SYNTHESIZER_PROMPT
-        
-        results_summary = self.synthesizer._format_results(results)
-        knowledge_summary = self.synthesizer._format_knowledge(knowledge)
-        similar_cases = self.synthesizer._format_similar_cases(knowledge.get("similar_cases", []))
-        
-        return SYNTHESIZER_PROMPT.format(
-            question=message,
-            results=results_summary,
-            knowledge=knowledge_summary,
-            similar_cases=similar_cases
-        )
-    
-    def _execute_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute analysis plan with state tracking."""
-        results = {
-            "deg": None,
-            "enrichment": None,
-            "network": None,
-            "plots": [],
-            "statistics": {}
-        }
-        
-        for step in plan.get("steps", []):
-            action = step.get("action", "")
-            params = step.get("params", {})
-            
-            # Add task to state manager
-            self.state_manager.add_task(step)
-            task_id = step.get("task_id", f"task_{action}")
-            
-            try:
-                if "differential" in action.lower() or "deg" in action.lower():
-                    results["deg"] = self._run_deg_analysis(params)
-                    self.state_manager.update_task_status(task_id, "completed", result=results["deg"])
-                elif "enrichment" in action.lower():
-                    results["enrichment"] = self._run_enrichment_analysis(params, results.get("deg"))
-                    self.state_manager.update_task_status(task_id, "completed", result=results["enrichment"])
-                elif "network" in action.lower():
-                    results["network"] = self._run_network_analysis(params, results.get("deg"))
-                    self.state_manager.update_task_status(task_id, "completed", result=results["network"])
-                elif "visualize" in action.lower():
-                    plots = self._create_visualizations(params, results)
-                    results["plots"].extend(plots)
-                    self.state_manager.update_task_status(task_id, "completed", result=plots)
-            except Exception as e:
-                logger.error(f"Error in step {action}: {e}")
-                self.state_manager.update_task_status(task_id, "failed", error=str(e))
-        
-        return results
-    
-    def _run_deg_analysis(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Run differential expression analysis."""
-        cell_type = params.get("cell_type")
-        if cell_type:
-            deg_results = self.scanpy_tools.find_marker_genes(cell_type)
-        else:
-            group1 = params.get("group1")
-            group2 = params.get("group2")
-            deg_results = self.scanpy_tools.differential_expression(group1, group2)
-        return {"results": deg_results, "params": params}
-    
-    def _run_enrichment_analysis(self, params: Dict[str, Any], deg_data: Optional[Dict]) -> Dict[str, Any]:
-        """Run enrichment analysis."""
-        if deg_data:
-            gene_list = deg_data["results"]["names"].head(200).tolist()
-        else:
-            gene_list = params.get("genes", [])
-        
-        analysis_type = params.get("type", "go")
-        if analysis_type == "go":
-            results = self.enrichment.go_enrichment(gene_list)
-        elif analysis_type == "kegg":
-            results = self.enrichment.kegg_enrichment(gene_list)
-        else:
-            results = self.enrichment.enrichr_analysis(gene_list)
-        
-        return {"results": results, "gene_list": gene_list}
-    
-    def _run_network_analysis(self, params: Dict[str, Any], deg_data: Optional[Dict]) -> Dict[str, Any]:
-        """Run network analysis."""
-        if deg_data:
-            genes = deg_data["results"]["names"].head(100).tolist()
-        else:
-            genes = params.get("genes", [])
-        
-        G = self.network.build_ppi_network(genes)
-        hubs = self.network.identify_hub_genes(G, top_n=10)
-        stats = self.network.get_network_statistics(G)
-        
-        return {"graph": G, "hubs": hubs, "statistics": stats, "genes": genes}
-    
-    def _create_visualizations(self, params: Dict[str, Any], results: Dict[str, Any]) -> List[Any]:
-        """Create visualizations."""
-        plots = []
-        
-        if params.get("umap", True):
-            try:
-                fig = self.visualizer.plot_umap(self.adata)
-                plots.append(("umap", fig))
-            except Exception as e:
-                logger.warning(f"UMAP plot failed: {e}")
-        
-        if results.get("deg") and params.get("volcano", True):
-            try:
-                fig = self.visualizer.plot_volcano(results["deg"]["results"])
-                plots.append(("volcano", fig))
-            except Exception as e:
-                logger.warning(f"Volcano plot failed: {e}")
-        
-        if results.get("enrichment") and params.get("enrichment", True):
-            try:
-                enr_results = results["enrichment"]["results"]
-                if isinstance(enr_results, dict):
-                    enr_results = list(enr_results.values())[0]
-                fig = self.visualizer.plot_enrichment(enr_results)
-                plots.append(("enrichment", fig))
-            except Exception as e:
-                logger.warning(f"Enrichment plot failed: {e}")
-        
-        if results.get("network") and params.get("network", True):
-            try:
-                hub_genes = [h[0] for h in results["network"]["hubs"]]
-                fig = self.visualizer.plot_network(results["network"]["graph"], hub_genes)
-                plots.append(("network", fig))
-            except Exception as e:
-                logger.warning(f"Network plot failed: {e}")
-        
-        return plots
-    
-    def get_history(self) -> List[Dict[str, str]]:
-        """Get conversation history from memory system."""
-        return self.memory.working_memory.conversation_history
-    
-    def _chat_with_agent_executor(self, message: str) -> Dict[str, Any]:
-        """Chat using autonomous agent mode where AI decides which tools to call."""
-        try:
-            logger.info("Using Agent Executor mode (autonomous tool calling)")
-            
-            # Get context from memory
-            context = self.memory.get_relevant_context(message)
-            
-            # Execute agent
-            agent_result = self.agent_executor.execute(message, context)
-            
-            if not agent_result["success"]:
-                raise Exception(agent_result.get("error", "Agent execution failed"))
-            
-            # Format response
-            response = {
-                "text": agent_result["answer"],
-                "plots": [],
-                "data": {
-                    "tools_used": agent_result["tools_used"],
-                    "intermediate_steps": agent_result["intermediate_steps"]
-                },
-                "thinking": [
-                    {"step": "Agent Mode", "content": f"AI autonomously called {len(agent_result['tools_used'])} tools"},
-                    {"step": "Tools Used", "content": ", ".join(agent_result["tools_used"])}
-                ],
-                "agent_mode": True
-            }
-            
-            # Update memory
-            self.memory.add_interaction("", response["text"], {
-                "timestamp": datetime.now().isoformat(),
-                "agent_mode": True,
-                "tools_used": agent_result["tools_used"]
-            })
-            
-            # Save session
-            self.memory.save_current_session(success=True)
-            self.state_manager.set_state(AgentState.COMPLETED)
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Agent executor error: {e}")
-            self.state_manager.set_state(AgentState.ERROR)
-            return {
-                "text": f"Agent mode error: {str(e)}. Falling back to standard mode.",
-                "plots": [],
-                "data": {},
-                "thinking": [{"step": "Error", "content": str(e)}],
-                "agent_mode": False
-            }
-
     def _merge_source_stats(self, accum: dict, new_kb: dict) -> None:
         """Merge _source_stats from a refinement KB round into the accumulated knowledge dict."""
         ns = new_kb.get("_source_stats", {})
@@ -3560,17 +2436,3 @@ class E2scAgentOptimized:
         """List available checkpoints."""
         return self.state_manager.list_checkpoints()
     
-    def __del__(self):
-        """Cleanup: ensure database connections are closed."""
-        try:
-            if hasattr(self, 'string_db'):
-                self.string_db.close()
-            if hasattr(self, 'hmdb_db'):
-                self.hmdb_db.close()
-            if hasattr(self, 'trrust_db'):
-                self.trrust_db.close()
-            if hasattr(self, 'gutmgene_db'):
-                self.gutmgene_db.close()
-        except Exception as e:
-            logger.warning(f"Cleanup error: {e}")
-
