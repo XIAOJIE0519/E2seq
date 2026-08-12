@@ -1,0 +1,5 @@
+include README.md README_CN.md pyproject.toml .env.example
+recursive-include e2seq/web/static *
+recursive-include e2seq/web/templates *
+recursive-include api *.py
+recursive-include database *.csv *.db

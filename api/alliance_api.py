@@ -17,25 +17,34 @@ class AllianceAPI:
 
     def search_cross_species(self, query: str) -> Dict[str, Any]:
         """跨物种搜索"""
+        from e2seq.data.knowledge_sources import KnowledgeSourceClient
+        verified = KnowledgeSourceClient(timeout=20).query("alliance", query, max_results=50)
+        return {
+            "status": "success" if verified.get("status") == "ok" else verified.get("status", "error"),
+            "query": query,
+            "total": verified.get("count", 0),
+            "results": verified.get("records", []),
+            "error": verified.get("error", ""),
+        }
         try:
             url = f"{self.base_url}/search"
             params = {"q": query}
-            
+
             response = requests.get(
-                url, 
-                params=params, 
+                url,
+                params=params,
                 headers=self.headers,
                 timeout=30
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 results = []
-                
+
                 # 处理不同格式的响应
                 raw_results = data if isinstance(data, dict) else {}
                 hits = raw_results.get("results", []) if isinstance(raw_results, dict) else raw_results if isinstance(raw_results, list) else []
-                
+
                 for hit in hits[:50]:
                     if not isinstance(hit, dict):
                         continue
@@ -46,14 +55,14 @@ class AllianceAPI:
                         "category": hit.get("category", ""),
                         "species": hit.get("species", {}).get("name", "") if isinstance(hit.get("species"), dict) else str(hit.get("species", "")),
                     })
-                
+
                 return {
                     "status": "success",
                     "query": query,
                     "total": len(results),
                     "results": results
                 }
-            
+
             return {"status": "error", "error": f"HTTP {response.status_code}"}
 
         except Exception as e:
@@ -61,6 +70,19 @@ class AllianceAPI:
 
     def get_homologs(self, gene: str, species: str = "human") -> Dict[str, Any]:
         """获取基因的同源基因"""
+        from e2seq.data.knowledge_sources import KnowledgeSourceClient
+        verified = KnowledgeSourceClient(timeout=20).query("alliance", gene, max_results=50)
+        records = [
+            record for record in (verified.get("records", []) or [])
+            if species.lower() == "human" or str(record.get("species", "")).lower() == species.lower()
+        ]
+        return {
+            "status": "success" if verified.get("status") == "ok" else verified.get("status", "error"),
+            "gene": gene,
+            "total": len(records),
+            "homologs": records,
+            "error": verified.get("error", ""),
+        }
         try:
             # 先搜索基因获取ID
             search_url = f"{self.base_url}/search"
@@ -69,33 +91,33 @@ class AllianceAPI:
                 "category": "gene",
             }
             search_response = requests.get(
-                search_url, 
-                params=search_params, 
+                search_url,
+                params=search_params,
                 headers=self.headers,
                 timeout=30
             )
-            
+
             homologs = []
-            
+
             if search_response.status_code == 200:
                 search_data = search_response.json()
                 hits = search_data.get("results", []) if isinstance(search_data, dict) else search_data if isinstance(search_data, list) else []
-                
+
                 if hits:
                     gene_id = hits[0].get("id", "") if isinstance(hits[0], dict) else ""
-                    
+
                     # 获取同源基因
                     homolog_url = f"{self.base_url}/gene/{gene_id}/homologs"
                     homolog_response = requests.get(
-                        homolog_url, 
+                        homolog_url,
                         headers=self.headers,
                         timeout=30
                     )
-                    
+
                     if homolog_response.status_code == 200:
                         homolog_data = homolog_response.json()
                         homologs_raw = homolog_data if isinstance(homolog_data, list) else homolog_data.get("results", []) if isinstance(homolog_data, dict) else []
-                        
+
                         for h in homologs_raw[:20]:
                             if not isinstance(h, dict):
                                 continue
@@ -104,14 +126,14 @@ class AllianceAPI:
                                 "species": h.get("species", {}).get("name", "") if isinstance(h.get("species"), dict) else str(h.get("species", "")),
                                 "homology_type": h.get("homologyType", ""),
                             })
-                
+
                 return {
                     "status": "success",
                     "gene": gene,
                     "total": len(homologs),
                     "homologs": homologs
                 }
-            
+
             return {"status": "error", "error": f"HTTP {search_response.status_code}"}
 
         except Exception as e:
@@ -120,7 +142,7 @@ class AllianceAPI:
 
 if __name__ == "__main__":
     api = AllianceAPI()
-    
+
     print("=== 测试跨物种搜索 (BRCA1) ===")
     result = api.search_cross_species("BRCA1")
     print(f"Status: {result.get('status')}")

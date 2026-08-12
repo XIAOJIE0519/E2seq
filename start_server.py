@@ -1,15 +1,22 @@
-#!/usr/bin/env python3
-"""Launcher: starts uvicorn in-process (no subprocess/reload) so it stays alive."""
-import os, sys
-os.chdir(r"f:\1a-sc-agent")
-sys.path.insert(0, r"f:\1a-sc-agent")
+"""Portable compatibility launcher.
 
-import uvicorn
-uvicorn.run(
-    "e2sc.api.server:app",
-    host="0.0.0.0",
-    port=8000,
-    reload=False,
-    log_level="info",
-    access_log=False,
-)
+Use ``python start.py`` for the guided bilingual launcher.  This file remains
+for older shortcuts and forwards all arguments without assuming a drive,
+working directory, host, or port.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+os.chdir(PROJECT_ROOT)
+
+
+if __name__ == "__main__":
+    command = [sys.executable, str(PROJECT_ROOT / "start.py"), *sys.argv[1:]]
+    raise SystemExit(subprocess.call(command, cwd=PROJECT_ROOT))

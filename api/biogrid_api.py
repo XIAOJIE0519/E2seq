@@ -3,7 +3,7 @@ BioGRID API 调用模块
 提供实验验证的蛋白互作、遗传互作、化学互作和 PTM 数据
 API文档: https://wiki.thebiogrid.org/
 注意: BioGRID WebService 需要注册获取 accessKey，免费 Demo 用 "biological"
-      API Key 优先级: 参数 > 环境变量 E2SC_BIOGRID_API_KEY > 内置 key
+      API Key 优先级: 参数 > 环境变量 E2SEQ_BIOGRID_API_KEY > 内置 key
 """
 
 import os
@@ -14,12 +14,13 @@ from typing import Dict, Any, List, Optional
 class BioGRIDAPI:
     """BioGRID 数据库 API 接口"""
 
-    # 保留项目原 key 作为 fallback 默认值（用户可通过 E2SC_BIOGRID_API_KEY 替换）
-    _DEFAULT_KEY = "1647cceb86ebd3fb64caf6e20048e6bc"
+    # BioGRID requires a user-specific access key.  Never ship a placeholder
+    # key: a 401 must be reported as configuration, not as zero interactions.
+    _DEFAULT_KEY = ""
 
     def __init__(self, api_key: Optional[str] = None):
         self.base_url = "https://webservice.thebiogrid.org"
-        env_key = os.environ.get("E2SC_BIOGRID_API_KEY", "")
+        env_key = os.environ.get("E2SEQ_BIOGRID_API_KEY", "")
         if api_key is not None:
             self.api_key = api_key
         elif env_key:
@@ -34,9 +35,17 @@ class BioGRIDAPI:
         interactor_type: str = "all"
     ) -> Dict[str, Any]:
         """获取蛋白互作网络"""
+        if not self.api_key or self.api_key in {"biological", "demo", "1647cceb86ebd3fb64caf6e20048e6bc"}:
+            return {
+                "status": "needs_configuration",
+                "error": "BioGRID requires a valid user access key; no anonymous REST key is bundled.",
+                "genes": genes,
+                "total": 0,
+                "interactions": [],
+            }
         try:
             url = f"{self.base_url}/interactions"
-            
+
             params = {
                 "accessKey": self.api_key,
                 "geneList": "|".join(genes),
@@ -46,20 +55,20 @@ class BioGRIDAPI:
                 "interSpeciesExclusion": "false",
                 "showInteractors": "true"
             }
-            
+
             if interactor_type == "protein":
                 params["interactorType"] = "protein"
             elif interactor_type == "genetic":
                 params["interactorType"] = "genetic"
-            
+
             response = requests.get(url, params=params, timeout=60)
-            
+
             if response.status_code == 401:
                 return {
                     "status": "error",
                     "error": "BioGRID requires a valid API key. Register at: https://webservice.thebiogrid.org/support/api_keys"
                 }
-            
+
             if response.status_code == 200:
                 data = response.json()
 
@@ -83,14 +92,14 @@ class BioGRIDAPI:
                         "organism_b": hit.get("ORGANISM_B", ""),
                         "source_db": hit.get("SOURCEDB", ""),
                     })
-                
+
                 return {
                     "status": "success",
                     "genes": genes,
                     "total": len(interactions),
                     "interactions": interactions
                 }
-            
+
             return {"status": "error", "message": f"API returned status {response.status_code}"}
 
         except Exception as e:
@@ -115,7 +124,7 @@ class BioGRIDAPI:
 
 if __name__ == "__main__":
     api = BioGRIDAPI()
-    
+
     print("=== 测试蛋白互作 (TP53) ===")
     result = api.search_interactions_by_gene("TP53", max_results=10)
     print(f"Status: {result.get('status')}")

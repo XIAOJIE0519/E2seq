@@ -1,237 +1,34 @@
-# E2seq User Guide
+# E2seq quick guide / E2seq 简明教程
 
-## Introduction
+## What it is / 它是什么
 
-E2seq (Easy to Chat with Sequencing) interprets gene/value results from bulk and single-cell sequencing files. It uses Agent RAG (Retrieval-Augmented Generation) to retrieve biological evidence for genes already present in the uploaded file.
+E2seq is an Agent + RAG application for compatible expression-profile data. It accepts expression matrices, clinical variables, existing differential/prognostic tables, multi-group tables, and compatible single-cell files. / E2seq 是面向兼容表达谱数据的 Agent + RAG 应用，可载入表达矩阵、临床变量、已有差异/预后结果、多组结果表和兼容的单细胞文件。
 
-The default Agent does not calculate marker genes, DEGs, fold changes, p-values, enrichment, clustering, dimensionality reduction, networks, hubs, or modules.
+## Four steps / 四步使用
 
-## Core Concepts
+1. **Upload / 上传** — Choose expression-profile or single-cell data. Raw counts and clinical variables are read without filtering or normalization at upload time. / 选择表达谱或单细胞数据；原始 count 与临床变量上传时只读取结构，不过滤、不归一化。
+2. **Configure / 配置** — Select ID, sample, group, effect, significance, survival-time, event, and covariate columns. Choose DESeq2, edgeR, limma-voom, or a survival transform when raw modeling is requested. / 选择 ID、样本、分组、效应值、显著性、生存时间、事件和校正列；原始数据建模时选择 DESeq2、edgeR、limma-voom 或生存变换。
+3. **Filter / 筛选** — Modeling runs on the full valid input first. Then use the right panel to filter by FDR/P value, log2FC/HR/expression, direction, and the first N items. / 先对全部有效输入建模，再在右侧按 FDR/P 值、log2FC/HR/表达值、方向和前 N 项筛选。
+4. **Ask / 提问** — Ask any question after analysis is ready. The first question runs the selected-item GO/KEGG/GSEA/STRING batch where applicable and builds Agent RAG; later questions reuse the persisted evidence and may retrieve more relevant literature. / 分析完成后自由提问；第一次提问时对选定项目执行适用的 GO/KEGG/GSEA/STRING 批量分析并构建 Agent RAG，后续问题复用持久化证据，并可继续检索更相关文献。
 
-### Agentic Workflow
+## Data formats / 数据格式
 
-The default Web workflow is:
+- Expression tables / 表格: CSV, TSV, XLSX。
+- Raw count workflow / 原始 count 流程: one expression/count table plus one clinical-variable table. / 一份表达/count 表加一份临床变量表。
+- Existing results / 已有结果: one table with an expression-item ID and an effect/value column; P/FDR/group/direction columns are optional. / 一份包含表达项目 ID 和效应值/表达值的表；P/FDR/分组/方向列可选。
+- Single-cell: H5AD, CSV, RDS when the required reader is installed. / 单细胞：H5AD、CSV；安装相应读取器后可读 RDS。
 
-1. **Input context**: Read supplied genes, numeric values, groups, and cell-type labels
-2. **Planner**: Select only relevant genes from that input
-3. **Retriever**: Fetch database and literature evidence through Agent RAG
-4. **Synthesizer**: Return Markdown text that separates input values from external evidence
+Columns are user-selectable; no fixed file name or fixed column order is required. / 列均由用户选择，不要求固定文件名或固定列顺序。
 
-### Knowledge Integration
+## Agent RAG boundary / Agent RAG 边界
 
-E2sc integrates multiple data sources:
+The uploaded values remain the analysis result. External APIs, literature, local databases, custom gene-annotation files, and the local embedding index are evidence for interpretation; they do not silently replace uploaded statistics. / 上传值仍是分析结果；外部 API、文献、本地数据库、自定义基因注释文件和本地 Embedding 索引仅作为解读证据，不会静默替换上传统计量。
 
-- **Local Databases**: STRING, HMDB, TRRUST, GUTMGENE
-- **Online APIs**: UniProt, QuickGO, PubMed, MyGene
-- **Your Data**: Bulk or single-cell gene/value results
+The answer source panel controls which sources may be used for new answers. A dataset prompt is optional and belongs to that dataset, not to the global database settings. / 回答来源面板控制新回答可调用的来源；数据集提示词是可选的，属于具体数据，不属于全局数据库设置。
 
-## Usage Examples
+## Short troubleshooting / 常见排查
 
-### Example 1: Interpret an H5AD matrix
-
-```python
-from e2sc import E2scAgent
-import scanpy as sc
-
-# Load data
-adata = sc.read_h5ad('data.h5ad')
-
-# Create agent
-agent = E2scAgent(adata=adata)
-
-# Ask for interpretation of values already present in the file
-response = agent.chat("Interpret the uploaded gene values for Enterocytes")
-
-# View results
-print(response['text'])
-```
-
-### Example 2: Retrieve pathway annotations
-
-```python
-response = agent.chat("Retrieve GO and Reactome annotations for the supplied genes")
-print(response['text'])
-```
-
-### Example 3: Retrieve interaction evidence
-
-```python
-response = agent.chat("Explain known STRING/TRRUST evidence for these input genes")
-print(response['text'])
-```
-
-### Example 4: Comprehensive interpretation
-
-```python
-response = agent.chat(
-    "Comprehensively interpret the uploaded values for Enterocytes and Goblet cells"
-)
-
-# The Agent preserves input values, retrieves evidence, and returns text.
-# It does not run new statistical or network analysis.
-```
-
-## CLI Usage
-
-### Interactive Chat
-
-```bash
-$ e2sc chat --data data.h5ad
-
-E2sc> 解读 Enterocytes 中上传的基因数值
-
-[Retrieving evidence...]
-✓ Preserved the supplied gene values and labels
-✓ Retrieved gene annotations and literature evidence
-✓ Returned a source-backed text interpretation
-
-E2sc> 继续解释这些基因的 GO 与 Reactome 注释
-
-[Retrieving evidence...]
-✓ Returned external pathway annotations without enrichment computation
-```
-
-### Commands
-
-- `/load <file>` - Load new data file
-- `/help` - Show help
-- `/exit` - Exit chat
-
-## Web Interface
-
-### Starting the Server
-
-```bash
-python start.py
-```
-
-### Using the Interface
-
-1. **Configure LLM**: Enter your API key in the sidebar
-2. **Upload Data**: Upload your h5ad file
-3. **Ask Questions**: Type questions in the chat box
-4. **View Results**: Read the API/SSE-delivered Markdown interpretation
-
-### Features
-
-- 📝 Text-first responses grounded in uploaded values
-- 🔎 Source statistics for retrieved RAG evidence
-- 📝 Chat history
-- 🎨 Beautiful UI with gradient themes
-
-## Advanced Usage
-
-### Legacy Low-level Analysis Utilities
-
-The following APIs remain available for backward compatibility and explicit
-manual use. They are **not called by the default Web Agent**. Their results must
-not be presented as part of the interpretation-only workflow.
-
-```python
-from e2sc.tools import ScancpyTools, EnrichmentAnalyzer, NetworkAnalyzer
-
-# Manual control over analysis steps
-scanpy_tools = ScancpyTools(adata)
-enrichment = EnrichmentAnalyzer()
-network = NetworkAnalyzer()
-
-# Step 1: Find DEGs
-deg_results = scanpy_tools.find_marker_genes("Enterocytes", n_genes=100)
-
-# Step 2: Enrichment
-gene_list = deg_results['names'].tolist()
-go_results = enrichment.go_enrichment(gene_list)
-
-# Step 3: Network
-G = network.build_ppi_network(gene_list[:50])
-hubs = network.identify_hub_genes(G, top_n=10)
-```
-
-### Accessing Databases Directly
-
-```python
-from e2sc.data import STRINGDatabase, HMDBDatabase
-
-# Query STRING
-string_db = STRINGDatabase()
-interactions = string_db.get_interactions("APOB", min_score=0.7)
-
-# Query HMDB
-hmdb_db = HMDBDatabase()
-metabolites = hmdb_db.get_metabolites("APOB")
-```
-
-### Custom Visualizations
-
-```python
-from e2sc.tools import Visualizer
-
-viz = Visualizer()
-
-# Create custom plots
-fig = viz.plot_umap(adata, color_by="cell_type")
-fig.show()
-
-fig = viz.plot_volcano(deg_results)
-fig.write_html("my_volcano.html")
-```
-
-## Best Practices
-
-### 1. Data Preparation
-
-- Supply clear gene identifiers and numeric values
-- Keep group and cell-type labels in the file when they are relevant
-- Complete any desired QC or statistical analysis upstream; E2seq will not run it
-
-### 2. Question Formulation
-
-Good questions are:
-- Specific: "Interpret these supplied Enterocyte gene values"
-- Clear: "Explain the existing values for group A and group B"
-- Evidence-focused: "Retrieve pathway annotations for these input genes"
-
-Avoid vague questions like:
-- "Analyze my data"
-- "What's interesting here?"
-
-### 3. Iterative Analysis
-
-Use conversation history to build on previous results:
-
-```python
-agent.chat("Interpret the supplied Enterocyte gene values")
-agent.chat("Now retrieve pathway annotations for those same input genes")
-agent.chat("Explain the known interaction evidence without building a network")
-```
-
-### 4. Performance Tips
-
-- Subset large datasets before upload when appropriate
-- Use appropriate gene number thresholds
-- Cache results when possible
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue**: "No cell type column found"
-**Solution**: Ensure your adata.obs has a column named `cell_type` or `final_annotation`
-
-**Issue**: "API rate limit exceeded"
-**Solution**: Wait a moment and try again, or use local databases only
-
-**Issue**: "Out of memory"
-**Solution**: Subset your data or use a machine with more RAM
-
-### Getting Help
-
-- Check the [FAQ](faq.md)
-- Read [API Documentation](api_reference.md)
-- Open an issue on [GitHub](https://github.com/your-org/e2sc/issues)
-
-## Next Steps
-
-- Explore [Examples](examples.md)
-- Read [API Reference](api_reference.md)
-- Join our [Community](https://discord.gg/e2sc)
+- No page: check the printed URL and `/api/health`. / 页面打不开：检查终端打印地址和 `/api/health`。
+- Raw modeling fails: configure `E2SEQ_R_EXE` and install the required R packages. / 原始建模失败：配置 `E2SEQ_R_EXE` 并安装所需 R 包。
+- API answer fails: verify the selected provider, model, endpoint, and key in Settings. / API 回答失败：在设置中检查服务商、模型、端点和密钥。
+- Large jobs: network retrieval is bounded; progress is shown in percent. / 大任务：网络检索有并发上限，页面显示百分比进度。

@@ -1,7 +1,7 @@
 """Example: Advanced usage with manual control."""
 
 import scanpy as sc
-from e2sc.tools import ScancpyTools, EnrichmentAnalyzer, NetworkAnalyzer, Visualizer
+from e2seq.tools import ScancpyTools, EnrichmentAnalyzer, NetworkAnalyzer, Visualizer
 
 # Load data
 print("Loading data...")
@@ -76,7 +76,7 @@ print("Saved: advanced_network.html")
 
 # Step 5: Query databases
 print("\nStep 5: Querying databases for hub genes...")
-from e2sc.data import STRINGDatabase, HMDBDatabase, TRRUSTDatabase
+from e2seq.data import STRINGDatabase, HMDBDatabase, TRRUSTDatabase
 
 string_db = STRINGDatabase()
 hmdb_db = HMDBDatabase()
@@ -84,19 +84,19 @@ trrust_db = TRRUSTDatabase()
 
 for gene in hub_genes[:3]:  # Top 3 hub genes
     print(f"\n{gene}:")
-    
+
     # STRING interactions
     interactions = string_db.get_interactions(gene, min_score=0.7)
     if interactions:
         partners = [i.get("target_gene", i.get("source_gene")) for i in interactions[:5]]
         print(f"  Interacts with: {', '.join(partners)}")
-    
+
     # HMDB metabolites
     metabolites = hmdb_db.get_metabolites(gene)
     if metabolites:
         met_names = [m.get("metabolite_name", "Unknown") for m in metabolites[:3]]
         print(f"  Associated metabolites: {', '.join(met_names)}")
-    
+
     # TRRUST regulators
     regulators = trrust_db.get_regulators(gene)
     if regulators:

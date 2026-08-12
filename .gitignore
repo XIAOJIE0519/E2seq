@@ -4,11 +4,6 @@ venv/
 env/
 ENV/
 
-# Big Dataset (Large files)
-_datasets/
-*.h5ad
-reference.h5ad
-
 # Python
 __pycache__/
 *.py[cod]
@@ -26,26 +21,20 @@ dist/
 *.swp
 .DS_Store
 
-# E2sc
+# E2seq
 *.log
-.e2sc/
+.e2seq/
+/.e2seq/user_data/
+/_datasets/
+/custom_databases/
 
-# Local runtime data (do not commit)
-database/
+# Local secrets and machine-specific environment files.  Keep only the
+# bilingual template in version control so a GitHub copy never carries API
+# keys or host-specific settings.
+.env
+.env.*
+!.env.example
 
-# Temp / debug
+# Temp
 *.tmp
 ~$*
-_check_ws.txt
-
-# GitNexus index (local only)
-.gitnexus/
-
-# GitNexus skill files (local only)
-.claude/skills/gitnexus/
-
-# Cursor IDE config (local only)
-.cursor/
-
-# Literal %USERPROFILE% folder (bad npm/git variable expansion artifact)
-%USERPROFILE%/

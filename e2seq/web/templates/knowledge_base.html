@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理 / Knowledge Base - E2seq</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png?v=20260731">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/knowledge_base.css">
+</head>
+<body>
+    <div class="kb-container">
+        <header class="kb-header">
+            <button class="back-btn" onclick="window.location.href='/'">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                返回 / Back
+            </button>
+            <h1>知识库管理 / Knowledge Base Management</h1>
+        </header>
+
+        <main class="kb-main">
+            <!-- 内置数据库区域 -->
+            <section class="kb-section">
+                <h2>内置数据库 / Built-in Databases</h2>
+                <div class="db-grid">
+                    <!-- STRING 数据库 -->
+                    <div class="db-card" data-db="string">
+                        <div class="db-icon">🔗</div>
+                        <h3>STRING</h3>
+                        <p class="db-records">1,858,946 条记录 / records</p>
+                        <p class="db-desc">蛋白质-蛋白质相互作用网络 / Protein–protein interaction network</p>
+                        <div class="db-status loaded">已加载 / Loaded</div>
+                        <button class="btn-view" onclick="viewDatabase('string')">查看详情 / View details</button>
+                    </div>
+
+                    <!-- HMDB 数据库 -->
+                    <div class="db-card" data-db="hmdb">
+                        <div class="db-icon">🧬</div>
+                        <h3>HMDB</h3>
+                        <p class="db-records">1,045,796 条记录 / records</p>
+                        <p class="db-desc">基因-代谢物关联数据库 / Gene–metabolite associations</p>
+                        <div class="db-status loaded">已加载 / Loaded</div>
+                        <button class="btn-view" onclick="viewDatabase('hmdb')">查看详情 / View details</button>
+                    </div>
+
+                    <!-- TRRUST 数据库 -->
+                    <div class="db-card" data-db="trrust">
+                        <div class="db-icon">📊</div>
+                        <h3>TRRUST</h3>
+                        <p class="db-records">9,398 条记录 / records</p>
+                        <p class="db-desc">转录因子调控关系数据库 / Transcription-factor regulation</p>
+                        <div class="db-status loaded">已加载 / Loaded</div>
+                        <button class="btn-view" onclick="viewDatabase('trrust')">查看详情 / View details</button>
+                    </div>
+
+                    <!-- GUTMGENE 数据库 -->
+                    <div class="db-card" data-db="gutmgene">
+                        <div class="db-icon">🦠</div>
+                        <h3>GUTMGENE</h3>
+                        <p class="db-records">1,334 条记录 / records</p>
+                        <p class="db-desc">肠道微生物-基因关联数据库 / Gut microbiota–gene associations</p>
+                        <div class="db-status loaded">已加载 / Loaded</div>
+                        <button class="btn-view" onclick="viewDatabase('gutmgene')">查看详情 / View details</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 自定义数据库区域 -->
+            <section class="kb-section">
+                <h2>自定义基因注释 / Custom Gene Annotations</h2>
+                <div class="upload-area" id="uploadArea">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <p>拖拽 CSV/TSV/TXT 文件到此处，或点击上传 / Drop a CSV/TSV/TXT file here, or click to upload</p>
+                    <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display: none;">
+                    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">选择文件 / Select file</button>
+                </div>
+                <div class="custom-db-list" id="customDbList">
+                    <!-- 自定义数据库列表将动态加载 -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 数据库详情模态框 -->
+    <div class="modal" id="dbDetailModal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2 id="dbDetailTitle">数据库详情 / Database details</h2>
+                <button class="modal-close" onclick="closeDbDetail()">×</button>
+            </div>
+            <div class="modal-body" id="dbDetailBody">
+                <!-- 详情内容将动态加载 -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/knowledge_base.js"></script>
+</body>
+</html>

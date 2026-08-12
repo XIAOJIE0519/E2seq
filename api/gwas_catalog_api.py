@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 class GWASCatalogAPI:
     """GWAS Catalog 数据库 API 接口 (v2)"""
 
-    def __init__(self, email: str = "e2sc@example.com"):
+    def __init__(self, email: str = "e2seq@example.com"):
         self.base_url = "https://www.ebi.ac.uk/gwas/rest/api/v2"
         self.email = email
         self.headers = {
