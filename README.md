@@ -4,6 +4,11 @@
 
 [中文说明](README_CN.md) · [Installation](docs/installation.md) · [Quick guide](docs/user_guide.md)
 
+
+<img width="1920" height="1080" alt="Figure1" src="https://github.com/user-attachments/assets/41e0f2a7-7507-4ce6-abdd-e6916ac0e533" />
+
+<img width="2557" height="1372" alt="image" src="https://github.com/user-attachments/assets/276968c3-4392-41b4-a2b6-d9ab1fd749ce" />
+
 ## What E2seq does
 
 E2seq accepts compatible expression-profile files rather than assuming one assay type. It can read expression/count tables, clinical variables, existing differential or prognostic result tables, multi-group tables, and compatible single-cell files. Users choose the relevant columns in the interface.
