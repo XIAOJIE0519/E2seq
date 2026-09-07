@@ -1,0 +1,3 @@
+# Aggregate SHA-256 of the sorted per-file SHA-256 manifest (700 Markdown files)
+# Recompute by hashing lines: <file_sha256>  <relative_posix_path>\n
+c1812a04b81bd9984a3ba4bda639db7fe832c42b18888088fc65ec6307a64dbd  sorted-file-manifest
